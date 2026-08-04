@@ -1,10 +1,22 @@
+using System.Text;
+using System.Threading.RateLimiting;
+using FluentValidation;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
+using Office.Api.Auth;
 using Office.Api.Common;
 using Office.Api.Data;
+using Office.Api.Features.Auth;
+using Office.Api.Features.Roles;
+using Office.Api.Features.Users;
 using Scalar.AspNetCore;
 using Serilog;
 
 const string FrontendCorsPolicy = "Frontend";
+const string LoginRateLimiterPolicy = "login";
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -30,6 +42,47 @@ builder.Services.AddCors(options =>
         .AllowCredentials());
 });
 
+var jwtKey = builder.Configuration["Jwt:Key"]
+    ?? throw new InvalidOperationException("Jwt:Key танзим нашудааст.");
+
+builder.Services
+    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.MapInboundClaims = false;
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = false,
+            ValidateAudience = false,
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
+            ClockSkew = TimeSpan.Zero,
+        };
+    });
+
+builder.Services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();
+builder.Services.AddSingleton<IAuthorizationHandler, PermissionAuthorizationHandler>();
+builder.Services.AddAuthorization();
+
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy(LoginRateLimiterPolicy, context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                Window = TimeSpan.FromMinutes(1),
+                PermitLimit = 5,
+                QueueLimit = 0,
+            }));
+});
+
+builder.Services.AddValidatorsFromAssemblyContaining<Program>();
+
+builder.Services.AddScoped<IPermissionService, PermissionService>();
+builder.Services.AddScoped<ITokenService, TokenService>();
+
 var app = builder.Build();
 
 app.UseExceptionHandler(exceptionHandlerApp => exceptionHandlerApp.Run(async context =>
@@ -42,8 +95,8 @@ app.UseExceptionHandler(exceptionHandlerApp => exceptionHandlerApp.Run(async con
         {
             Title = "Хатогии сервер",
             Detail = "Дар сервер хатогии дохилӣ рӯй дод.",
-            Status = StatusCodes.Status500InternalServerError
-        }
+            Status = StatusCodes.Status500InternalServerError,
+        },
     });
 }));
 
@@ -54,7 +107,23 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseCors(FrontendCorsPolicy);
+app.UseRateLimiter();
+
+app.UseAuthentication();
+app.UsePermissionsVersionCheck();
+app.UseAuthorization();
 
 app.MapHealthChecks("/health");
+
+app.MapAuthEndpoints();
+app.MapUsersEndpoints();
+app.MapRolesEndpoints();
+
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    await db.Database.MigrateAsync();
+    await DbSeeder.SeedAsync(db, app.Configuration);
+}
 
 app.Run();

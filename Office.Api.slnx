@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="Office.Api.Tests/Office.Api.Tests.csproj" />
+  <Project Path="Office.Api/Office.Api.csproj" />
+</Solution>
