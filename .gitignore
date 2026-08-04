@@ -45,6 +45,9 @@ bld/
 ## User Secrets (never commit)
 **/secrets.json
 
+## Serilog
+logs/
+
 ## macOS
 .DS_Store
 
