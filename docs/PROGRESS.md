@@ -2,9 +2,9 @@
 
 > Агент: ин файлро баъди ҳар фаза нав кун.
 
-**Фазаи ҷорӣ:** `phase-1-auth`
-**Ветка:** `feat/phase-1-auth`
-**Санаи навсозӣ:** 2026-08-04
+**Фазаи ҷорӣ:** `phase-2-tasks`
+**Ветка:** `feat/phase-2-tasks`
+**Санаи навсозӣ:** 2026-08-05
 
 ## Ҳолати фазаҳо
 
@@ -12,7 +12,7 @@
 |---|---|---|
 | 0 | Setup | ✅ тамом |
 | 1 | Auth ва доступ | ✅ тамом |
-| 2 | Проект ва таск | ⬜ нашуда |
+| 2 | Проект ва таск | ✅ тамом |
 | 3 | Realtime | ⬜ нашуда |
 | 4 | Инфраструктураи каналҳо | ⬜ нашуда |
 | 5 | WhatsApp | ⬜ нашуда |
@@ -35,6 +35,9 @@
 | 2026-08-04 | Формулаи permission ба `Auth/PermissionResolver.cs` (pure, бе DB) ҷудо шуд | Барои тест 1.10 бе package-и нав (InMemory/Sqlite) кофӣ буд |
 | 2026-08-04 | `Office.Api.Tests` (xUnit) ва `Office.Api.slnx` илова шуд | Вазифаи 1.10 тестро ҳатмӣ мекунад; дар `01-architecture.md` package-и тест зикр нашудааст, вале xUnit стандарти dotnet аст |
 | 2026-08-04 | `dotnet-ef` global tool аз 9.0.18 ба 10.0.10 нав шуд | Номувофиқии версия бо EF Core 10 apphost-ро вайрон карда буд |
+| 2026-08-05 | Кӯчонидани таск: advisory lock (`pg_advisory_xact_lock(hashtext(columnId))`) дар transaction, на raw `FOR UPDATE` | EF Core-ро бо LINQ маҳдуд намекунад ва ду кӯчонидани ҳамзамони як колонкаро serialize мекунад (2.20) |
+| 2026-08-05 | `LabelIds` ба `CreateTaskRequest`/`UpdateTaskRequest` илова шуд | `task_labels` дар `docs/04` ҳаст, вале вазифаи алоҳида барои васл кардани тег ба таск номбар нашудааст — табиист онро дар create/update ҷо кунем |
+| 2026-08-05 | `Uploads:RootPath` дар `appsettings.Development.json` ба `./uploads` (на `/var/office/uploads`) | Дар mac локалӣ роҳи прод (`/var/office/uploads`) бе root дастрас нест |
 
 ## Масъалаҳои кушода
 
