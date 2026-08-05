@@ -5,6 +5,7 @@ using Office.Api.Common;
 using Office.Api.Data;
 using Office.Api.Data.Entities;
 using Office.Api.Features.Projects;
+using Office.Api.Realtime;
 using Permissions = Office.Api.Auth.Permissions;
 using TaskEntity = Office.Api.Data.Entities.TaskItem;
 
@@ -140,6 +141,8 @@ public static class TasksEndpoints
         ClaimsPrincipal principal,
         AppDbContext db,
         ProjectAccessGuard access,
+        IBoardEventPublisher publisher,
+        INotificationService notifications,
         CancellationToken ct)
     {
         if (!await access.HasAccessAsync(principal, request.ProjectId, ct))
@@ -195,7 +198,16 @@ public static class TasksEndpoints
             .Include(t => t.TaskLabels).ThenInclude(tl => tl.Label)
             .FirstAsync(t => t.Id == task.Id, ct);
 
-        return Results.Created($"/api/tasks/{task.Id}", ToDetail(created));
+        var detail = ToDetail(created);
+        await publisher.TaskCreatedAsync(task.ProjectId, detail, ct);
+
+        if (request.AssigneeId is not null)
+        {
+            await notifications.PushAsync(
+                request.AssigneeId.Value, "task_assigned", new { taskId = task.Id, title = task.Title }, ct);
+        }
+
+        return Results.Created($"/api/tasks/{task.Id}", detail);
     }
 
     private static async Task<IResult> UpdateAsync(
@@ -204,6 +216,7 @@ public static class TasksEndpoints
         ClaimsPrincipal principal,
         AppDbContext db,
         ProjectAccessGuard access,
+        IBoardEventPublisher publisher,
         CancellationToken ct)
     {
         var task = await db.Tasks.Include(t => t.TaskLabels).FirstOrDefaultAsync(t => t.Id == id, ct);
@@ -232,7 +245,10 @@ public static class TasksEndpoints
             .Include(t => t.TaskLabels).ThenInclude(tl => tl.Label)
             .FirstAsync(t => t.Id == id, ct);
 
-        return Results.Ok(ToDetail(updated));
+        var detail = ToDetail(updated);
+        await publisher.TaskUpdatedAsync(updated.ProjectId, detail, ct);
+
+        return Results.Ok(detail);
     }
 
     private static async Task<IResult> DeleteAsync(
@@ -240,6 +256,7 @@ public static class TasksEndpoints
         ClaimsPrincipal principal,
         AppDbContext db,
         ProjectAccessGuard access,
+        IBoardEventPublisher publisher,
         CancellationToken ct)
     {
         var task = await db.Tasks.FirstOrDefaultAsync(t => t.Id == id, ct);
@@ -248,6 +265,8 @@ public static class TasksEndpoints
 
         db.Tasks.Remove(task);
         await db.SaveChangesAsync(ct);
+
+        await publisher.TaskDeletedAsync(task.ProjectId, new { taskId = id }, ct);
 
         return Results.NoContent();
     }
@@ -258,6 +277,7 @@ public static class TasksEndpoints
         ClaimsPrincipal principal,
         AppDbContext db,
         ProjectAccessGuard access,
+        IBoardEventPublisher publisher,
         CancellationToken ct)
     {
         var task = await db.Tasks.FirstOrDefaultAsync(t => t.Id == id, ct);
@@ -328,6 +348,9 @@ public static class TasksEndpoints
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
 
+        await publisher.TaskMovedAsync(
+            task.ProjectId, new { taskId = task.Id, columnId = task.ColumnId, position = task.Position }, ct);
+
         return Results.NoContent();
     }
 
@@ -337,6 +360,8 @@ public static class TasksEndpoints
         ClaimsPrincipal principal,
         AppDbContext db,
         ProjectAccessGuard access,
+        IBoardEventPublisher publisher,
+        INotificationService notifications,
         CancellationToken ct)
     {
         var task = await db.Tasks.FirstOrDefaultAsync(t => t.Id == id, ct);
@@ -357,6 +382,15 @@ public static class TasksEndpoints
         db.TaskActivities.Add(NewActivity(task.Id, principal.GetUserId(), "assigned", $$"""{"assigneeId":{{(request.AssigneeId is null ? "null" : $"\"{request.AssigneeId}\"")}}}"""));
 
         await db.SaveChangesAsync(ct);
+
+        await publisher.TaskUpdatedAsync(task.ProjectId, new { taskId = task.Id, assigneeId = task.AssigneeId }, ct);
+
+        if (request.AssigneeId is not null)
+        {
+            await notifications.PushAsync(
+                request.AssigneeId.Value, "task_assigned", new { taskId = task.Id, title = task.Title }, ct);
+        }
+
         return Results.NoContent();
     }
 

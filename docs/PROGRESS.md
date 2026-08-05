@@ -3,7 +3,7 @@
 > Агент: ин файлро баъди ҳар фаза нав кун.
 
 **Фазаи ҷорӣ:** `phase-3-realtime`
-**Ветка:** `dev`
+**Ветка:** `feat/phase-3-realtime`
 **Санаи навсозӣ:** 2026-08-05
 
 ## Ҳолати фазаҳо
@@ -13,7 +13,7 @@
 | 0 | Setup | ✅ тамом |
 | 1 | Auth ва доступ | ✅ тамом |
 | 2 | Проект ва таск | ✅ тамом |
-| 3 | Realtime | ⬜ нашуда |
+| 3 | Realtime | ✅ тамом |
 | 4 | Инфраструктураи каналҳо | ⬜ нашуда |
 | 5 | WhatsApp | ⬜ нашуда |
 | 6 | Инбокс | ⬜ нашуда |
@@ -38,6 +38,9 @@
 | 2026-08-05 | Кӯчонидани таск: advisory lock (`pg_advisory_xact_lock(hashtext(columnId))`) дар transaction, на raw `FOR UPDATE` | EF Core-ро бо LINQ маҳдуд намекунад ва ду кӯчонидани ҳамзамони як колонкаро serialize мекунад (2.20) |
 | 2026-08-05 | `LabelIds` ба `CreateTaskRequest`/`UpdateTaskRequest` илова шуд | `task_labels` дар `docs/04` ҳаст, вале вазифаи алоҳида барои васл кардани тег ба таск номбар нашудааст — табиист онро дар create/update ҷо кунем |
 | 2026-08-05 | `Uploads:RootPath` дар `appsettings.Development.json` ба `./uploads` (на `/var/office/uploads`) | Дар mac локалӣ роҳи прод (`/var/office/uploads`) бе root дастрас нест |
+| 2026-08-05 | `ProjectAccessGuard` бо interface `IProjectAccessGuard` кушода шуд | Барои тест 3.4 (BoardHub) бе package-и mocking — fake дастӣ дар DI ҷойгузин мешавад |
+| 2026-08-05 | Огоҳии "deadline фардо" тавассути `BackgroundService`-и оддии .NET, на Hangfire | Hangfire барои фазаи 4 нигоҳ дошта шудааст (`01-architecture.md`); `IServiceScopeFactory` + `PeriodicTimer` барои ин фаза кофист |
+| 2026-08-05 | Бахши тести SignalR: fake-и дастии `HubCallerContext`/`IGroupManager`/`IHttpContextFeature` (навъи воқеии SignalR: `Microsoft.AspNetCore.Http.Connections.Features.IHttpContextFeature`) | `Hub.Context`/`Hub.Groups` public setter доранд — барои тест 3.4 package-и mocking лозим нашуд |
 
 ## Масъалаҳои кушода
 
