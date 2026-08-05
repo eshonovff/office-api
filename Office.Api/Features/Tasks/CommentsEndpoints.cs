@@ -13,13 +13,23 @@ public static class CommentsEndpoints
 {
     public static IEndpointRouteBuilder MapCommentsEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/tasks/{taskId:guid}/comments").WithTags("Tasks");
+        var group = app.MapGroup("/api/tasks/{taskId:guid}/comments").WithTags("Comments");
 
-        group.MapGet("/", ListAsync).RequirePermission(Permissions.Tasks.View);
+        group.MapGet("/", ListAsync)
+            .RequirePermission(Permissions.Tasks.View)
+            .WithSummary("Рӯйхати комментарии таск")
+            .Produces<IEnumerable<TaskCommentDto>>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapPost("/", CreateAsync)
             .WithValidation<CreateCommentRequest>()
-            .RequirePermission(Permissions.Tasks.View);
+            .RequirePermission(Permissions.Tasks.View)
+            .WithSummary("Иловаи комментарий — @mention парсинг ва сабт мешавад")
+            .Produces<TaskCommentDto>(StatusCodes.Status201Created)
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         return app;
     }

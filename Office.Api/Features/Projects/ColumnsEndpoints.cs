@@ -12,21 +12,47 @@ public static class ColumnsEndpoints
 {
     public static IEndpointRouteBuilder MapColumnsEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/projects/{projectId:guid}/columns").WithTags("Projects");
+        var group = app.MapGroup("/api/projects/{projectId:guid}/columns").WithTags("Columns");
 
         group.MapPost("/", CreateAsync)
             .WithValidation<CreateColumnRequest>()
-            .RequirePermission(Permissions.Projects.Manage);
+            .RequirePermission(Permissions.Projects.Manage)
+            .WithSummary("Илова кардани колонкаи нав дар охири board")
+            .Produces<BoardColumnDto>(StatusCodes.Status201Created)
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapPatch("/{columnId:guid}", UpdateAsync)
             .WithValidation<UpdateColumnRequest>()
-            .RequirePermission(Permissions.Projects.Manage);
+            .RequirePermission(Permissions.Projects.Manage)
+            .WithSummary("Навсозии ном ё is_done_column-и колонка")
+            .Produces<BoardColumnDto>(StatusCodes.Status200OK)
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
-        group.MapDelete("/{columnId:guid}", DeleteAsync).RequirePermission(Permissions.Projects.Manage);
+        group.MapDelete("/{columnId:guid}", DeleteAsync)
+            .RequirePermission(Permissions.Projects.Manage)
+            .WithSummary("Нест кардани колонка (танҳо агар таск надошта бошад)")
+            .Produces(StatusCodes.Status204NoContent)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
 
         group.MapPut("/order", ReorderAsync)
             .WithValidation<ReorderColumnsRequest>()
-            .RequirePermission(Permissions.Projects.Manage);
+            .RequirePermission(Permissions.Projects.Manage)
+            .WithSummary("Тағйири тартиби колонкаҳои board")
+            .Produces(StatusCodes.Status204NoContent)
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         return app;
     }

@@ -13,30 +13,78 @@ public static class UsersEndpoints
     {
         var group = app.MapGroup("/api/users").WithTags("Users");
 
-        group.MapGet("/", ListAsync).RequirePermission(Permissions.Users.View);
-        group.MapGet("/{id:guid}", GetAsync).RequirePermission(Permissions.Users.View);
+        group.MapGet("/", ListAsync)
+            .RequirePermission(Permissions.Users.View)
+            .WithSummary("Рӯйхати корманд — филтр бо ном/логин, роль, фаъол будан")
+            .Produces<IEnumerable<UserListItem>>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden);
+
+        group.MapGet("/{id:guid}", GetAsync)
+            .RequirePermission(Permissions.Users.View)
+            .WithSummary("Маълумоти пурраи корманд — роль ва истиснои permission")
+            .Produces<UserDetail>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapPost("/", CreateAsync)
             .WithValidation<CreateUserRequest>()
-            .RequirePermission(Permissions.Users.Manage);
+            .RequirePermission(Permissions.Users.Manage)
+            .WithSummary("Сохтани корманди нав бо пароли муваққатӣ")
+            .Produces<CreateUserResponse>(StatusCodes.Status201Created)
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status409Conflict);
 
         group.MapPatch("/{id:guid}", UpdateAsync)
             .WithValidation<UpdateUserRequest>()
-            .RequirePermission(Permissions.Users.Manage);
+            .RequirePermission(Permissions.Users.Manage)
+            .WithSummary("Навсозии ном, телефон, only_assigned")
+            .Produces(StatusCodes.Status204NoContent)
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapPut("/{id:guid}/roles", SetRolesAsync)
             .WithValidation<SetUserRolesRequest>()
-            .RequirePermission(Permissions.Users.Manage);
+            .RequirePermission(Permissions.Users.Manage)
+            .WithSummary("Иваз кардани ролҳои корманд — permissions_version боло меравад")
+            .Produces(StatusCodes.Status204NoContent)
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapPut("/{id:guid}/permissions", SetPermissionsAsync)
             .WithValidation<SetUserPermissionsRequest>()
-            .RequirePermission(Permissions.Users.Manage);
+            .RequirePermission(Permissions.Users.Manage)
+            .WithSummary("Танзими истиснои permission-и шахсӣ — permissions_version боло меравад")
+            .Produces(StatusCodes.Status204NoContent)
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapPost("/{id:guid}/reset-password", ResetPasswordAsync)
-            .RequirePermission(Permissions.Users.Manage);
+            .RequirePermission(Permissions.Users.Manage)
+            .WithSummary("Пароли муваққатии нав сохтан")
+            .Produces<ResetPasswordResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapPatch("/{id:guid}/active", SetActiveAsync)
-            .RequirePermission(Permissions.Users.Manage);
+            .RequirePermission(Permissions.Users.Manage)
+            .WithSummary("Фаъол/ғайрифаъол кардани корманд (soft disable)")
+            .Produces(StatusCodes.Status204NoContent)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
 
         return app;
     }

@@ -22,22 +22,59 @@ public static class ProjectsEndpoints
     {
         var group = app.MapGroup("/api/projects").WithTags("Projects");
 
-        group.MapGet("/", ListAsync).RequirePermission(Permissions.Projects.View);
-        group.MapGet("/{id:guid}", GetAsync).RequirePermission(Permissions.Projects.View);
+        group.MapGet("/", ListAsync)
+            .RequirePermission(Permissions.Projects.View)
+            .WithSummary("Рӯйхати проектҳо — танҳо проектҳое, ки узв ҳастӣ (Owner/Admin ҳама)")
+            .Produces<IEnumerable<ProjectListItem>>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden);
+
+        group.MapGet("/{id:guid}", GetAsync)
+            .RequirePermission(Permissions.Projects.View)
+            .WithSummary("Маълумоти пурраи проект — аъзо ва колонкаҳо")
+            .Produces<ProjectDetail>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapPost("/", CreateAsync)
             .WithValidation<CreateProjectRequest>()
-            .RequirePermission(Permissions.Projects.Manage);
+            .RequirePermission(Permissions.Projects.Manage)
+            .WithSummary("Сохтани проекти нав бо 4 колонкаи пешфарз")
+            .Produces<ProjectListItem>(StatusCodes.Status201Created)
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status409Conflict);
 
         group.MapPatch("/{id:guid}", UpdateAsync)
             .WithValidation<UpdateProjectRequest>()
-            .RequirePermission(Permissions.Projects.Manage);
+            .RequirePermission(Permissions.Projects.Manage)
+            .WithSummary("Навсозии ном ва ранги проект")
+            .Produces<ProjectListItem>(StatusCodes.Status200OK)
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
-        group.MapPost("/{id:guid}/archive", ArchiveAsync).RequirePermission(Permissions.Projects.Manage);
+        group.MapPost("/{id:guid}/archive", ArchiveAsync)
+            .RequirePermission(Permissions.Projects.Manage)
+            .WithSummary("Бойгонӣ кардани проект")
+            .Produces(StatusCodes.Status204NoContent)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapPut("/{id:guid}/members", SetMembersAsync)
             .WithValidation<SetProjectMembersRequest>()
-            .RequirePermission(Permissions.Projects.Manage);
+            .RequirePermission(Permissions.Projects.Manage)
+            .WithSummary("Танзими рӯйхати аъзои проект")
+            .Produces(StatusCodes.Status204NoContent)
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         return app;
     }
