@@ -5,7 +5,12 @@ using Office.Api.Data;
 
 namespace Office.Api.Common;
 
-public class ProjectAccessGuard(AppDbContext db)
+public interface IProjectAccessGuard
+{
+    Task<bool> HasAccessAsync(ClaimsPrincipal principal, Guid projectId, CancellationToken ct);
+}
+
+public class ProjectAccessGuard(AppDbContext db) : IProjectAccessGuard
 {
     public static bool CanSeeAllProjects(ClaimsPrincipal principal) =>
         principal.IsInRole(RoleKeys.Owner) || principal.IsInRole(RoleKeys.Admin);

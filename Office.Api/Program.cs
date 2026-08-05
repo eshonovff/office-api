@@ -11,10 +11,12 @@ using Office.Api.Auth;
 using Office.Api.Common;
 using Office.Api.Data;
 using Office.Api.Features.Auth;
+using Office.Api.Features.Notifications;
 using Office.Api.Features.Projects;
 using Office.Api.Features.Roles;
 using Office.Api.Features.Tasks;
 using Office.Api.Features.Users;
+using Office.Api.Realtime;
 using Scalar.AspNetCore;
 using Serilog;
 
@@ -89,6 +91,25 @@ builder.Services
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
             ClockSkew = TimeSpan.Zero,
         };
+
+        // WebSocket-и браузер Authorization header гузошта наметавонад — токенро
+        // барои hub-ҳои SignalR аз query string мегирем.
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                var accessToken = context.Request.Query["access_token"];
+                var path = context.HttpContext.Request.Path;
+
+                if (!string.IsNullOrEmpty(accessToken) &&
+                    (path.StartsWithSegments("/hubs/board") || path.StartsWithSegments("/hubs/inbox")))
+                {
+                    context.Token = accessToken;
+                }
+
+                return Task.CompletedTask;
+            },
+        };
     });
 
 builder.Services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();
@@ -111,9 +132,15 @@ builder.Services.AddRateLimiter(options =>
 
 builder.Services.AddValidatorsFromAssemblyContaining<Program>();
 
+builder.Services.AddSignalR();
+
 builder.Services.AddScoped<IPermissionService, PermissionService>();
 builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<ProjectAccessGuard>();
+builder.Services.AddScoped<IProjectAccessGuard>(sp => sp.GetRequiredService<ProjectAccessGuard>());
+builder.Services.AddScoped<IBoardEventPublisher, BoardEventPublisher>();
+builder.Services.AddScoped<INotificationService, NotificationService>();
+builder.Services.AddHostedService<DeadlineNotificationBackgroundService>();
 
 var app = builder.Build();
 
@@ -160,6 +187,10 @@ app.MapTasksEndpoints();
 app.MapCommentsEndpoints();
 app.MapAttachmentsEndpoints();
 app.MapActivityEndpoints();
+app.MapNotificationsEndpoints();
+
+app.MapHub<BoardHub>("/hubs/board");
+app.MapHub<InboxHub>("/hubs/inbox");
 
 // Development: ҳамеша иҷро шавад. Production: танҳо агар RUN_MIGRATIONS=true.
 var runMigrations = app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("RUN_MIGRATIONS");
