@@ -48,6 +48,9 @@ bld/
 ## Serilog
 logs/
 
+## Local file uploads (dev only)
+uploads/
+
 ## macOS
 .DS_Store
 

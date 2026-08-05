@@ -10,7 +10,9 @@ using Office.Api.Auth;
 using Office.Api.Common;
 using Office.Api.Data;
 using Office.Api.Features.Auth;
+using Office.Api.Features.Projects;
 using Office.Api.Features.Roles;
+using Office.Api.Features.Tasks;
 using Office.Api.Features.Users;
 using Scalar.AspNetCore;
 using Serilog;
@@ -82,6 +84,7 @@ builder.Services.AddValidatorsFromAssemblyContaining<Program>();
 
 builder.Services.AddScoped<IPermissionService, PermissionService>();
 builder.Services.AddScoped<ITokenService, TokenService>();
+builder.Services.AddScoped<ProjectAccessGuard>();
 
 var app = builder.Build();
 
@@ -118,6 +121,13 @@ app.MapHealthChecks("/health");
 app.MapAuthEndpoints();
 app.MapUsersEndpoints();
 app.MapRolesEndpoints();
+app.MapProjectsEndpoints();
+app.MapColumnsEndpoints();
+app.MapLabelsEndpoints();
+app.MapTasksEndpoints();
+app.MapCommentsEndpoints();
+app.MapAttachmentsEndpoints();
+app.MapActivityEndpoints();
 
 using (var scope = app.Services.CreateScope())
 {

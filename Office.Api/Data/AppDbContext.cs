@@ -13,6 +13,16 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<UserPermission> UserPermissions => Set<UserPermission>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
+    public DbSet<Project> Projects => Set<Project>();
+    public DbSet<ProjectMember> ProjectMembers => Set<ProjectMember>();
+    public DbSet<BoardColumn> BoardColumns => Set<BoardColumn>();
+    public DbSet<TaskItem> Tasks => Set<TaskItem>();
+    public DbSet<TaskComment> TaskComments => Set<TaskComment>();
+    public DbSet<TaskAttachment> TaskAttachments => Set<TaskAttachment>();
+    public DbSet<Label> Labels => Set<Label>();
+    public DbSet<TaskLabel> TaskLabels => Set<TaskLabel>();
+    public DbSet<TaskActivity> TaskActivities => Set<TaskActivity>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);
