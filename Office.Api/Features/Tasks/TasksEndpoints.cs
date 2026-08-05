@@ -16,28 +16,78 @@ public static class TasksEndpoints
     {
         app.MapGet("/api/projects/{projectId:guid}/board", BoardAsync)
             .WithTags("Tasks")
-            .RequirePermission(Permissions.Tasks.View);
+            .RequirePermission(Permissions.Tasks.View)
+            .WithSummary("Board — ҳамаи колонкаҳо бо таскҳояшон, як query")
+            .Produces<BoardResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         var group = app.MapGroup("/api/tasks").WithTags("Tasks");
 
-        group.MapGet("/", ListAsync).RequirePermission(Permissions.Tasks.View);
-        group.MapGet("/{id:guid}", GetAsync).RequirePermission(Permissions.Tasks.View);
+        group.MapGet("/", ListAsync)
+            .RequirePermission(Permissions.Tasks.View)
+            .WithSummary("Рӯйхати таск — филтр бо масъул, тег, приоритет, deadline, матн")
+            .Produces<IEnumerable<TaskListItem>>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden);
+
+        group.MapGet("/{id:guid}", GetAsync)
+            .RequirePermission(Permissions.Tasks.View)
+            .WithSummary("Маълумоти пурраи таск")
+            .Produces<TaskDetail>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapPost("/", CreateAsync)
             .WithValidation<CreateTaskRequest>()
-            .RequirePermission(Permissions.Tasks.Create);
+            .RequirePermission(Permissions.Tasks.Create)
+            .WithSummary("Сохтани таски нав — position = охирини колонка + 1000")
+            .Produces<TaskDetail>(StatusCodes.Status201Created)
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapPatch("/{id:guid}", UpdateAsync)
             .WithValidation<UpdateTaskRequest>()
-            .RequirePermission(Permissions.Tasks.Edit);
+            .RequirePermission(Permissions.Tasks.Edit)
+            .WithSummary("Навсозии сарлавҳа, тавсиф, приоритет, deadline, тегҳо")
+            .Produces<TaskDetail>(StatusCodes.Status200OK)
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
-        group.MapDelete("/{id:guid}", DeleteAsync).RequirePermission(Permissions.Tasks.Delete);
+        group.MapDelete("/{id:guid}", DeleteAsync)
+            .RequirePermission(Permissions.Tasks.Delete)
+            .WithSummary("Нест кардани таск")
+            .Produces(StatusCodes.Status204NoContent)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapPatch("/{id:guid}/move", MoveAsync)
             .WithValidation<MoveTaskRequest>()
-            .RequirePermission(Permissions.Tasks.Move);
+            .RequirePermission(Permissions.Tasks.Move)
+            .WithSummary("Кӯчонидан (drag & drop) — columnId, beforeTaskId?, afterTaskId?")
+            .Produces(StatusCodes.Status204NoContent)
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
-        group.MapPatch("/{id:guid}/assign", AssignAsync).RequirePermission(Permissions.Tasks.Assign);
+        group.MapPatch("/{id:guid}/assign", AssignAsync)
+            .RequirePermission(Permissions.Tasks.Assign)
+            .WithSummary("Таъин кардани масъул (ё бекор кардани таъин бо null)")
+            .Produces(StatusCodes.Status204NoContent)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         return app;
     }

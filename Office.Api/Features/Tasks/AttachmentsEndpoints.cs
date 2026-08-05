@@ -20,12 +20,39 @@ public static class AttachmentsEndpoints
 
     public static IEndpointRouteBuilder MapAttachmentsEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/tasks/{taskId:guid}/attachments").WithTags("Tasks");
+        var group = app.MapGroup("/api/tasks/{taskId:guid}/attachments").WithTags("Attachments");
 
-        group.MapGet("/", ListAsync).RequirePermission(Permissions.Tasks.View);
-        group.MapPost("/", UploadAsync).RequirePermission(Permissions.Tasks.Edit).DisableAntiforgery();
-        group.MapGet("/{attachmentId:guid}/download", DownloadAsync).RequirePermission(Permissions.Tasks.View);
-        group.MapDelete("/{attachmentId:guid}", DeleteAsync).RequirePermission(Permissions.Tasks.Edit);
+        group.MapGet("/", ListAsync)
+            .RequirePermission(Permissions.Tasks.View)
+            .WithSummary("Рӯйхати файлҳои замимаи таск")
+            .Produces<IEnumerable<TaskAttachmentDto>>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        group.MapPost("/", UploadAsync)
+            .RequirePermission(Permissions.Tasks.Edit)
+            .DisableAntiforgery()
+            .WithSummary("Бор кардани файл — лимити 20 МБ, навъҳои иҷозатдодашуда")
+            .Produces<TaskAttachmentDto>(StatusCodes.Status201Created)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        group.MapGet("/{attachmentId:guid}/download", DownloadAsync)
+            .RequirePermission(Permissions.Tasks.View)
+            .WithSummary("Боргирии файли замима")
+            .Produces(StatusCodes.Status200OK, contentType: "application/octet-stream")
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        group.MapDelete("/{attachmentId:guid}", DeleteAsync)
+            .RequirePermission(Permissions.Tasks.Edit)
+            .WithSummary("Нест кардани файли замима")
+            .Produces(StatusCodes.Status204NoContent)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         return app;
     }

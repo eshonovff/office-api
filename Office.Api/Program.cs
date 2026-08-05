@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi;
 using Office.Api.Auth;
 using Office.Api.Common;
 using Office.Api.Data;
@@ -30,7 +31,35 @@ builder.Services.AddProblemDetails();
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
 
-builder.Services.AddOpenApi();
+builder.Services.AddOpenApi(options =>
+{
+    options.AddDocumentTransformer((document, _, _) =>
+    {
+        document.Info.Title = "office.nizom.tj API";
+        document.Info.Version = "v1";
+        document.Info.Description =
+            "Backend-и платформаи дохилии SMARTWEB TJ — кормандон, доступ, проект/таск. " +
+            "Барои санҷиш: аввал /api/auth/login даъват кун, баъд accessToken-ро дар тугмаи " +
+            "\"Authorize\" (боло) гузор.";
+
+        document.Tags = new HashSet<OpenApiTag>
+        {
+            new() { Name = "Auth", Description = "Воридшавӣ, refresh, logout, тағйири парол" },
+            new() { Name = "Users", Description = "Идораи корманд, роль ва иҷозати шахсӣ" },
+            new() { Name = "Roles", Description = "Идораи роль ва рӯйхати permission-ҳо" },
+            new() { Name = "Projects", Description = "Проект ва аъзои он" },
+            new() { Name = "Columns", Description = "Колонкаҳои board-и проект" },
+            new() { Name = "Tasks", Description = "Таск, board ва кӯчонидан (drag & drop)" },
+            new() { Name = "Comments", Description = "Комментарии таск" },
+            new() { Name = "Attachments", Description = "Файли замимаи таск" },
+            new() { Name = "Labels", Description = "Тегҳои проект" },
+            new() { Name = "Activity", Description = "Таърихи тағйироти таск" },
+        };
+
+        return Task.CompletedTask;
+    });
+    options.AddDocumentTransformer<BearerSecuritySchemeTransformer>();
+});
 
 builder.Services.AddHealthChecks()
     .AddCheck<DatabaseHealthCheck>("postgres");
@@ -106,7 +135,10 @@ app.UseExceptionHandler(exceptionHandlerApp => exceptionHandlerApp.Run(async con
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
-    app.MapScalarApiReference();
+    app.MapScalarApiReference(options => options
+        .WithTitle("office.nizom.tj API")
+        .AddPreferredSecuritySchemes(["Bearer"])
+        .EnablePersistentAuthentication());
 }
 
 app.UseCors(FrontendCorsPolicy);

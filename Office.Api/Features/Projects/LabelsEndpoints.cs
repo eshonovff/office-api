@@ -12,19 +12,43 @@ public static class LabelsEndpoints
 {
     public static IEndpointRouteBuilder MapLabelsEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/projects/{projectId:guid}/labels").WithTags("Projects");
+        var group = app.MapGroup("/api/projects/{projectId:guid}/labels").WithTags("Labels");
 
-        group.MapGet("/", ListAsync).RequirePermission(Permissions.Projects.View);
+        group.MapGet("/", ListAsync)
+            .RequirePermission(Permissions.Projects.View)
+            .WithSummary("Рӯйхати тегҳои проект")
+            .Produces<IEnumerable<LabelDto>>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapPost("/", CreateAsync)
             .WithValidation<CreateLabelRequest>()
-            .RequirePermission(Permissions.Projects.Manage);
+            .RequirePermission(Permissions.Projects.Manage)
+            .WithSummary("Сохтани теги нав дар доираи проект")
+            .Produces<LabelDto>(StatusCodes.Status201Created)
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
 
         group.MapPatch("/{labelId:guid}", UpdateAsync)
             .WithValidation<UpdateLabelRequest>()
-            .RequirePermission(Permissions.Projects.Manage);
+            .RequirePermission(Permissions.Projects.Manage)
+            .WithSummary("Навсозии ном ё ранги тег")
+            .Produces<LabelDto>(StatusCodes.Status200OK)
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
-        group.MapDelete("/{labelId:guid}", DeleteAsync).RequirePermission(Permissions.Projects.Manage);
+        group.MapDelete("/{labelId:guid}", DeleteAsync)
+            .RequirePermission(Permissions.Projects.Manage)
+            .WithSummary("Нест кардани тег")
+            .Produces(StatusCodes.Status204NoContent)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         return app;
     }
