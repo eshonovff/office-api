@@ -129,11 +129,11 @@ app.MapCommentsEndpoints();
 app.MapAttachmentsEndpoints();
 app.MapActivityEndpoints();
 
-using (var scope = app.Services.CreateScope())
+// Development: ҳамеша иҷро шавад. Production: танҳо агар RUN_MIGRATIONS=true.
+var runMigrations = app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("RUN_MIGRATIONS");
+if (runMigrations)
 {
-    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    await db.Database.MigrateAsync();
-    await DbSeeder.SeedAsync(db, app.Configuration);
+    await app.ApplyMigrationsAsync();
 }
 
 app.Run();
