@@ -60,3 +60,11 @@ docs(phase-2): mark task 2.6 done
 Ҳозир unit test-и пурра лозим нест. Вале ин ду ҷо **ҳатман** тест дошта бошанд:
 - Ҳисоби `EffectivePermissions` (роль ∪ иҷозат − манъ)
 - Ҳисоби `position` ҳангоми drag & drop
+
+## Migration
+
+- Ҳар тағйири entity ё `DbContext` → migration дар ҲАМОН commit. Тағйири модел бе migration = commit нопурра.
+- Номи migration: PascalCase, тасвирӣ — `AddTaskLabels`, `RenameUserPhone`. Не `Migration1`, `Update2`.
+- Migration-и қаблиро таҳрир накун. Хато шуд → migration-и нав.
+- Migration бояд ҳам `Up` ҳам `Down` дошта бошад.
+- Migration-и destructive (drop column, drop table) — аввал пурс, худат иҷро накун.

@@ -45,6 +45,12 @@ bld/
 ## User Secrets (never commit)
 **/secrets.json
 
+## Serilog
+logs/
+
+## Local file uploads (dev only)
+uploads/
+
 ## macOS
 .DS_Store
 
