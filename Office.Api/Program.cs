@@ -6,14 +6,17 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi;
 using Office.Api.Auth;
 using Office.Api.Common;
 using Office.Api.Data;
 using Office.Api.Features.Auth;
+using Office.Api.Features.Notifications;
 using Office.Api.Features.Projects;
 using Office.Api.Features.Roles;
 using Office.Api.Features.Tasks;
 using Office.Api.Features.Users;
+using Office.Api.Realtime;
 using Scalar.AspNetCore;
 using Serilog;
 
@@ -30,7 +33,35 @@ builder.Services.AddProblemDetails();
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
 
-builder.Services.AddOpenApi();
+builder.Services.AddOpenApi(options =>
+{
+    options.AddDocumentTransformer((document, _, _) =>
+    {
+        document.Info.Title = "office.nizom.tj API";
+        document.Info.Version = "v1";
+        document.Info.Description =
+            "Backend-и платформаи дохилии SMARTWEB TJ — кормандон, доступ, проект/таск. " +
+            "Барои санҷиш: аввал /api/auth/login даъват кун, баъд accessToken-ро дар тугмаи " +
+            "\"Authorize\" (боло) гузор.";
+
+        document.Tags = new HashSet<OpenApiTag>
+        {
+            new() { Name = "Auth", Description = "Воридшавӣ, refresh, logout, тағйири парол" },
+            new() { Name = "Users", Description = "Идораи корманд, роль ва иҷозати шахсӣ" },
+            new() { Name = "Roles", Description = "Идораи роль ва рӯйхати permission-ҳо" },
+            new() { Name = "Projects", Description = "Проект ва аъзои он" },
+            new() { Name = "Columns", Description = "Колонкаҳои board-и проект" },
+            new() { Name = "Tasks", Description = "Таск, board ва кӯчонидан (drag & drop)" },
+            new() { Name = "Comments", Description = "Комментарии таск" },
+            new() { Name = "Attachments", Description = "Файли замимаи таск" },
+            new() { Name = "Labels", Description = "Тегҳои проект" },
+            new() { Name = "Activity", Description = "Таърихи тағйироти таск" },
+        };
+
+        return Task.CompletedTask;
+    });
+    options.AddDocumentTransformer<BearerSecuritySchemeTransformer>();
+});
 
 builder.Services.AddHealthChecks()
     .AddCheck<DatabaseHealthCheck>("postgres");
@@ -60,6 +91,25 @@ builder.Services
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
             ClockSkew = TimeSpan.Zero,
         };
+
+        // WebSocket-и браузер Authorization header гузошта наметавонад — токенро
+        // барои hub-ҳои SignalR аз query string мегирем.
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                var accessToken = context.Request.Query["access_token"];
+                var path = context.HttpContext.Request.Path;
+
+                if (!string.IsNullOrEmpty(accessToken) &&
+                    (path.StartsWithSegments("/hubs/board") || path.StartsWithSegments("/hubs/inbox")))
+                {
+                    context.Token = accessToken;
+                }
+
+                return Task.CompletedTask;
+            },
+        };
     });
 
 builder.Services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();
@@ -82,9 +132,15 @@ builder.Services.AddRateLimiter(options =>
 
 builder.Services.AddValidatorsFromAssemblyContaining<Program>();
 
+builder.Services.AddSignalR();
+
 builder.Services.AddScoped<IPermissionService, PermissionService>();
 builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<ProjectAccessGuard>();
+builder.Services.AddScoped<IProjectAccessGuard>(sp => sp.GetRequiredService<ProjectAccessGuard>());
+builder.Services.AddScoped<IBoardEventPublisher, BoardEventPublisher>();
+builder.Services.AddScoped<INotificationService, NotificationService>();
+builder.Services.AddHostedService<DeadlineNotificationBackgroundService>();
 
 var app = builder.Build();
 
@@ -106,7 +162,10 @@ app.UseExceptionHandler(exceptionHandlerApp => exceptionHandlerApp.Run(async con
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
-    app.MapScalarApiReference();
+    app.MapScalarApiReference(options => options
+        .WithTitle("office.nizom.tj API")
+        .AddPreferredSecuritySchemes(["Bearer"])
+        .EnablePersistentAuthentication());
 }
 
 app.UseCors(FrontendCorsPolicy);
@@ -128,6 +187,10 @@ app.MapTasksEndpoints();
 app.MapCommentsEndpoints();
 app.MapAttachmentsEndpoints();
 app.MapActivityEndpoints();
+app.MapNotificationsEndpoints();
+
+app.MapHub<BoardHub>("/hubs/board");
+app.MapHub<InboxHub>("/hubs/inbox");
 
 // Development: ҳамеша иҷро шавад. Production: танҳо агар RUN_MIGRATIONS=true.
 var runMigrations = app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("RUN_MIGRATIONS");

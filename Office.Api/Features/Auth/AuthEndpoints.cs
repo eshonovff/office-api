@@ -16,16 +16,35 @@ public static class AuthEndpoints
 
         group.MapPost("/login", LoginAsync)
             .WithValidation<LoginRequest>()
-            .RequireRateLimiting("login");
+            .RequireRateLimiting("login")
+            .WithSummary("Воридшавӣ бо логин ва парол — токен ва refresh cookie медиҳад")
+            .Produces<LoginResponse>(StatusCodes.Status200OK)
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status401Unauthorized);
 
-        group.MapPost("/refresh", RefreshAsync);
-        group.MapPost("/logout", LogoutAsync);
+        group.MapPost("/refresh", RefreshAsync)
+            .WithSummary("Бо refresh cookie токени нав гирифтан (бо ротатсия)")
+            .Produces(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized);
+
+        group.MapPost("/logout", LogoutAsync)
+            .WithSummary("Баромадан — refresh token-и ҷорӣ revoke мешавад")
+            .Produces(StatusCodes.Status204NoContent);
 
         group.MapPost("/change-password", ChangePasswordAsync)
             .WithValidation<ChangePasswordRequest>()
-            .RequireAuthorization();
+            .RequireAuthorization()
+            .WithSummary("Иваз кардани парол — баъд ҳамаи токен revoke мешаванд")
+            .Produces(StatusCodes.Status204NoContent)
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized);
 
-        group.MapGet("/me", MeAsync).RequireAuthorization();
+        group.MapGet("/me", MeAsync)
+            .RequireAuthorization()
+            .WithSummary("Профили корбари ҷорӣ бо роль ва permission-ҳо")
+            .Produces<MeResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized);
 
         return app;
     }

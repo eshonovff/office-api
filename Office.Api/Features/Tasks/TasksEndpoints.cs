@@ -5,6 +5,7 @@ using Office.Api.Common;
 using Office.Api.Data;
 using Office.Api.Data.Entities;
 using Office.Api.Features.Projects;
+using Office.Api.Realtime;
 using Permissions = Office.Api.Auth.Permissions;
 using TaskEntity = Office.Api.Data.Entities.TaskItem;
 
@@ -16,28 +17,78 @@ public static class TasksEndpoints
     {
         app.MapGet("/api/projects/{projectId:guid}/board", BoardAsync)
             .WithTags("Tasks")
-            .RequirePermission(Permissions.Tasks.View);
+            .RequirePermission(Permissions.Tasks.View)
+            .WithSummary("Board — ҳамаи колонкаҳо бо таскҳояшон, як query")
+            .Produces<BoardResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         var group = app.MapGroup("/api/tasks").WithTags("Tasks");
 
-        group.MapGet("/", ListAsync).RequirePermission(Permissions.Tasks.View);
-        group.MapGet("/{id:guid}", GetAsync).RequirePermission(Permissions.Tasks.View);
+        group.MapGet("/", ListAsync)
+            .RequirePermission(Permissions.Tasks.View)
+            .WithSummary("Рӯйхати таск — филтр бо масъул, тег, приоритет, deadline, матн")
+            .Produces<IEnumerable<TaskListItem>>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden);
+
+        group.MapGet("/{id:guid}", GetAsync)
+            .RequirePermission(Permissions.Tasks.View)
+            .WithSummary("Маълумоти пурраи таск")
+            .Produces<TaskDetail>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapPost("/", CreateAsync)
             .WithValidation<CreateTaskRequest>()
-            .RequirePermission(Permissions.Tasks.Create);
+            .RequirePermission(Permissions.Tasks.Create)
+            .WithSummary("Сохтани таски нав — position = охирини колонка + 1000")
+            .Produces<TaskDetail>(StatusCodes.Status201Created)
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapPatch("/{id:guid}", UpdateAsync)
             .WithValidation<UpdateTaskRequest>()
-            .RequirePermission(Permissions.Tasks.Edit);
+            .RequirePermission(Permissions.Tasks.Edit)
+            .WithSummary("Навсозии сарлавҳа, тавсиф, приоритет, deadline, тегҳо")
+            .Produces<TaskDetail>(StatusCodes.Status200OK)
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
-        group.MapDelete("/{id:guid}", DeleteAsync).RequirePermission(Permissions.Tasks.Delete);
+        group.MapDelete("/{id:guid}", DeleteAsync)
+            .RequirePermission(Permissions.Tasks.Delete)
+            .WithSummary("Нест кардани таск")
+            .Produces(StatusCodes.Status204NoContent)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapPatch("/{id:guid}/move", MoveAsync)
             .WithValidation<MoveTaskRequest>()
-            .RequirePermission(Permissions.Tasks.Move);
+            .RequirePermission(Permissions.Tasks.Move)
+            .WithSummary("Кӯчонидан (drag & drop) — columnId, beforeTaskId?, afterTaskId?")
+            .Produces(StatusCodes.Status204NoContent)
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
-        group.MapPatch("/{id:guid}/assign", AssignAsync).RequirePermission(Permissions.Tasks.Assign);
+        group.MapPatch("/{id:guid}/assign", AssignAsync)
+            .RequirePermission(Permissions.Tasks.Assign)
+            .WithSummary("Таъин кардани масъул (ё бекор кардани таъин бо null)")
+            .Produces(StatusCodes.Status204NoContent)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         return app;
     }
@@ -140,6 +191,8 @@ public static class TasksEndpoints
         ClaimsPrincipal principal,
         AppDbContext db,
         ProjectAccessGuard access,
+        IBoardEventPublisher publisher,
+        INotificationService notifications,
         CancellationToken ct)
     {
         if (!await access.HasAccessAsync(principal, request.ProjectId, ct))
@@ -195,7 +248,16 @@ public static class TasksEndpoints
             .Include(t => t.TaskLabels).ThenInclude(tl => tl.Label)
             .FirstAsync(t => t.Id == task.Id, ct);
 
-        return Results.Created($"/api/tasks/{task.Id}", ToDetail(created));
+        var detail = ToDetail(created);
+        await publisher.TaskCreatedAsync(task.ProjectId, detail, ct);
+
+        if (request.AssigneeId is not null)
+        {
+            await notifications.PushAsync(
+                request.AssigneeId.Value, "task_assigned", new { taskId = task.Id, title = task.Title }, ct);
+        }
+
+        return Results.Created($"/api/tasks/{task.Id}", detail);
     }
 
     private static async Task<IResult> UpdateAsync(
@@ -204,6 +266,7 @@ public static class TasksEndpoints
         ClaimsPrincipal principal,
         AppDbContext db,
         ProjectAccessGuard access,
+        IBoardEventPublisher publisher,
         CancellationToken ct)
     {
         var task = await db.Tasks.Include(t => t.TaskLabels).FirstOrDefaultAsync(t => t.Id == id, ct);
@@ -232,7 +295,10 @@ public static class TasksEndpoints
             .Include(t => t.TaskLabels).ThenInclude(tl => tl.Label)
             .FirstAsync(t => t.Id == id, ct);
 
-        return Results.Ok(ToDetail(updated));
+        var detail = ToDetail(updated);
+        await publisher.TaskUpdatedAsync(updated.ProjectId, detail, ct);
+
+        return Results.Ok(detail);
     }
 
     private static async Task<IResult> DeleteAsync(
@@ -240,6 +306,7 @@ public static class TasksEndpoints
         ClaimsPrincipal principal,
         AppDbContext db,
         ProjectAccessGuard access,
+        IBoardEventPublisher publisher,
         CancellationToken ct)
     {
         var task = await db.Tasks.FirstOrDefaultAsync(t => t.Id == id, ct);
@@ -248,6 +315,8 @@ public static class TasksEndpoints
 
         db.Tasks.Remove(task);
         await db.SaveChangesAsync(ct);
+
+        await publisher.TaskDeletedAsync(task.ProjectId, new { taskId = id }, ct);
 
         return Results.NoContent();
     }
@@ -258,6 +327,7 @@ public static class TasksEndpoints
         ClaimsPrincipal principal,
         AppDbContext db,
         ProjectAccessGuard access,
+        IBoardEventPublisher publisher,
         CancellationToken ct)
     {
         var task = await db.Tasks.FirstOrDefaultAsync(t => t.Id == id, ct);
@@ -328,6 +398,9 @@ public static class TasksEndpoints
         await db.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
 
+        await publisher.TaskMovedAsync(
+            task.ProjectId, new { taskId = task.Id, columnId = task.ColumnId, position = task.Position }, ct);
+
         return Results.NoContent();
     }
 
@@ -337,6 +410,8 @@ public static class TasksEndpoints
         ClaimsPrincipal principal,
         AppDbContext db,
         ProjectAccessGuard access,
+        IBoardEventPublisher publisher,
+        INotificationService notifications,
         CancellationToken ct)
     {
         var task = await db.Tasks.FirstOrDefaultAsync(t => t.Id == id, ct);
@@ -357,6 +432,15 @@ public static class TasksEndpoints
         db.TaskActivities.Add(NewActivity(task.Id, principal.GetUserId(), "assigned", $$"""{"assigneeId":{{(request.AssigneeId is null ? "null" : $"\"{request.AssigneeId}\"")}}}"""));
 
         await db.SaveChangesAsync(ct);
+
+        await publisher.TaskUpdatedAsync(task.ProjectId, new { taskId = task.Id, assigneeId = task.AssigneeId }, ct);
+
+        if (request.AssigneeId is not null)
+        {
+            await notifications.PushAsync(
+                request.AssigneeId.Value, "task_assigned", new { taskId = task.Id, title = task.Title }, ct);
+        }
+
         return Results.NoContent();
     }
 

@@ -13,25 +13,59 @@ public static class RolesEndpoints
     {
         var group = app.MapGroup("/api/roles").WithTags("Roles");
 
-        group.MapGet("/", ListAsync).RequirePermission(Permissions.Roles.View);
+        group.MapGet("/", ListAsync)
+            .RequirePermission(Permissions.Roles.View)
+            .WithSummary("Рӯйхати ролҳо бо permission-ҳояшон")
+            .Produces<IEnumerable<RoleListItem>>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden);
 
         group.MapPost("/", CreateAsync)
             .WithValidation<CreateRoleRequest>()
-            .RequirePermission(Permissions.Roles.Manage);
+            .RequirePermission(Permissions.Roles.Manage)
+            .WithSummary("Сохтани роли нав (ғайрисистемавӣ)")
+            .Produces<RoleListItem>(StatusCodes.Status201Created)
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status409Conflict);
 
         group.MapPatch("/{id:guid}", UpdateAsync)
             .WithValidation<UpdateRoleRequest>()
-            .RequirePermission(Permissions.Roles.Manage);
+            .RequirePermission(Permissions.Roles.Manage)
+            .WithSummary("Навсозии ном ва тавсифи роль")
+            .Produces<RoleListItem>(StatusCodes.Status200OK)
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapPut("/{id:guid}/permissions", SetPermissionsAsync)
             .WithValidation<SetRolePermissionsRequest>()
-            .RequirePermission(Permissions.Roles.Manage);
+            .RequirePermission(Permissions.Roles.Manage)
+            .WithSummary("Танзими permission-ҳои роль — ҳамаи корбарони он permissions_version боло меравад")
+            .Produces(StatusCodes.Status204NoContent)
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
-        group.MapDelete("/{id:guid}", DeleteAsync).RequirePermission(Permissions.Roles.Manage);
+        group.MapDelete("/{id:guid}", DeleteAsync)
+            .RequirePermission(Permissions.Roles.Manage)
+            .WithSummary("Нест кардани роль (is_system нест намешавад)")
+            .Produces(StatusCodes.Status204NoContent)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
 
         app.MapGet("/api/permissions", ListPermissionsAsync)
             .WithTags("Roles")
-            .RequirePermission(Permissions.Roles.View);
+            .RequirePermission(Permissions.Roles.View)
+            .WithSummary("Рӯйхати ҳамаи калидҳои permission (барои UI)")
+            .Produces<IEnumerable<string>>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden);
 
         return app;
     }

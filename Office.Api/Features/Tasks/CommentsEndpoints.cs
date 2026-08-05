@@ -5,6 +5,7 @@ using Office.Api.Auth;
 using Office.Api.Common;
 using Office.Api.Data;
 using Office.Api.Data.Entities;
+using Office.Api.Realtime;
 using Permissions = Office.Api.Auth.Permissions;
 
 namespace Office.Api.Features.Tasks;
@@ -13,13 +14,23 @@ public static class CommentsEndpoints
 {
     public static IEndpointRouteBuilder MapCommentsEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/tasks/{taskId:guid}/comments").WithTags("Tasks");
+        var group = app.MapGroup("/api/tasks/{taskId:guid}/comments").WithTags("Comments");
 
-        group.MapGet("/", ListAsync).RequirePermission(Permissions.Tasks.View);
+        group.MapGet("/", ListAsync)
+            .RequirePermission(Permissions.Tasks.View)
+            .WithSummary("Рӯйхати комментарии таск")
+            .Produces<IEnumerable<TaskCommentDto>>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapPost("/", CreateAsync)
             .WithValidation<CreateCommentRequest>()
-            .RequirePermission(Permissions.Tasks.View);
+            .RequirePermission(Permissions.Tasks.View)
+            .WithSummary("Иловаи комментарий — @mention парсинг ва сабт мешавад")
+            .Produces<TaskCommentDto>(StatusCodes.Status201Created)
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         return app;
     }
@@ -50,6 +61,8 @@ public static class CommentsEndpoints
         ClaimsPrincipal principal,
         AppDbContext db,
         ProjectAccessGuard access,
+        IBoardEventPublisher publisher,
+        INotificationService notifications,
         CancellationToken ct)
     {
         var task = await db.Tasks.AsNoTracking().FirstOrDefaultAsync(t => t.Id == taskId, ct);
@@ -69,9 +82,10 @@ public static class CommentsEndpoints
         db.TaskComments.Add(comment);
 
         var mentionedUsernames = MentionParser.ExtractUsernames(request.Body);
+        var mentionedUserIds = new List<Guid>();
         if (mentionedUsernames.Count > 0)
         {
-            var mentionedUserIds = await db.ProjectMembers
+            mentionedUserIds = await db.ProjectMembers
                 .Where(pm => pm.ProjectId == task.ProjectId && mentionedUsernames.Contains(pm.User.Username))
                 .Select(pm => pm.UserId)
                 .ToListAsync(ct);
@@ -104,8 +118,16 @@ public static class CommentsEndpoints
         await db.SaveChangesAsync(ct);
 
         var author = await db.Users.AsNoTracking().FirstAsync(u => u.Id == userId, ct);
-        return Results.Created(
-            $"/api/tasks/{taskId}/comments/{comment.Id}",
-            new TaskCommentDto(comment.Id, userId, author.FullName, comment.Body, comment.CreatedAt));
+        var dto = new TaskCommentDto(comment.Id, userId, author.FullName, comment.Body, comment.CreatedAt);
+
+        await publisher.CommentAddedAsync(task.ProjectId, dto, ct);
+
+        foreach (var mentionedUserId in mentionedUserIds.Where(id => id != userId))
+        {
+            await notifications.PushAsync(
+                mentionedUserId, "mention", new { taskId, commentId = comment.Id }, ct);
+        }
+
+        return Results.Created($"/api/tasks/{taskId}/comments/{comment.Id}", dto);
     }
 }
