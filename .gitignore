@@ -51,6 +51,9 @@ logs/
 ## Local file uploads (dev only)
 uploads/
 
+## Data Protection keys (dev only)
+keys/
+
 ## macOS
 .DS_Store
 

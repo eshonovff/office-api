@@ -25,6 +25,13 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
     public DbSet<Notification> Notifications => Set<Notification>();
 
+    public DbSet<Channel> Channels => Set<Channel>();
+    public DbSet<ChannelMember> ChannelMembers => Set<ChannelMember>();
+    public DbSet<Conversation> Conversations => Set<Conversation>();
+    public DbSet<Message> Messages => Set<Message>();
+    public DbSet<MessageTemplate> MessageTemplates => Set<MessageTemplate>();
+    public DbSet<WebhookLog> WebhookLogs => Set<WebhookLog>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);
