@@ -6,11 +6,16 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using Hangfire;
+using Hangfire.PostgreSql;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.OpenApi;
 using Office.Api.Auth;
+using Office.Api.Channels;
 using Office.Api.Common;
 using Office.Api.Data;
 using Office.Api.Features.Auth;
+using Office.Api.Features.Channels;
 using Office.Api.Features.Notifications;
 using Office.Api.Features.Projects;
 using Office.Api.Features.Roles;
@@ -66,6 +71,21 @@ builder.Services.AddOpenApi(options =>
 builder.Services.AddHealthChecks()
     .AddCheck<DatabaseHealthCheck>("postgres");
 
+var dataProtectionKeysPath = builder.Configuration["DataProtection:KeysPath"] ?? "/var/office/keys";
+builder.Services.AddDataProtection()
+    .SetApplicationName("office-api")
+    .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeysPath));
+
+var hangfireConnectionString = builder.Configuration.GetConnectionString("Default")
+    ?? throw new InvalidOperationException("ConnectionStrings:Default танзим нашудааст.");
+
+builder.Services.AddHangfire(config => config
+    .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
+    .UseSimpleAssemblyNameTypeSerializer()
+    .UseRecommendedSerializerSettings()
+    .UsePostgreSqlStorage(options => options.UseNpgsqlConnection(hangfireConnectionString)));
+builder.Services.AddHangfireServer();
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy(FrontendCorsPolicy, policy => policy
@@ -102,7 +122,8 @@ builder.Services
                 var path = context.HttpContext.Request.Path;
 
                 if (!string.IsNullOrEmpty(accessToken) &&
-                    (path.StartsWithSegments("/hubs/board") || path.StartsWithSegments("/hubs/inbox")))
+                    (path.StartsWithSegments("/hubs/board") || path.StartsWithSegments("/hubs/inbox") ||
+                     path.StartsWithSegments("/hangfire")))
                 {
                     context.Token = accessToken;
                 }
@@ -141,6 +162,12 @@ builder.Services.AddScoped<IProjectAccessGuard>(sp => sp.GetRequiredService<Proj
 builder.Services.AddScoped<IBoardEventPublisher, BoardEventPublisher>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddHostedService<DeadlineNotificationBackgroundService>();
+
+builder.Services.AddSingleton<IChannelCredentialsProtector, ChannelCredentialsProtector>();
+builder.Services.AddScoped<PlaceholderChannelProvider>();
+builder.Services.AddScoped<IChannelProviderFactory, ChannelProviderFactory>();
+builder.Services.AddScoped<WebhookProcessor>();
+builder.Services.AddScoped<WebhookLogCleanupJob>();
 
 var app = builder.Build();
 
@@ -188,9 +215,19 @@ app.MapCommentsEndpoints();
 app.MapAttachmentsEndpoints();
 app.MapActivityEndpoints();
 app.MapNotificationsEndpoints();
+app.MapChannelsEndpoints();
+app.MapWebhookEndpoints();
 
 app.MapHub<BoardHub>("/hubs/board");
 app.MapHub<InboxHub>("/hubs/inbox");
+
+app.UseHangfireDashboard("/hangfire", new DashboardOptions
+{
+    Authorization = [new OwnerOnlyDashboardAuthFilter()],
+});
+
+RecurringJob.AddOrUpdate<WebhookLogCleanupJob>(
+    "webhook-log-cleanup", job => job.RunAsync(CancellationToken.None), Cron.Daily);
 
 // Development: ҳамеша иҷро шавад. Production: танҳо агар RUN_MIGRATIONS=true.
 var runMigrations = app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("RUN_MIGRATIONS");

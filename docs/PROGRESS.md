@@ -2,9 +2,9 @@
 
 > Агент: ин файлро баъди ҳар фаза нав кун.
 
-**Фазаи ҷорӣ:** `phase-4-channels`
+**Фазаи ҷорӣ:** `phase-5-whatsapp`
 **Ветка:** `dev`
-**Санаи навсозӣ:** 2026-08-05
+**Санаи навсозӣ:** 2026-08-06
 
 ## Ҳолати фазаҳо
 
@@ -14,7 +14,7 @@
 | 1 | Auth ва доступ | ✅ тамом |
 | 2 | Проект ва таск | ✅ тамом |
 | 3 | Realtime | ✅ тамом |
-| 4 | Инфраструктураи каналҳо | ⬜ нашуда |
+| 4 | Инфраструктураи каналҳо | ✅ тамом |
 | 5 | WhatsApp | ⬜ нашуда |
 | 6 | Инбокс | ⬜ нашуда |
 | 7 | Instagram + Facebook | ⬜ нашуда |
@@ -41,6 +41,12 @@
 | 2026-08-05 | `ProjectAccessGuard` бо interface `IProjectAccessGuard` кушода шуд | Барои тест 3.4 (BoardHub) бе package-и mocking — fake дастӣ дар DI ҷойгузин мешавад |
 | 2026-08-05 | Огоҳии "deadline фардо" тавассути `BackgroundService`-и оддии .NET, на Hangfire | Hangfire барои фазаи 4 нигоҳ дошта шудааст (`01-architecture.md`); `IServiceScopeFactory` + `PeriodicTimer` барои ин фаза кофист |
 | 2026-08-05 | Бахши тести SignalR: fake-и дастии `HubCallerContext`/`IGroupManager`/`IHttpContextFeature` (навъи воқеии SignalR: `Microsoft.AspNetCore.Http.Connections.Features.IHttpContextFeature`) | `Hub.Context`/`Hub.Groups` public setter доранд — барои тест 3.4 package-и mocking лозим нашуд |
+| 2026-08-06 | `PlaceholderChannelProvider` — як синфи муваққатӣ барои ҳар се навъи канал (whatsapp/instagram/facebook) | Фазаи 4 "коди мушаххаси WhatsApp/IG/FB нанавис"-ро талаб мекунад, вале DoD бе pipeline-и воқеӣ санҷида намешавад. `VerifyWebhook`/`ParseWebhook` генералӣ (формати худсохта, на воқеии Meta); `SendMessage`/`MarkAsRead`/`DownloadMedia` `NotImplementedException` мепартоянд — фазаи 5/7 иваз мекунад |
+| 2026-08-06 | Идентификатсияи канал аз webhook payload тавассути майдони `channelExternalId` (қарордоди худсохта) | `WebhookLog` тибқи `docs/04` `channel_id` надорад — бояд аз raw JSON муайян шавад; фазаи 5/7 ин қадамро ба формати воқеии Meta мутобиқ мекунад |
+| 2026-08-06 | Idempotency: `MessageIdempotencyPlanner` (pure, тестшуда) + UNIQUE constraint дар DB ҳамчун ҳифзи дуюм | Ҳам ҷилавгирии дубликат дар сатҳи барнома (пеш аз навиштан), ҳам кафолати ниҳоии DB — агар race шавад ҳам |
+| 2026-08-06 | `DELETE /api/channels/{id}` = soft (`is_active = false`) | Мутобиқ ба алгуи мавҷуда (Projects-и archive, Users-и active) — таърихи chat/conversation нигоҳ дошта мешавад |
+| 2026-08-06 | Тозакунии `WebhookLog` (>30 рӯз) тавассути Hangfire recurring job, на `BackgroundService`-и фазаи 3 | Ҳоло Hangfire дастрас аст — истифодаи он барои ин кор табиист |
+| 2026-08-06 | `/hangfire` ба рӯйхати path-ҳои JWT-аз-query-string (ҳамон алгуи `/hubs/*`-и фазаи 3) илова шуд | Dashboard-и Hangfire бо браузер кушода мешавад, на бо Authorization header |
 
 ## Масъалаҳои кушода
 
