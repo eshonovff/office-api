@@ -1,4 +1,6 @@
 using FluentValidation;
+using Office.Api.Common;
+using Office.Api.Data.Entities;
 using Permissions = Office.Api.Auth.Permissions;
 
 namespace Office.Api.Features.Users;
@@ -8,9 +10,15 @@ public class CreateUserRequestValidator : AbstractValidator<CreateUserRequest>
     public CreateUserRequestValidator()
     {
         RuleFor(x => x.FullName).NotEmpty().MaximumLength(200);
-        RuleFor(x => x.Username).NotEmpty().MaximumLength(100).Matches("^[a-zA-Z0-9_.]+$")
-            .WithMessage("Логин бояд танҳо аз ҳарф, рақам, `_` ва `.` иборат бошад.");
-        RuleFor(x => x.Phone).MaximumLength(30);
+        RuleFor(x => x.Phone).NotEmpty()
+            .Must(phone => PhoneNumber.Normalize(phone) is not null)
+            .WithMessage("Рақами телефон нодуруст аст. Формат: +992XXXXXXXXX.");
+        RuleFor(x => x.Email).MaximumLength(200).EmailAddress().When(x => !string.IsNullOrEmpty(x.Email));
+        RuleFor(x => x.Address).MaximumLength(500);
+        RuleFor(x => x.Gender)
+            .Must(gender => Enum.TryParse<Gender>(gender, ignoreCase: true, out _))
+            .When(x => !string.IsNullOrEmpty(x.Gender))
+            .WithMessage("Ҷинсият бояд `Male` ё `Female` бошад.");
     }
 }
 
@@ -19,7 +27,12 @@ public class UpdateUserRequestValidator : AbstractValidator<UpdateUserRequest>
     public UpdateUserRequestValidator()
     {
         RuleFor(x => x.FullName).NotEmpty().MaximumLength(200);
-        RuleFor(x => x.Phone).MaximumLength(30);
+        RuleFor(x => x.Email).MaximumLength(200).EmailAddress().When(x => !string.IsNullOrEmpty(x.Email));
+        RuleFor(x => x.Address).MaximumLength(500);
+        RuleFor(x => x.Gender)
+            .Must(gender => Enum.TryParse<Gender>(gender, ignoreCase: true, out _))
+            .When(x => !string.IsNullOrEmpty(x.Gender))
+            .WithMessage("Ҷинсият бояд `Male` ё `Female` бошад.");
     }
 }
 
