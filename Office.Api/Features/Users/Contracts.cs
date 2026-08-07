@@ -8,7 +8,16 @@ public record UserListItem(
     Guid Id,
     string FullName,
     string Username,
+    string? Phone,
+    string? Email,
+    DateOnly? BirthDate,
+    int? Age,
+    string? Address,
+    string? Gender,
+    string? AvatarUrl,
+    bool HasContractDocument,
     bool IsActive,
+    bool MustChangePassword,
     IReadOnlyList<RoleSummary> Roles);
 
 public record UserDetail(
@@ -16,6 +25,12 @@ public record UserDetail(
     string FullName,
     string Username,
     string? Phone,
+    string? Email,
+    DateOnly? BirthDate,
+    int? Age,
+    string? Address,
+    string? Gender,
+    bool HasContractDocument,
     string? AvatarUrl,
     bool IsActive,
     bool MustChangePassword,
@@ -23,14 +38,26 @@ public record UserDetail(
     IReadOnlyList<RoleSummary> Roles,
     IReadOnlyList<UserPermissionExceptionDto> PermissionExceptions);
 
-public record CreateUserRequest(string FullName, string Username, string? Phone);
+public record CreateUserRequest(
+    string FullName,
+    string Phone,
+    string? Email,
+    DateOnly? BirthDate,
+    string? Address,
+    string? Gender);
 
-public record CreateUserResponse(Guid Id, string Username, string TemporaryPassword);
+public record CreateUserResponse(Guid Id, string Username, string TemporaryPassword, bool SmsSent, string? AvatarUrl);
 
-public record UpdateUserRequest(string FullName, string? Phone, bool OnlyAssigned);
+public record UpdateUserRequest(
+    string FullName,
+    string? Email,
+    DateOnly? BirthDate,
+    string? Address,
+    string? Gender,
+    bool OnlyAssigned);
 
 public record SetUserRolesRequest(IReadOnlyList<Guid> RoleIds);
 
 public record SetUserPermissionsRequest(IReadOnlyList<UserPermissionExceptionDto> Exceptions);
 
-public record ResetPasswordResponse(string TemporaryPassword);
+public record ResetPasswordResponse(string TemporaryPassword, bool SmsSent);

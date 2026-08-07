@@ -83,7 +83,7 @@ public static class DbSeeder
             Username = "owner",
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(password),
             IsActive = true,
-            MustChangePassword = true,
+            MustChangePassword = false,
             PermissionsVersion = 1,
             CreatedAt = DateTimeOffset.UtcNow,
         };

@@ -7,7 +7,14 @@ public class User
     public required string Username { get; set; }
     public required string PasswordHash { get; set; }
     public string? AvatarUrl { get; set; }
+    public string? AvatarPath { get; set; }
     public string? Phone { get; set; }
+    public string? Email { get; set; }
+    public DateOnly? BirthDate { get; set; }
+    public string? Address { get; set; }
+    public Gender? Gender { get; set; }
+    public string? ContractDocumentPath { get; set; }
+    public string? ContractDocumentFileName { get; set; }
     public bool IsActive { get; set; } = true;
     public bool MustChangePassword { get; set; }
     public bool OnlyAssigned { get; set; }

@@ -14,6 +14,12 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(u => u.Username).HasMaxLength(100).IsRequired();
         builder.Property(u => u.PasswordHash).IsRequired();
         builder.Property(u => u.Phone).HasMaxLength(30);
+        builder.Property(u => u.Email).HasMaxLength(200);
+        builder.Property(u => u.Address).HasMaxLength(500);
+        builder.Property(u => u.Gender).HasConversion<string>().HasMaxLength(10);
+        builder.Property(u => u.ContractDocumentPath).HasMaxLength(500);
+        builder.Property(u => u.ContractDocumentFileName).HasMaxLength(300);
+        builder.Property(u => u.AvatarPath).HasMaxLength(500);
         builder.Property(u => u.PermissionsVersion).HasDefaultValue(1);
         builder.Property(u => u.IsActive).HasDefaultValue(true);
 

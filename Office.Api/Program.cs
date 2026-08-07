@@ -22,6 +22,7 @@ using Office.Api.Features.Roles;
 using Office.Api.Features.Tasks;
 using Office.Api.Features.Users;
 using Office.Api.Realtime;
+using Office.Api.Sms;
 using Scalar.AspNetCore;
 using Serilog;
 
@@ -168,6 +169,8 @@ builder.Services.AddScoped<PlaceholderChannelProvider>();
 builder.Services.AddScoped<IChannelProviderFactory, ChannelProviderFactory>();
 builder.Services.AddScoped<WebhookProcessor>();
 builder.Services.AddScoped<WebhookLogCleanupJob>();
+
+builder.Services.AddHttpClient<ISmsSender, OsonSmsSender>();
 
 var app = builder.Build();
 

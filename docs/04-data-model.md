@@ -5,7 +5,8 @@
 ## Фазаи 1 — Auth
 
 ```
-users(id, full_name, username UNIQUE, password_hash, avatar_url, phone,
+users(id, full_name, username UNIQUE, password_hash, avatar_url, avatar_path, phone,
+      email, birth_date, address, gender, contract_document_path, contract_document_file_name,
       is_active, must_change_password, only_assigned,
       permissions_version, created_at, last_login_at)
 
