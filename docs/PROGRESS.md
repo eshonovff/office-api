@@ -48,6 +48,16 @@
 | 2026-08-06 | Тозакунии `WebhookLog` (>30 рӯз) тавассути Hangfire recurring job, на `BackgroundService`-и фазаи 3 | Ҳоло Hangfire дастрас аст — истифодаи он барои ин кор табиист |
 | 2026-08-06 | `/hangfire` ба рӯйхати path-ҳои JWT-аз-query-string (ҳамон алгуи `/hubs/*`-и фазаи 3) илова шуд | Dashboard-и Hangfire бо браузер кушода мешавад, на бо Authorization header |
 | 2026-08-06 | Ҳозир деплой (фазаи 8) дар навбат нест — кор бо `localhost` идома меёбад | Frontend ва backend ҳоло дар як ҷо (локалӣ) кор мекунанд |
+| 2026-08-06 | `users` бо `email`, `birth_date`, `address`, `gender`, `contract_document_*` васеъ карда шуд — истиснои қасдӣ аз рӯйхати "HR-НЕСТ"-и AGENTS.md | Ин майдонҳо барои профили onboarding/логин лозиманд (на модули пурраи HR — маош, ҳозирӣ). Корбар бевосита тасдиқ кард |
+| 2026-08-06 | Логини корманди нав = рақами телефони нормализатсияшуда (`992XXXXXXXXX`); парол автоматӣ тавассути OsonSMS SMS мешавад ва як маротиба дар response низ нишон дода мешавад | Талаби корбар — на бо email/логини дастӣ, балки рақами телефон ҳамчун логин, то фаромӯш накунанд |
+| 2026-08-06 | `ISmsSender`/`OsonSmsSender` (Office.Api/Sms) — HttpClient GET ба `sendsms_v1.php`, бе package-и нав | Протоколи OsonSMS (`str_hash = SHA256(txn_id;login;sender;phone;hash)`) тибқи амалисозиҳои маълуми PHP (`Rio-TJ/osonsms-gateway`) тасдиқ шуд; дар хатогии SMS корманд боз ҳам сохта мешавад (`SmsSent=false`), корбар парол дар экран мебинад |
+| 2026-08-06 | Пароли муваққатӣ 8 рақами оддӣ (`PasswordGenerator.GenerateNumeric`), на 12 ҳарфу-рақоми омехта | Санҷиши зиндаи SMS тасдиқ кард — рақами оддӣ аз телефон дохил кардан осонтар аст |
+| 2026-08-06 | `avatar_path` илова шуд (дар паҳлӯи `avatar_url`-и қаблӣ); `POST/GET /api/users/{id}/avatar` — endpoint-и нав, алгуи `contract-document` | `AvatarUrl` дар User пеш аз ин ягон upload/download надошт — комилан истифоданашуда буд; корбар дархост кард |
+| 2026-08-06 | Owner: `must_change_password = false` доимӣ (ҳам дар `DbSeeder`, ҳам дар DB-и ҳозира); парол ба `12122002` собит карда шуд | Такрори reset+forced-change боиси фаромӯшкунии парол мешуд — корбар пароли доимӣ хост |
+| 2026-08-06 | `POST /api/users` аз JSON ба `multipart/form-data` иваз шуд — расм (`avatar`, ихтиёрӣ) дар ҳамон дархости сохтани корманд меравад | Корбар мехост расмро дар вақти сохтан гузорад, на бо дархости алоҳидаи баъдӣ; валидатсия (FluentValidation) дастӣ, тавассути `IValidator<CreateUserRequest>`, дар дохили handler иҷро мешавад |
+| 2026-08-06 | `UserListItem` (`GET /api/users`) бо тамоми майдонҳои профил (телефон, email, санаи таваллуд, адрес, ҷинсият, avatarUrl, hasContractDocument) пур карда шуд | Пеш танҳо id/fullName/username/isActive/roles дошт — frontend барои ҳар сатри рӯйхат маҷбур мешуд `GET /{id}` алоҳида занад |
+| 2026-08-06 | `docs/employee-sms-api-changes.md` ба репозиторийи `office-web` кӯчонида шуд (корбар худаш кӯчонд) | Ҳуҷҷат барои frontend аст — акнун дар ҳамон репо зинда мемонад, на дар `office-api/docs` |
+| 2026-08-06 | `Age` (int?) ба `UserListItem`/`UserDetail` илова шуд — сервер аз `BirthDate` ҳисоб мекунад (`AgeCalculator`, pure/тестшуда) | Frontend хост, ки синну сол омода бошад, на аз `birthDate` дар frontend ҳисоб карда шавад |
 
 ## Масъалаҳои кушода
 
