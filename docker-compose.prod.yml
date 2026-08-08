@@ -1,0 +1,72 @@
+# Deploy-и ҷудогонаи office-api дар сервери зинда (дар паҳлӯи NIZOM CRM).
+# Ҳама чиз изолятсия шудааст: network, volume, портҳо — ба NIZOM CRM даст намерасонад.
+#
+# Истифода:
+#   cp deploy/env.production.example .env
+#   nano .env   # <ЗАМИНАИ_ХОЛӢ>-ҳоро пур кунед
+#   docker compose -f docker-compose.prod.yml up -d --build
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: office-api-app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      RUN_MIGRATIONS: "true"
+      ConnectionStrings__Default: "Host=db;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+      Jwt__Key: "${JWT_KEY}"
+      Seed__OwnerPassword: "${SEED_OWNER_PASSWORD}"
+      Sms__Login: "${SMS_LOGIN}"
+      Sms__Hash: "${SMS_HASH}"
+      Sms__Sender: "${SMS_SENDER}"
+      Sms__ServerUrl: "${SMS_SERVER_URL}"
+      Webhooks__AppSecret: "${WEBHOOKS_APP_SECRET}"
+      Webhooks__VerifyToken: "${WEBHOOKS_VERIFY_TOKEN}"
+    ports:
+      - "127.0.0.1:${API_PORT}:8080"
+    volumes:
+      - office-api-uploads:/var/office/uploads
+      - office-api-keys:/var/office/keys
+      - office-api-logs:/app/logs
+    networks:
+      - office-api-net
+
+  db:
+    image: postgres:16
+    container_name: office-api-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "127.0.0.1:${DB_PORT}:5432"
+    volumes:
+      - office-api-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - office-api-net
+
+networks:
+  office-api-net:
+    name: office-api-net
+
+volumes:
+  office-api-postgres-data:
+    name: office-api-postgres-data
+  office-api-uploads:
+    name: office-api-uploads
+  office-api-keys:
+    name: office-api-keys
+  office-api-logs:
+    name: office-api-logs
