@@ -45,6 +45,9 @@ task_activity(id, task_id, user_id, action, payload_json, created_at)
 channels(id, type, name, external_id, credentials_encrypted,
          is_active, created_at)
          -- type: whatsapp | instagram | facebook
+         -- credentials_encrypted (WhatsApp, пеш аз шифр): JSON
+         --   {"phoneNumberId": "...", "wabaId": "...", "accessToken": "..."}
+         --   external_id = phone_number_id (аз метадатаи webhook-и Meta)
 
 channel_members(channel_id, user_id)
 

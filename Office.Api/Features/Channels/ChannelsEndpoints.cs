@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Office.Api.Auth;
 using Office.Api.Channels;
+using Office.Api.Channels.WhatsApp;
 using Office.Api.Common;
 using Office.Api.Data;
 using Office.Api.Data.Entities;
@@ -25,6 +26,14 @@ public static class ChannelsEndpoints
             .RequirePermission(Permissions.Channels.Manage)
             .WithSummary("Маълумоти пурраи канал бо аъзо (бе credentials)")
             .Produces<ChannelDetail>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        group.MapGet("/{id:guid}/whatsapp-templates", GetWhatsAppTemplatesAsync)
+            .RequirePermission(Permissions.Channels.Manage)
+            .WithSummary("Рӯйхати шаблонҳои тасдиқшудаи WhatsApp аз Meta")
+            .Produces<IEnumerable<WhatsAppTemplateInfo>>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound);
@@ -84,6 +93,18 @@ public static class ChannelsEndpoints
             .FirstOrDefaultAsync(c => c.Id == id, ct);
 
         return channel is null ? Results.NotFound() : Results.Ok(ToDetail(channel));
+    }
+
+    private static async Task<IResult> GetWhatsAppTemplatesAsync(
+        Guid id, AppDbContext db, IChannelProviderFactory factory, CancellationToken ct)
+    {
+        var channel = await db.Channels.AsNoTracking().FirstOrDefaultAsync(c => c.Id == id, ct);
+        if (channel is null)
+            return Results.NotFound();
+
+        var provider = factory.GetProvider(channel.Type);
+        var templates = await provider.GetApprovedTemplatesAsync(channel, ct);
+        return Results.Ok(templates);
     }
 
     private static async Task<IResult> CreateAsync(
