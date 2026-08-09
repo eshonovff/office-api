@@ -73,6 +73,7 @@ public static class ConversationsEndpoints
         UpdateConversationRequest request,
         ClaimsPrincipal principal,
         AppDbContext db,
+        IChannelAccessGuard access,
         IInboxEventPublisher events,
         CancellationToken ct)
     {
@@ -82,6 +83,9 @@ public static class ConversationsEndpoints
             .FirstOrDefaultAsync(c => c.Id == id, ct);
 
         if (conversation is null)
+            return Results.NotFound();
+
+        if (!await access.HasAccessAsync(principal, conversation.ChannelId, conversation.AssignedTo, ct))
             return Results.NotFound();
 
         ConversationStatus? newStatus = null;
@@ -139,12 +143,16 @@ public static class ConversationsEndpoints
         SendMessageRequest request,
         ClaimsPrincipal principal,
         AppDbContext db,
+        IChannelAccessGuard access,
         IChannelProviderFactory factory,
         IInboxEventPublisher events,
         CancellationToken ct)
     {
         var conversation = await db.Conversations.Include(c => c.Channel).FirstOrDefaultAsync(c => c.Id == id, ct);
         if (conversation is null)
+            return Results.NotFound();
+
+        if (!await access.HasAccessAsync(principal, conversation.ChannelId, conversation.AssignedTo, ct))
             return Results.NotFound();
 
         var isTemplate = !string.IsNullOrEmpty(request.TemplateName);
@@ -204,10 +212,17 @@ public static class ConversationsEndpoints
     }
 
     private static async Task<IResult> ListMessagesAsync(
-        Guid id, int? page, int? pageSize, AppDbContext db, CancellationToken ct)
+        Guid id, int? page, int? pageSize, ClaimsPrincipal principal, AppDbContext db, IChannelAccessGuard access, CancellationToken ct)
     {
-        var conversationExists = await db.Conversations.AsNoTracking().AnyAsync(c => c.Id == id, ct);
-        if (!conversationExists)
+        var conversation = await db.Conversations.AsNoTracking()
+            .Where(c => c.Id == id)
+            .Select(c => new { c.ChannelId, c.AssignedTo })
+            .FirstOrDefaultAsync(ct);
+
+        if (conversation is null)
+            return Results.NotFound();
+
+        if (!await access.HasAccessAsync(principal, conversation.ChannelId, conversation.AssignedTo, ct))
             return Results.NotFound();
 
         var (resolvedPage, resolvedPageSize) = ResolvePaging(page, pageSize);
@@ -233,13 +248,17 @@ public static class ConversationsEndpoints
         Guid? assignedUserId,
         int? page,
         int? pageSize,
+        ClaimsPrincipal principal,
         AppDbContext db,
+        IChannelAccessGuard access,
         CancellationToken ct)
     {
         var query = db.Conversations.AsNoTracking()
             .Include(c => c.Channel)
             .Include(c => c.Assignee)
             .AsQueryable();
+
+        query = await access.ApplyAccessFilterAsync(query, principal, ct);
 
         if (channelId is not null)
             query = query.Where(c => c.ChannelId == channelId);
@@ -274,14 +293,21 @@ public static class ConversationsEndpoints
         return Results.Ok(new PagedResult<ConversationListItem>(items, totalCount, resolvedPage, resolvedPageSize));
     }
 
-    private static async Task<IResult> GetAsync(Guid id, AppDbContext db, CancellationToken ct)
+    private static async Task<IResult> GetAsync(
+        Guid id, ClaimsPrincipal principal, AppDbContext db, IChannelAccessGuard access, CancellationToken ct)
     {
         var conversation = await db.Conversations.AsNoTracking()
             .Include(c => c.Channel)
             .Include(c => c.Assignee)
             .FirstOrDefaultAsync(c => c.Id == id, ct);
 
-        return conversation is null ? Results.NotFound() : Results.Ok(ToDetail(conversation));
+        if (conversation is null)
+            return Results.NotFound();
+
+        if (!await access.HasAccessAsync(principal, conversation.ChannelId, conversation.AssignedTo, ct))
+            return Results.NotFound();
+
+        return Results.Ok(ToDetail(conversation));
     }
 
     private static (int Page, int PageSize) ResolvePaging(int? page, int? pageSize)

@@ -163,6 +163,8 @@ builder.Services.AddScoped<IPermissionService, PermissionService>();
 builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<ProjectAccessGuard>();
 builder.Services.AddScoped<IProjectAccessGuard>(sp => sp.GetRequiredService<ProjectAccessGuard>());
+builder.Services.AddScoped<ChannelAccessGuard>();
+builder.Services.AddScoped<IChannelAccessGuard>(sp => sp.GetRequiredService<ChannelAccessGuard>());
 builder.Services.AddScoped<IBoardEventPublisher, BoardEventPublisher>();
 builder.Services.AddScoped<IInboxEventPublisher, InboxEventPublisher>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
