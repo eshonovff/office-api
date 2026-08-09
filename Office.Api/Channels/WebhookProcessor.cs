@@ -2,17 +2,19 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Office.Api.Data;
 using Office.Api.Data.Entities;
+using Office.Api.Realtime;
 
 namespace Office.Api.Channels;
 
 /// <summary>
 /// Job-и Hangfire барои коркарди webhook-и сабтшуда: parse → идентификатсияи
 /// канал → идентификатсияи conversation → идемпотентии паём → upsert →
-/// навсозии статус → нусхабардории media.
+/// навсозии статус → нусхабардории media → огоҳии realtime.
 /// </summary>
 public class WebhookProcessor(
     AppDbContext db,
     IChannelProviderFactory factory,
+    IInboxEventPublisher events,
     IConfiguration configuration,
     IWebHostEnvironment env,
     ILogger<WebhookProcessor> logger)
@@ -86,14 +88,31 @@ public class WebhookProcessor(
         if (newMessages.Count == 0)
             return;
 
-        var savedMessages = new List<(Message Message, string MediaExternalId)>();
+        var savedMessages = new List<(Message Message, Conversation Conversation, string? MediaExternalId)>();
         foreach (var group in newMessages.GroupBy(m => m.ConversationExternalId))
             savedMessages.AddRange(await UpsertConversationWithMessagesAsync(channel, group.Key, group.ToList(), ct));
 
         await db.SaveChangesAsync(ct);
 
-        foreach (var (message, mediaExternalId) in savedMessages)
-            await DownloadAndStoreMediaAsync(channel, provider, message, mediaExternalId, ct);
+        foreach (var (message, conversation, mediaExternalId) in savedMessages)
+        {
+            var payload = new
+            {
+                message.Id,
+                message.ConversationId,
+                Direction = message.Direction.ToString(),
+                Type = message.Type.ToString(),
+                message.Body,
+                message.MediaUrl,
+                message.ExternalId,
+                DeliveryStatus = message.DeliveryStatus.ToString(),
+                message.CreatedAt,
+            };
+            await events.MessageReceivedAsync(channel.Id, conversation.AssignedTo, payload, ct);
+
+            if (mediaExternalId is not null)
+                await DownloadAndStoreMediaAsync(channel, provider, message, mediaExternalId, ct);
+        }
     }
 
     private async Task ProcessStatusUpdatesAsync(Channel channel, IChannelProvider provider, JsonElement root, CancellationToken ct)
@@ -149,10 +168,10 @@ public class WebhookProcessor(
         return Path.GetFullPath(basePath);
     }
 
-    private async Task<List<(Message Message, string MediaExternalId)>> UpsertConversationWithMessagesAsync(
+    private async Task<List<(Message Message, Conversation Conversation, string? MediaExternalId)>> UpsertConversationWithMessagesAsync(
         Channel channel, string conversationExternalId, List<ParsedWebhookMessage> messages, CancellationToken ct)
     {
-        var mediaMessages = new List<(Message, string)>();
+        var savedMessages = new List<(Message, Conversation, string?)>();
 
         var conversation = await db.Conversations
             .FirstOrDefaultAsync(c => c.ChannelId == channel.Id && c.ExternalId == conversationExternalId, ct);
@@ -193,9 +212,7 @@ public class WebhookProcessor(
                 CreatedAt = parsed.SentAt,
             };
             db.Messages.Add(message);
-
-            if (parsed.MediaExternalId is not null)
-                mediaMessages.Add((message, parsed.MediaExternalId));
+            savedMessages.Add((message, conversation, parsed.MediaExternalId));
 
             if (parsed.Direction == MessageDirection.Inbound)
                 conversation.UnreadCount += 1;
@@ -207,6 +224,6 @@ public class WebhookProcessor(
 
         conversation.WindowExpiresAt = ConversationWindowCalculator.ComputeExpiresAt(messages, conversation.WindowExpiresAt);
 
-        return mediaMessages;
+        return savedMessages;
     }
 }
