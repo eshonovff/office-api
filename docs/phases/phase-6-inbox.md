@@ -8,13 +8,14 @@
 > endpoint-ҳоро дархост кард (на ҳамаи 6.1-6.18). Иҷрошуда: 6.1, 6.3,
 > 6.4 (бо саҳифабандии `page`/`pageSize`, на cursor — ниг. эзоҳи 6.2),
 > 6.6, 6.8+6.9 (як endpoint-и якҷояи PATCH, на ду ҷудогона), 6.17, 6.18.
-> Иҷронашуда: 6.2 (cursor), 6.5 (board), 6.7 (notes), 6.10 (read),
+> Иҷронашуда (то ҳол): 6.2 (cursor), 6.5 (board), 6.7 (notes),
 > 6.11 (tags), 6.15-6.16 (CRUD-и шаблон — фиристодани шаблон дар 6.6
 > кор мекунад, вале рӯйхати идоракунӣ нест). DoD-и пурра ҳанӯз тасдиқ
-> НАШУДААСТ. **2026-08-09 (навсозӣ): 6.12-6.14 (филтри доступ) илова
-> шуд** — `IChannelAccessGuard`, санҷидашуда бо `curl` (узви канал не →
-> 404/холӣ, узв шуд → намоён, `only_assigned` фаъол ва таъиннашуда →
-> боз 404/холӣ, таъин шуд → намоён).
+> НАШУДААСТ. **Навсозиҳо:** 2026-08-09 — 6.12-6.14 (филтри доступ,
+> `IChannelAccessGuard`) ва 6.10 (`POST .../read`) илова шуданд, ҳарду
+> бо `curl` санҷида шуданд (узви канал не → 404/холӣ; `only_assigned`
+> фаъол ва таъиннашуда → боз 404/холӣ; `read` → паёмҳо `Read`,
+> `unreadCount` → 0).
 
 ## Дарун
 Query-ҳои чат ва паём, статус, таъин бо DnD, ёддошти дохилӣ, тег, шаблон, доступ.
@@ -36,7 +37,7 @@ Query-ҳои чат ва паём, статус, таъин бо DnD, ёддош
 - [ ] 6.7 `POST /api/conversations/{id}/notes` — ёддошти дохилӣ, ба мижоз намеравад
 - [x] 6.8 `PATCH /api/conversations/{id}/status` — амалӣ шуд ҳамчун қисми `PATCH /api/conversations/{id}` (не endpoint-и алоҳида), `inbox.close` барои `closed`
 - [x] 6.9 `PATCH /api/conversations/{id}/assign` — амалӣ шуд ҳамчун қисми `PATCH /api/conversations/{id}` (не endpoint-и алоҳида)
-- [ ] 6.10 `POST /api/conversations/{id}/read` — `unread_count = 0`
+- [x] 6.10 `POST /api/conversations/{id}/read` — паёмҳои воридотӣ → `Read`, `unread_count = 0`, филтри доступ (`inbox.view`)
 - [ ] 6.11 `PUT /api/conversations/{id}/tags`
 
 ### Доступ ⚠️
