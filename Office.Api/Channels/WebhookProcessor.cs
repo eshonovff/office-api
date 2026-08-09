@@ -7,9 +7,15 @@ namespace Office.Api.Channels;
 
 /// <summary>
 /// Job-и Hangfire барои коркарди webhook-и сабтшуда: parse → идентификатсияи
-/// канал → идентификатсияи conversation → идемпотентии паём → upsert.
+/// канал → идентификатсияи conversation → идемпотентии паём → upsert →
+/// навсозии статус → нусхабардории media.
 /// </summary>
-public class WebhookProcessor(AppDbContext db, IChannelProviderFactory factory, ILogger<WebhookProcessor> logger)
+public class WebhookProcessor(
+    AppDbContext db,
+    IChannelProviderFactory factory,
+    IConfiguration configuration,
+    IWebHostEnvironment env,
+    ILogger<WebhookProcessor> logger)
 {
     public async Task ProcessAsync(Guid webhookLogId, CancellationToken ct)
     {
@@ -43,13 +49,14 @@ public class WebhookProcessor(AppDbContext db, IChannelProviderFactory factory, 
         using var document = JsonDocument.Parse(log.RawJson);
         var root = document.RootElement;
 
-        if (!root.TryGetProperty("channelExternalId", out var channelExternalIdElement))
+        var provider = factory.GetProvider(channelType);
+        var channelExternalId = provider.ExtractChannelExternalId(root);
+        if (channelExternalId is null)
         {
-            log.Error = "channelExternalId дар payload нест.";
+            log.Error = "Идентификатсияи канал аз payload баромада натавонист.";
             return;
         }
 
-        var channelExternalId = channelExternalIdElement.GetString();
         var channel = await db.Channels
             .FirstOrDefaultAsync(c => c.Type == channelType && c.ExternalId == channelExternalId, ct);
 
@@ -59,7 +66,12 @@ public class WebhookProcessor(AppDbContext db, IChannelProviderFactory factory, 
             return;
         }
 
-        var provider = factory.GetProvider(channelType);
+        await ProcessNewMessagesAsync(channel, provider, root, ct);
+        await ProcessStatusUpdatesAsync(channel, provider, root, ct);
+    }
+
+    private async Task ProcessNewMessagesAsync(Channel channel, IChannelProvider provider, JsonElement root, CancellationToken ct)
+    {
         var incoming = await provider.ParseWebhookAsync(channel, root, ct);
         if (incoming.Count == 0)
             return;
@@ -74,13 +86,74 @@ public class WebhookProcessor(AppDbContext db, IChannelProviderFactory factory, 
         if (newMessages.Count == 0)
             return;
 
+        var savedMessages = new List<(Message Message, string MediaExternalId)>();
         foreach (var group in newMessages.GroupBy(m => m.ConversationExternalId))
-            await UpsertConversationWithMessagesAsync(channel, group.Key, group.ToList(), ct);
+            savedMessages.AddRange(await UpsertConversationWithMessagesAsync(channel, group.Key, group.ToList(), ct));
+
+        await db.SaveChangesAsync(ct);
+
+        foreach (var (message, mediaExternalId) in savedMessages)
+            await DownloadAndStoreMediaAsync(channel, provider, message, mediaExternalId, ct);
     }
 
-    private async Task UpsertConversationWithMessagesAsync(
+    private async Task ProcessStatusUpdatesAsync(Channel channel, IChannelProvider provider, JsonElement root, CancellationToken ct)
+    {
+        var updates = await provider.ParseStatusUpdatesAsync(channel, root, ct);
+        if (updates.Count == 0)
+            return;
+
+        var externalIds = updates.Select(u => u.MessageExternalId).ToList();
+        var messages = await db.Messages
+            .Where(m => m.ExternalId != null && externalIds.Contains(m.ExternalId))
+            .ToDictionaryAsync(m => m.ExternalId!, ct);
+
+        foreach (var update in updates)
+        {
+            if (messages.TryGetValue(update.MessageExternalId, out var message) && update.Status > message.DeliveryStatus)
+                message.DeliveryStatus = update.Status;
+        }
+    }
+
+    private async Task DownloadAndStoreMediaAsync(
+        Channel channel, IChannelProvider provider, Message message, string mediaExternalId, CancellationToken ct)
+    {
+        try
+        {
+            await using var stream = await provider.DownloadMediaAsync(channel, mediaExternalId, ct);
+
+            var mediaFolder = Path.Combine(ResolveRootPath(), "whatsapp-media", channel.Id.ToString());
+            Directory.CreateDirectory(mediaFolder);
+
+            var storedFileName = Guid.CreateVersion7().ToString();
+            var fullPath = Path.Combine(mediaFolder, storedFileName);
+
+            await using (var fileStream = File.Create(fullPath))
+                await stream.CopyToAsync(fileStream, ct);
+
+            message.MediaUrl = Path.Combine("whatsapp-media", channel.Id.ToString(), storedFileName);
+            await db.SaveChangesAsync(ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Нусхабардории media {MediaExternalId} барои паёми {MessageId} ноком шуд", mediaExternalId, message.Id);
+        }
+    }
+
+    private string ResolveRootPath()
+    {
+        var configured = configuration["Uploads:RootPath"];
+        var basePath = configured is { Length: > 0 }
+            ? (Path.IsPathRooted(configured) ? configured : Path.Combine(env.ContentRootPath, configured))
+            : Path.Combine(env.ContentRootPath, "uploads");
+
+        return Path.GetFullPath(basePath);
+    }
+
+    private async Task<List<(Message Message, string MediaExternalId)>> UpsertConversationWithMessagesAsync(
         Channel channel, string conversationExternalId, List<ParsedWebhookMessage> messages, CancellationToken ct)
     {
+        var mediaMessages = new List<(Message, string)>();
+
         var conversation = await db.Conversations
             .FirstOrDefaultAsync(c => c.ChannelId == channel.Id && c.ExternalId == conversationExternalId, ct);
 
@@ -105,7 +178,7 @@ public class WebhookProcessor(AppDbContext db, IChannelProviderFactory factory, 
 
         foreach (var parsed in messages.OrderBy(m => m.SentAt))
         {
-            db.Messages.Add(new Message
+            var message = new Message
             {
                 Id = Guid.CreateVersion7(),
                 ConversationId = conversation.Id,
@@ -118,7 +191,11 @@ public class WebhookProcessor(AppDbContext db, IChannelProviderFactory factory, 
                     ? MessageDeliveryStatus.Delivered
                     : MessageDeliveryStatus.Sent,
                 CreatedAt = parsed.SentAt,
-            });
+            };
+            db.Messages.Add(message);
+
+            if (parsed.MediaExternalId is not null)
+                mediaMessages.Add((message, parsed.MediaExternalId));
 
             if (parsed.Direction == MessageDirection.Inbound)
                 conversation.UnreadCount += 1;
@@ -128,7 +205,8 @@ public class WebhookProcessor(AppDbContext db, IChannelProviderFactory factory, 
         if (conversation.LastMessageAt is null || lastMessageAt > conversation.LastMessageAt)
             conversation.LastMessageAt = lastMessageAt;
 
-        // Тирезаи 24-соатаи посух — пешфарзи умумӣ, ки провайдерҳо дар фазаи 5/7 мувофиқи қоидаи худ дақиқ мекунанд.
-        conversation.WindowExpiresAt = lastMessageAt.AddHours(24);
+        conversation.WindowExpiresAt = ConversationWindowCalculator.ComputeExpiresAt(messages, conversation.WindowExpiresAt);
+
+        return mediaMessages;
     }
 }

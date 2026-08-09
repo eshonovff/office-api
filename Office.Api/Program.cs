@@ -12,6 +12,7 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.OpenApi;
 using Office.Api.Auth;
 using Office.Api.Channels;
+using Office.Api.Channels.WhatsApp;
 using Office.Api.Common;
 using Office.Api.Data;
 using Office.Api.Features.Auth;
@@ -166,9 +167,11 @@ builder.Services.AddHostedService<DeadlineNotificationBackgroundService>();
 
 builder.Services.AddSingleton<IChannelCredentialsProtector, ChannelCredentialsProtector>();
 builder.Services.AddScoped<PlaceholderChannelProvider>();
+builder.Services.AddHttpClient<WhatsAppProvider>();
 builder.Services.AddScoped<IChannelProviderFactory, ChannelProviderFactory>();
 builder.Services.AddScoped<WebhookProcessor>();
 builder.Services.AddScoped<WebhookLogCleanupJob>();
+builder.Services.AddScoped<WhatsAppSendJob>();
 
 builder.Services.AddHttpClient<ISmsSender, OsonSmsSender>();
 
