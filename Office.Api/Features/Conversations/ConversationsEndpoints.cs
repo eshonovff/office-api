@@ -65,7 +65,54 @@ public static class ConversationsEndpoints
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
+        group.MapPost("/{id:guid}/read", MarkAsReadAsync)
+            .RequirePermission(Permissions.Inbox.View)
+            .WithSummary("Хонда шуд гузоштан — паёмҳои воридотӣ Read, unreadCount = 0")
+            .Produces<ConversationDetail>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
         return app;
+    }
+
+    private static async Task<IResult> MarkAsReadAsync(
+        Guid id,
+        ClaimsPrincipal principal,
+        AppDbContext db,
+        IChannelAccessGuard access,
+        IInboxEventPublisher events,
+        CancellationToken ct)
+    {
+        var conversation = await db.Conversations
+            .Include(c => c.Channel)
+            .Include(c => c.Assignee)
+            .FirstOrDefaultAsync(c => c.Id == id, ct);
+
+        if (conversation is null)
+            return Results.NotFound();
+
+        if (!await access.HasAccessAsync(principal, conversation.ChannelId, conversation.AssignedTo, ct))
+            return Results.NotFound();
+
+        var inboundMessages = await db.Messages
+            .Where(m => m.ConversationId == id && m.Direction == MessageDirection.Inbound)
+            .ToListAsync(ct);
+
+        foreach (var message in inboundMessages.Where(m => UnreadMessageSelector.ShouldMarkAsRead(m.Direction, m.DeliveryStatus)))
+            message.DeliveryStatus = MessageDeliveryStatus.Read;
+
+        conversation.UnreadCount = 0;
+        await db.SaveChangesAsync(ct);
+
+        var dto = ToDetail(conversation);
+
+        // "Read" ба ин 4 event-и мавҷуда мустақим намеғунҷад — ConversationStatusChanged
+        // ҳамчун сигнали умумии "ин чат нав шуд, аз нав кашед" истифода мешавад (payload
+        // ҳамон ConversationDetail-и пурра аст, аз он unreadCount:0-ро фронтенд мебинад).
+        await events.ConversationStatusChangedAsync(conversation.ChannelId, conversation.AssignedTo, dto, ct);
+
+        return Results.Ok(dto);
     }
 
     private static async Task<IResult> UpdateAsync(
