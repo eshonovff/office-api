@@ -8,4 +8,6 @@ public enum MessageType
     Audio,
     File,
     StoryReply,
+    Location,
+    Contact,
 }

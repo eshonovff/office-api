@@ -15,7 +15,7 @@
 | 2 | Проект ва таск | ✅ тамом |
 | 3 | Realtime | ✅ тамом |
 | 4 | Инфраструктураи каналҳо | ✅ тамом |
-| 5 | WhatsApp | ⬜ нашуда |
+| 5 | WhatsApp | 🟡 дар кор — код тайёр, санҷиши зинда бо Meta мемонад |
 | 6 | Инбокс | ⬜ нашуда |
 | 7 | Instagram + Facebook | ⬜ нашуда |
 | 8 | Deploy | ⬜ нашуда |
@@ -58,6 +58,14 @@
 | 2026-08-06 | `UserListItem` (`GET /api/users`) бо тамоми майдонҳои профил (телефон, email, санаи таваллуд, адрес, ҷинсият, avatarUrl, hasContractDocument) пур карда шуд | Пеш танҳо id/fullName/username/isActive/roles дошт — frontend барои ҳар сатри рӯйхат маҷбур мешуд `GET /{id}` алоҳида занад |
 | 2026-08-06 | `docs/employee-sms-api-changes.md` ба репозиторийи `office-web` кӯчонида шуд (корбар худаш кӯчонд) | Ҳуҷҷат барои frontend аст — акнун дар ҳамон репо зинда мемонад, на дар `office-api/docs` |
 | 2026-08-06 | `Age` (int?) ба `UserListItem`/`UserDetail` илова шуд — сервер аз `BirthDate` ҳисоб мекунад (`AgeCalculator`, pure/тестшуда) | Frontend хост, ки синну сол омода бошад, на аз `birthDate` дар frontend ҳисоб карда шавад |
+| 2026-08-07 | Фазаи 5: рақами воқеӣ ҳал нашуд — танҳо рақами тестии ройгони Meta истифода мешавад | Мисли фазаи 8 (Deploy), ин қарор ба оянда гузошта шуд; корбар тасдиқ кард |
+| 2026-08-07 | `Channel.CredentialsEncrypted` (WhatsApp)-и шакли JSON: `{phoneNumberId, wabaId, accessToken}` | Пеш аз ин ягон шакл муайян нашуда буд (як string холӣ); `Webhooks:AppSecret`/`VerifyToken` глобалӣ мемонанд (як Meta App як маротиба) |
+| 2026-08-07 | `IChannelProvider` бо 4 узви нав васеъ шуд: `ExtractChannelExternalId`, `ParseStatusUpdatesAsync`, `SendTemplateAsync`, `GetApprovedTemplatesAsync` | Конвенсияи `channelExternalId`-и фазаи 4 (placeholder) ба структураи воқеии Meta (`metadata.phone_number_id`) мутобиқ карда шуд; статус ва шаблон шаклҳои алоҳида доранд, ба `ParsedWebhookMessage` намеғунҷанд |
+| 2026-08-07 | Мантиқи parse-и WhatsApp (`WhatsAppPayloadParser`) аз `WhatsAppProvider` ҷудо шуд — pure, бе DI | Барои тест бе сохтани тамоми занҷири DB/notification-и провайдер (алгуи `MessageIdempotencyPlanner`/`ConversationWindowCalculator`) |
+| 2026-08-07 | Тирезаи 24-соата (5.8) тавассути худи хатогии Meta (код 131047) муайян мешавад, на санҷиши дастии DB дар провайдер | Meta худаш ин қоидаро татбиқ мекунад — такрор кардани мантиқ дар клиент coupling-и иловагӣ мебуд; `WhatsAppWindowClosedException` ин хатогиро аз дигар хатоҳо фарқ мекунад (барои 5.13 — retry намекунад) |
+| 2026-08-07 | `POST /api/conversations/{id}/messages` (ҷавоб додан аз Inbox) сохта НАШУД — ин вазифаи 6.6 аст | Рӯйхати вазифаҳои фазаи 5 (5.1-5.13) endpoint-и ҷамъиятии фиристодан талаб намекунад; санҷиши DoD тавассути скрипти муваққатӣ (на API-и доимӣ) иҷро мешавад. Корбар тасдиқ кард |
+| 2026-08-07 | Media-и воридотӣ (5.6) дар `whatsapp-media/{channelId}/{guid}` захира мешавад, `Message.MediaUrl` ба ин роҳи нисбӣ ишора мекунад (на URL-и оммавӣ) | Endpoint-и боргирии оммавӣ (`GET /api/messages/{id}/media`) вазифаи фазаи 6 аст — фазаи 5 танҳо файлро нигоҳ медорад |
+| 2026-08-07 | `MessageType` бо `Location`/`Contact` васеъ шуд (миграция лозим нашуд — сутуни string) | Вазифаи 5.3 талаб мекунад, вале enum-и қаблӣ ин ду навъро надошт |
 | 2026-08-08 | Артифактҳои деплой (`Dockerfile`, `docker-compose.prod.yml`, `deploy/nginx/office.nizom.tj.conf`, `deploy.sh`, `docs/deploy-runbook.md`) пеш аз фазаи 8 сохта шуданд — танҳо барои HTTPS-и воқеӣ (webhook-и Meta лозим дорад) | Ngrok/tunnel дар муҳити локалӣ бо шабакаи хеле суст кор накард; корбар VPS-и воқеӣ дошт (дар паҳлӯи NIZOM CRM зинда). Ҳама изолятсия шуд: network/volume/портҳои алоҳида (5100/5435, танҳо 127.0.0.1), конфигурат-и Nginx файли ҷудогона (сайти мавҷуда даст нарасид). Dockerfile-и Alpine-based локалӣ пурра санҷида шуд (build → up → migrations → health) пеш аз супоридан ба корбар |
 
 ## Масъалаҳои кушода

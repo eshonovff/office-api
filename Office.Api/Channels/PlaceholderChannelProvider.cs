@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.Extensions.Configuration;
+using Office.Api.Channels.WhatsApp;
 using Office.Api.Data.Entities;
 
 namespace Office.Api.Channels;
@@ -27,6 +28,12 @@ public class PlaceholderChannelProvider(IConfiguration configuration) : IChannel
         var expected = configuration["Webhooks:VerifyToken"];
         return !string.IsNullOrEmpty(expected) && verifyToken == expected;
     }
+
+    public string? ExtractChannelExternalId(JsonElement payload) =>
+        payload.TryGetProperty("channelExternalId", out var el) ? el.GetString() : null;
+
+    public Task<IReadOnlyList<ParsedStatusUpdate>> ParseStatusUpdatesAsync(Channel channel, JsonElement payload, CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<ParsedStatusUpdate>>([]);
 
     public Task<IReadOnlyList<ParsedWebhookMessage>> ParseWebhookAsync(Channel channel, JsonElement payload, CancellationToken ct)
     {
@@ -69,9 +76,17 @@ public class PlaceholderChannelProvider(IConfiguration configuration) : IChannel
     public Task SendMessageAsync(Channel channel, string conversationExternalId, string body, CancellationToken ct)
         => throw new NotImplementedException("SendMessage дар фазаи 5 (WhatsApp) ва фазаи 7 (Instagram/Facebook) амалӣ мешавад.");
 
+    public Task SendTemplateAsync(
+        Channel channel, string conversationExternalId, string templateName, string languageCode,
+        IReadOnlyList<string> parameters, CancellationToken ct)
+        => throw new NotImplementedException("SendTemplate дар фазаи 5/7 амалӣ мешавад.");
+
     public Task MarkAsReadAsync(Channel channel, string messageExternalId, CancellationToken ct)
         => throw new NotImplementedException("MarkAsRead дар фазаи 5/7 амалӣ мешавад.");
 
     public Task<Stream> DownloadMediaAsync(Channel channel, string mediaExternalId, CancellationToken ct)
         => throw new NotImplementedException("DownloadMedia дар фазаи 5/7 амалӣ мешавад.");
+
+    public Task<IReadOnlyList<WhatsAppTemplateInfo>> GetApprovedTemplatesAsync(Channel channel, CancellationToken ct)
+        => throw new NotImplementedException("GetApprovedTemplates дар фазаи 5/7 амалӣ мешавад.");
 }

@@ -14,4 +14,6 @@ public record ParsedWebhookMessage(
     MessageType Type,
     string? Body,
     string? MediaUrl,
-    DateTimeOffset SentAt);
+    DateTimeOffset SentAt,
+    /// <summary>Media ID-и провайдер (мас. Meta) — агар набошад, ParseWebhookAsync баъд ин баркашида мешавад.</summary>
+    string? MediaExternalId = null);
