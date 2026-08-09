@@ -16,7 +16,7 @@
 | 3 | Realtime | ✅ тамом |
 | 4 | Инфраструктураи каналҳо | ✅ тамом |
 | 5 | WhatsApp | 🟡 фиристодан/қабул дар сервер бо WhatsApp-и воқеӣ тасдиқ шуд; статус/media/тиреза ҳанӯз не |
-| 6 | Инбокс | 🟡 фиристодан/қабул тасдиқ шуд; филтри доступ, notes, tags, CRUD-и шаблон нашудаанд |
+| 6 | Инбокс | 🟡 фиристодан/қабул ва филтри доступ тасдиқ шуд; notes, tags, board, CRUD-и шаблон нашудаанд |
 | 7 | Instagram + Facebook | ⬜ нашуда |
 | 8 | Deploy | ⬜ нашуда |
 
@@ -74,6 +74,7 @@
 | 2026-08-09 | `WebhookProcessor` акнун `IInboxEventPublisher.MessageReceivedAsync`-ро барои ҳар паёми нави воридотӣ фиристад | Бе ин, танҳо ҷавобҳои худи оператор (аз `POST .../messages`) live буданд — паёми воридотии WhatsApp/IG/FB дар frontend то нав кардани саҳифа намоён намешуд |
 | 2026-08-09 | Санҷиши воқеии зинда (на танҳо build/test) тавассути канали Instagram (`PlaceholderChannelProvider`-и фазаи 4) ва webhook-и имзошуда иҷро шуд, на WhatsApp-и воқеӣ | WhatsApp ҳанӯз тунели воқеӣ ба Meta надорад (фазаи 5 санҷиши зиндаашро интизор аст). Placeholder имкон дод тамоми pipeline (webhook → conversation/message → GET/PATCH/POST) бо `curl` санҷида шавад: `webhook_logs.error` холӣ, `window_expires_at` дуруст, PATCH assign+close кор кард, POST reply дар канали бе SendMessage амалисозишуда 500-и интизоршаванда дод (на 200-и бардурӯғ) |
 | 2026-08-09 | Санҷиши зиндаи WhatsApp-и воқеӣ дар сервер (office.nizom.tj): фиристодан ва қабул тасдиқ шуд | Корбар бевосита дар сервер санҷид (deploy-и `docs/deploy-runbook.md`, канали воқеии WhatsApp тавассути `POST /api/channels`). Статуси `delivered`/`read`, нусхабардории media баъди мӯҳлат, ва рафтори тирезаи 24-соата ҳанӯз алоҳида тасдиқ нашудаанд — фазаи 5/6 то ҳол ✅ пурра нест |
+| 2026-08-09 | Филтри доступи 6.12-6.14 (`channel_members`/`only_assigned`) илова шуд: `Office.Api/Common/ConversationAccessResolver.cs` (pure, тестшуда — алгуи `PermissionResolver`) + `ChannelAccessGuard`/`IChannelAccessGuard` (DB-backed, алгуи `ProjectAccessGuard`, як ҷои умумӣ барои ҳамаи 5 endpoint-и Conversations) | `CanSeeAllChannels` = Owner/Admin (ҳамон формулаи `ProjectAccessGuard.CanSeeAllProjects`, permission-и нав илова нашуд). Санҷидашуда бо `curl` бо корманди дуюм (SQL, бе SMS-и воқеӣ): узви канал не → 404/холӣ; узв шуд → намоён; `only_assigned=true` ва таъиннашуда → боз 404/холӣ; таъин шуд → намоён |
 
 ## Масъалаҳои кушода
 
