@@ -54,7 +54,84 @@ public static class ConversationsEndpoints
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict);
 
+        group.MapPatch("/{id:guid}", UpdateAsync)
+            .WithValidation<UpdateConversationRequest>()
+            .RequirePermission(Permissions.Inbox.Assign)
+            .WithSummary("Иваз кардани статус ва/ё корманди таъиншуда — пӯшидан (`Closed`) бо inbox.close иловагӣ")
+            .Produces<ConversationDetail>(StatusCodes.Status200OK)
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
         return app;
+    }
+
+    private static async Task<IResult> UpdateAsync(
+        Guid id,
+        UpdateConversationRequest request,
+        ClaimsPrincipal principal,
+        AppDbContext db,
+        IInboxEventPublisher events,
+        CancellationToken ct)
+    {
+        var conversation = await db.Conversations
+            .Include(c => c.Channel)
+            .Include(c => c.Assignee)
+            .FirstOrDefaultAsync(c => c.Id == id, ct);
+
+        if (conversation is null)
+            return Results.NotFound();
+
+        ConversationStatus? newStatus = null;
+        if (!string.IsNullOrEmpty(request.Status))
+        {
+            newStatus = Enum.Parse<ConversationStatus>(request.Status, ignoreCase: true);
+
+            if (ConversationStatusChangeAuthorizer.RequiresClosePermission(newStatus.Value) &&
+                !principal.HasPermission(Permissions.Inbox.Close))
+            {
+                return Results.Problem(
+                    title: "Иҷозат нест",
+                    detail: "Пӯшидани чат permission-и `inbox.close`-ро металабад.",
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
+        }
+
+        if (request.AssignedTo is not null)
+        {
+            var assigneeExists = await db.Users.AnyAsync(u => u.Id == request.AssignedTo, ct);
+            if (!assigneeExists)
+            {
+                return Results.Problem(
+                    title: "Корбари нодуруст",
+                    detail: "Корманди таъиншуда вуҷуд надорад.",
+                    statusCode: StatusCodes.Status400BadRequest);
+            }
+        }
+
+        var statusChanged = newStatus is not null && newStatus != conversation.Status;
+        var assignmentChanged = request.AssignedTo is not null && request.AssignedTo != conversation.AssignedTo;
+
+        if (newStatus is not null)
+            conversation.Status = newStatus.Value;
+
+        if (request.AssignedTo is not null)
+            conversation.AssignedTo = request.AssignedTo;
+
+        await db.SaveChangesAsync(ct);
+        await db.Entry(conversation).Reference(c => c.Assignee).LoadAsync(ct);
+
+        var dto = ToDetail(conversation);
+
+        if (assignmentChanged)
+            await events.ConversationAssignedAsync(conversation.ChannelId, conversation.AssignedTo, dto, ct);
+
+        if (statusChanged)
+            await events.ConversationStatusChangedAsync(conversation.ChannelId, conversation.AssignedTo, dto, ct);
+
+        return Results.Ok(dto);
     }
 
     private static async Task<IResult> SendMessageAsync(
