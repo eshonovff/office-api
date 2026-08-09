@@ -1,8 +1,12 @@
+using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using Office.Api.Auth;
+using Office.Api.Channels;
+using Office.Api.Channels.WhatsApp;
 using Office.Api.Common;
 using Office.Api.Data;
 using Office.Api.Data.Entities;
+using Office.Api.Realtime;
 using Permissions = Office.Api.Auth.Permissions;
 
 namespace Office.Api.Features.Conversations;
@@ -39,7 +43,87 @@ public static class ConversationsEndpoints
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
+        group.MapPost("/{id:guid}/messages", SendMessageAsync)
+            .WithValidation<SendMessageRequest>()
+            .RequirePermission(Permissions.Inbox.Reply)
+            .WithSummary("Ҷавоб фиристодан — матни озод (тиреза кушода) ё шаблон (тиреза баста)")
+            .Produces<MessageDto>(StatusCodes.Status201Created)
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
+
         return app;
+    }
+
+    private static async Task<IResult> SendMessageAsync(
+        Guid id,
+        SendMessageRequest request,
+        ClaimsPrincipal principal,
+        AppDbContext db,
+        IChannelProviderFactory factory,
+        IInboxEventPublisher events,
+        CancellationToken ct)
+    {
+        var conversation = await db.Conversations.Include(c => c.Channel).FirstOrDefaultAsync(c => c.Id == id, ct);
+        if (conversation is null)
+            return Results.NotFound();
+
+        var isTemplate = !string.IsNullOrEmpty(request.TemplateName);
+        var userId = principal.GetUserId();
+
+        var message = new Message
+        {
+            Id = Guid.CreateVersion7(),
+            ConversationId = conversation.Id,
+            Direction = MessageDirection.Outbound,
+            Type = MessageType.Text,
+            Body = isTemplate ? request.Body ?? $"[шаблон: {request.TemplateName}]" : request.Body,
+            DeliveryStatus = MessageDeliveryStatus.Pending,
+            SentByUserId = userId,
+            CreatedAt = DateTimeOffset.UtcNow,
+        };
+
+        db.Messages.Add(message);
+        await db.SaveChangesAsync(ct);
+
+        var provider = factory.GetProvider(conversation.Channel.Type);
+
+        try
+        {
+            if (isTemplate)
+            {
+                await provider.SendTemplateAsync(
+                    conversation.Channel, conversation.ExternalId, request.TemplateName!,
+                    request.TemplateLanguage ?? "en_US", request.TemplateParameters ?? [], ct);
+            }
+            else
+            {
+                await provider.SendMessageAsync(conversation.Channel, conversation.ExternalId, request.Body!, ct);
+            }
+
+            message.DeliveryStatus = MessageDeliveryStatus.Sent;
+        }
+        catch (WhatsAppWindowClosedException ex)
+        {
+            message.DeliveryStatus = MessageDeliveryStatus.Failed;
+            await db.SaveChangesAsync(ct);
+
+            return Results.Problem(
+                title: "Тирезаи 24-соата баста аст",
+                detail: ex.Message,
+                statusCode: StatusCodes.Status409Conflict);
+        }
+
+        conversation.LastMessageAt = message.CreatedAt;
+        await db.SaveChangesAsync(ct);
+
+        var sender = await db.Users.AsNoTracking().FirstAsync(u => u.Id == userId, ct);
+        var dto = ToMessageDto(message) with { SentByUserName = sender.FullName };
+        await events.MessageSentAsync(conversation.ChannelId, conversation.AssignedTo, dto, ct);
+
+        return Results.Created($"/api/conversations/{id}/messages/{message.Id}", dto);
     }
 
     private static async Task<IResult> ListMessagesAsync(
