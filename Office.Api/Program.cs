@@ -17,6 +17,7 @@ using Office.Api.Common;
 using Office.Api.Data;
 using Office.Api.Features.Auth;
 using Office.Api.Features.Channels;
+using Office.Api.Features.Conversations;
 using Office.Api.Features.Legal;
 using Office.Api.Features.Notifications;
 using Office.Api.Features.Projects;
@@ -225,6 +226,7 @@ app.MapNotificationsEndpoints();
 app.MapChannelsEndpoints();
 app.MapWebhookEndpoints();
 app.MapLegalEndpoints();
+app.MapConversationsEndpoints();
 
 app.MapHub<BoardHub>("/hubs/board");
 app.MapHub<InboxHub>("/hubs/inbox");
