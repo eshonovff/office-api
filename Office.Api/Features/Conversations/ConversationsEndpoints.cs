@@ -31,7 +31,39 @@ public static class ConversationsEndpoints
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
+        group.MapGet("/{id:guid}/messages", ListMessagesAsync)
+            .RequirePermission(Permissions.Inbox.View)
+            .WithSummary("Таърихи паёмҳо — аз нав ба кӯҳна, саҳифабандӣшуда")
+            .Produces<PagedResult<MessageDto>>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
         return app;
+    }
+
+    private static async Task<IResult> ListMessagesAsync(
+        Guid id, int? page, int? pageSize, AppDbContext db, CancellationToken ct)
+    {
+        var conversationExists = await db.Conversations.AsNoTracking().AnyAsync(c => c.Id == id, ct);
+        if (!conversationExists)
+            return Results.NotFound();
+
+        var (resolvedPage, resolvedPageSize) = ResolvePaging(page, pageSize);
+
+        var query = db.Messages.AsNoTracking()
+            .Include(m => m.SentByUser)
+            .Where(m => m.ConversationId == id);
+
+        var totalCount = await query.CountAsync(ct);
+        var messages = await query
+            .OrderByDescending(m => m.CreatedAt)
+            .Skip((resolvedPage - 1) * resolvedPageSize)
+            .Take(resolvedPageSize)
+            .ToListAsync(ct);
+
+        var items = messages.Select(ToMessageDto).ToList();
+        return Results.Ok(new PagedResult<MessageDto>(items, totalCount, resolvedPage, resolvedPageSize));
     }
 
     private static async Task<IResult> ListAsync(
@@ -113,4 +145,9 @@ public static class ConversationsEndpoints
         c.Id, c.ChannelId, c.Channel.Type.ToString(), c.Channel.Name, c.ExternalId,
         c.ContactName, c.ContactAvatarUrl, c.Status.ToString(), c.AssignedTo, c.Assignee?.FullName,
         c.LastMessageAt, c.UnreadCount, c.WindowExpiresAt, c.CreatedAt);
+
+    private static MessageDto ToMessageDto(Message m) => new(
+        m.Id, m.ConversationId, m.Direction.ToString(), m.Type.ToString(), m.Body, m.MediaUrl,
+        m.ExternalId, m.DeliveryStatus.ToString(), m.IsInternalNote, m.SentByUserId, m.SentByUser?.FullName,
+        m.CreatedAt);
 }
