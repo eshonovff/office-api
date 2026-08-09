@@ -15,8 +15,8 @@
 | 2 | Проект ва таск | ✅ тамом |
 | 3 | Realtime | ✅ тамом |
 | 4 | Инфраструктураи каналҳо | ✅ тамом |
-| 5 | WhatsApp | 🟡 дар кор — код тайёр, санҷиши зинда бо Meta мемонад |
-| 6 | Инбокс | 🟡 дар кор — қисман (ниг. эзоҳи `docs/phases/phase-6-inbox.md`) |
+| 5 | WhatsApp | 🟡 фиристодан/қабул дар сервер бо WhatsApp-и воқеӣ тасдиқ шуд; статус/media/тиреза ҳанӯз не |
+| 6 | Инбокс | 🟡 фиристодан/қабул тасдиқ шуд; филтри доступ, notes, tags, CRUD-и шаблон нашудаанд |
 | 7 | Instagram + Facebook | ⬜ нашуда |
 | 8 | Deploy | ⬜ нашуда |
 
@@ -73,6 +73,7 @@
 | 2026-08-09 | `WhatsAppWindowClosedException` (аз `Office.Api.Channels.WhatsApp`) мустақим дар `ConversationsEndpoints` дастгирӣ мешавад → 409 | Корбар бевосита хост; coupling-и провайдер-мушаххас ба қабати generic-и Conversations қабулшуда аст, чунки тирезаи 24-соата мафҳуми хосси WhatsApp/Meta аст |
 | 2026-08-09 | `WebhookProcessor` акнун `IInboxEventPublisher.MessageReceivedAsync`-ро барои ҳар паёми нави воридотӣ фиристад | Бе ин, танҳо ҷавобҳои худи оператор (аз `POST .../messages`) live буданд — паёми воридотии WhatsApp/IG/FB дар frontend то нав кардани саҳифа намоён намешуд |
 | 2026-08-09 | Санҷиши воқеии зинда (на танҳо build/test) тавассути канали Instagram (`PlaceholderChannelProvider`-и фазаи 4) ва webhook-и имзошуда иҷро шуд, на WhatsApp-и воқеӣ | WhatsApp ҳанӯз тунели воқеӣ ба Meta надорад (фазаи 5 санҷиши зиндаашро интизор аст). Placeholder имкон дод тамоми pipeline (webhook → conversation/message → GET/PATCH/POST) бо `curl` санҷида шавад: `webhook_logs.error` холӣ, `window_expires_at` дуруст, PATCH assign+close кор кард, POST reply дар канали бе SendMessage амалисозишуда 500-и интизоршаванда дод (на 200-и бардурӯғ) |
+| 2026-08-09 | Санҷиши зиндаи WhatsApp-и воқеӣ дар сервер (office.nizom.tj): фиристодан ва қабул тасдиқ шуд | Корбар бевосита дар сервер санҷид (deploy-и `docs/deploy-runbook.md`, канали воқеии WhatsApp тавассути `POST /api/channels`). Статуси `delivered`/`read`, нусхабардории media баъди мӯҳлат, ва рафтори тирезаи 24-соата ҳанӯз алоҳида тасдиқ нашудаанд — фазаи 5/6 то ҳол ✅ пурра нест |
 
 ## Масъалаҳои кушода
 
