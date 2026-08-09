@@ -2,9 +2,9 @@
 
 > Агент: ин файлро баъди ҳар фаза нав кун.
 
-**Фазаи ҷорӣ:** `phase-5-whatsapp`
+**Фазаи ҷорӣ:** `phase-6-inbox`
 **Ветка:** `dev`
-**Санаи навсозӣ:** 2026-08-06
+**Санаи навсозӣ:** 2026-08-09
 
 ## Ҳолати фазаҳо
 
@@ -16,7 +16,7 @@
 | 3 | Realtime | ✅ тамом |
 | 4 | Инфраструктураи каналҳо | ✅ тамом |
 | 5 | WhatsApp | 🟡 дар кор — код тайёр, санҷиши зинда бо Meta мемонад |
-| 6 | Инбокс | ⬜ нашуда |
+| 6 | Инбокс | 🟡 дар кор — қисман (ниг. эзоҳи `docs/phases/phase-6-inbox.md`) |
 | 7 | Instagram + Facebook | ⬜ нашуда |
 | 8 | Deploy | ⬜ нашуда |
 
@@ -67,6 +67,12 @@
 | 2026-08-07 | Media-и воридотӣ (5.6) дар `whatsapp-media/{channelId}/{guid}` захира мешавад, `Message.MediaUrl` ба ин роҳи нисбӣ ишора мекунад (на URL-и оммавӣ) | Endpoint-и боргирии оммавӣ (`GET /api/messages/{id}/media`) вазифаи фазаи 6 аст — фазаи 5 танҳо файлро нигоҳ медорад |
 | 2026-08-07 | `MessageType` бо `Location`/`Contact` васеъ шуд (миграция лозим нашуд — сутуни string) | Вазифаи 5.3 талаб мекунад, вале enum-и қаблӣ ин ду навъро надошт |
 | 2026-08-08 | Артифактҳои деплой (`Dockerfile`, `docker-compose.prod.yml`, `deploy/nginx/office.nizom.tj.conf`, `deploy.sh`, `docs/deploy-runbook.md`) пеш аз фазаи 8 сохта шуданд — танҳо барои HTTPS-и воқеӣ (webhook-и Meta лозим дорад) | Ngrok/tunnel дар муҳити локалӣ бо шабакаи хеле суст кор накард; корбар VPS-и воқеӣ дошт (дар паҳлӯи NIZOM CRM зинда). Ҳама изолятсия шуд: network/volume/портҳои алоҳида (5100/5435, танҳо 127.0.0.1), конфигурат-и Nginx файли ҷудогона (сайти мавҷуда даст нарасид). Dockerfile-и Alpine-based локалӣ пурра санҷида шуд (build → up → migrations → health) пеш аз супоридан ба корбар |
+| 2026-08-09 | Фазаи 6: танҳо зерфаҳриcти endpoint-ҳои дархостшуда сохта шуд (6.1, 6.3, 6.4, 6.6, 6.8+6.9, 6.17, 6.18) | Корбар бевосита рӯйхати маҳдудро дод, на ҳамаи 6.1-6.18. Боқимонда (6.2 cursor, 6.5 board, 6.7 notes, 6.10 read, 6.11 tags, 6.12-6.14 доступ, 6.15-6.16 CRUD-и шаблон) ба давраи оянда гузошта шуд — дар `docs/phases/phase-6-inbox.md` возеҳ сабт шуд |
+| 2026-08-09 | Саҳифабандии `GET /api/conversations`/`.../messages` — `page`/`pageSize` (offset), на cursor | Дар кулли backend ҳеҷ ҷо алгуи cursor pagination мавҷуд набуд (Notifications/Comments `.Take(N)`-и оддӣ истифода мебаранд); offset содда ва мутобиқи услуби мавҷуда аст |
+| 2026-08-09 | `PATCH /api/conversations/{id}/status` ва `.../assign`-и 6.8/6.9 ба **як** `PATCH /api/conversations/{id}` муттаҳид шуданд | Дархости корбар айнан ҳамин тавр буд ("change status and assigned user" — як PATCH). Пойгоҳи умумӣ `inbox.assign`; агар статус ба `Closed` иваз шавад, дохили handler санҷиши иловагии `inbox.close` тавассути `ClaimsPrincipal.HasPermission`-и нав иҷро мешавад |
+| 2026-08-09 | `WhatsAppWindowClosedException` (аз `Office.Api.Channels.WhatsApp`) мустақим дар `ConversationsEndpoints` дастгирӣ мешавад → 409 | Корбар бевосита хост; coupling-и провайдер-мушаххас ба қабати generic-и Conversations қабулшуда аст, чунки тирезаи 24-соата мафҳуми хосси WhatsApp/Meta аст |
+| 2026-08-09 | `WebhookProcessor` акнун `IInboxEventPublisher.MessageReceivedAsync`-ро барои ҳар паёми нави воридотӣ фиристад | Бе ин, танҳо ҷавобҳои худи оператор (аз `POST .../messages`) live буданд — паёми воридотии WhatsApp/IG/FB дар frontend то нав кардани саҳифа намоён намешуд |
+| 2026-08-09 | Санҷиши воқеии зинда (на танҳо build/test) тавассути канали Instagram (`PlaceholderChannelProvider`-и фазаи 4) ва webhook-и имзошуда иҷро шуд, на WhatsApp-и воқеӣ | WhatsApp ҳанӯз тунели воқеӣ ба Meta надорад (фазаи 5 санҷиши зиндаашро интизор аст). Placeholder имкон дод тамоми pipeline (webhook → conversation/message → GET/PATCH/POST) бо `curl` санҷида шавад: `webhook_logs.error` холӣ, `window_expires_at` дуруст, PATCH assign+close кор кард, POST reply дар канали бе SendMessage амалисозишуда 500-и интизоршаванда дод (на 200-и бардурӯғ) |
 
 ## Масъалаҳои кушода
 
