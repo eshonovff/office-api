@@ -15,6 +15,7 @@ using Office.Api.Channels;
 using Office.Api.Channels.WhatsApp;
 using Office.Api.Common;
 using Office.Api.Data;
+using Office.Api.Media;
 using Office.Api.Features.Auth;
 using Office.Api.Features.Channels;
 using Office.Api.Features.Conversations;
@@ -171,6 +172,7 @@ builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddHostedService<DeadlineNotificationBackgroundService>();
 
 builder.Services.AddSingleton<IChannelCredentialsProtector, ChannelCredentialsProtector>();
+builder.Services.AddSingleton<IMediaProcessor, FfmpegMediaProcessor>();
 builder.Services.AddScoped<PlaceholderChannelProvider>();
 builder.Services.AddHttpClient<WhatsAppProvider>();
 builder.Services.AddScoped<IChannelProviderFactory, ChannelProviderFactory>();
