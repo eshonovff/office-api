@@ -14,6 +14,11 @@ public class MessageConfiguration : IEntityTypeConfiguration<Message>
         builder.Property(m => m.Type).HasConversion<string>().HasMaxLength(20);
         builder.Property(m => m.DeliveryStatus).HasConversion<string>().HasMaxLength(20);
         builder.Property(m => m.ExternalId).HasMaxLength(200);
+        builder.Property(m => m.MimeType).HasMaxLength(100);
+        builder.Property(m => m.OriginalFileName).HasMaxLength(300);
+        builder.Property(m => m.MediaExternalId).HasMaxLength(200);
+        builder.Property(m => m.ThumbnailUrl).HasMaxLength(500);
+        builder.Property(m => m.MediaDownloadError).HasMaxLength(1000);
 
         builder.HasOne(m => m.Conversation)
             .WithMany(c => c.Messages)

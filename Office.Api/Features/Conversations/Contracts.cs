@@ -44,7 +44,14 @@ public record MessageDto(
     bool IsInternalNote,
     Guid? SentByUserId,
     string? SentByUserName,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt,
+    string? MimeType,
+    long? SizeBytes,
+    string? OriginalFileName,
+    int? VoiceDurationSeconds,
+    string? ThumbnailUrl,
+    DateTimeOffset? MediaDeletedAt,
+    string? MediaDownloadError);
 
 public record PagedResult<T>(IReadOnlyList<T> Items, int TotalCount, int Page, int PageSize);
 

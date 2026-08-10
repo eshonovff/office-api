@@ -383,5 +383,6 @@ public static class ConversationsEndpoints
     private static MessageDto ToMessageDto(Message m) => new(
         m.Id, m.ConversationId, m.Direction.ToString(), m.Type.ToString(), m.Body, m.MediaUrl,
         m.ExternalId, m.DeliveryStatus.ToString(), m.IsInternalNote, m.SentByUserId, m.SentByUser?.FullName,
-        m.CreatedAt);
+        m.CreatedAt, m.MimeType, m.SizeBytes, m.OriginalFileName, m.VoiceDurationSeconds, m.ThumbnailUrl,
+        m.MediaDeletedAt, m.MediaDownloadError);
 }

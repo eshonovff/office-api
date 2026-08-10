@@ -15,6 +15,15 @@ public class Message
     public MessageDeliveryStatus DeliveryStatus { get; set; } = MessageDeliveryStatus.Pending;
     public bool IsInternalNote { get; set; }
 
+    public string? MimeType { get; set; }
+    public long? SizeBytes { get; set; }
+    public string? OriginalFileName { get; set; }
+    public string? MediaExternalId { get; set; }
+    public int? VoiceDurationSeconds { get; set; }
+    public string? ThumbnailUrl { get; set; }
+    public DateTimeOffset? MediaDeletedAt { get; set; }
+    public string? MediaDownloadError { get; set; }
+
     public Guid? SentByUserId { get; set; }
     public User? SentByUser { get; set; }
 
