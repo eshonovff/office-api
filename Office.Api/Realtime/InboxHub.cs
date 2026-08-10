@@ -5,7 +5,7 @@ using Office.Api.Common;
 namespace Office.Api.Realtime;
 
 [Authorize]
-public class InboxHub : Hub
+public class InboxHub(IChannelAccessGuard access) : Hub
 {
     public static string UserGroupName(Guid userId) => $"user:{userId}";
 
@@ -18,11 +18,21 @@ public class InboxHub : Hub
         await base.OnConnectedAsync();
     }
 
-    // Канал ва channel_members ҳанӯз вуҷуд надоранд (фазаи 4). Ин методи омодагӣ
-    // барои фазаи 6 аст — санҷиши узвияти канал баъдтар, ҳамон замон ки Channel
-    // entity сохта мешавад, ба ин ҷо илова мешавад.
+    /// <summary>
+    /// Ҳамон санҷиши IChannelAccessGuard-и REST endpoint-ҳо (ChannelMembers/Owner-Admin) —
+    /// вагарна ягон корбари воридшуда метавонист ба ягон channelId ҳамроҳ шавад ва ҷараёни
+    /// пурраи паёмҳои он каналро гирад. `assignedTo: null` қасдан аст: ин гурӯҳ тамоми
+    /// сӯҳбатҳои каналро мебарорад (на якеро), пас корбари `only_assigned` набояд ҳамроҳ
+    /// шавад — ӯ паёмҳои ба худаш таъиншударо тавассути гурӯҳи `user:{id}` (ҳамеша дар
+    /// OnConnectedAsync ҳамроҳшуда) мегирад.
+    /// HubException (на Context.Abort()) — рад як JoinChannel набояд пайвасти пурраро
+    /// қатъ кунад, зеро як connection метавонад якчанд канали дигарро дуруст ҳамроҳ шуда бошад.
+    /// </summary>
     public async Task JoinChannel(Guid channelId)
     {
+        if (!await access.HasAccessAsync(Context.User!, channelId, assignedTo: null, Context.ConnectionAborted))
+            throw new HubException("Дастрасӣ ба ин канал нест.");
+
         await Groups.AddToGroupAsync(Context.ConnectionId, ChannelGroupName(channelId));
     }
 }
