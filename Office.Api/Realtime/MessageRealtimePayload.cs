@@ -3,10 +3,11 @@ using Office.Api.Data.Entities;
 namespace Office.Api.Realtime;
 
 /// <summary>
-/// Шакли паёми воридотӣ барои event-ҳои MessageReceived — pure, бе DB/HTTP, то тавон
-/// шаклбандии URL-ро (masalan roҳи захира → endpoint) ҷудо тест кард.
+/// Шакли ягонаи паём барои event-ҳои realtime (MessageReceived — воридотӣ ва боркунии
+/// баъдинаи медиа; MessageSent — навсозии статуси расониш) — pure, бе DB/HTTP, то тавон
+/// шаклбандии URL-ро (масалан роҳи захира → endpoint) ҷудо тест кард.
 /// </summary>
-public record InboundMessagePayload(
+public record MessageRealtimePayload(
     Guid Id,
     Guid ConversationId,
     string Direction,
@@ -23,7 +24,7 @@ public record InboundMessagePayload(
     string DeliveryStatus,
     DateTimeOffset CreatedAt)
 {
-    public static InboundMessagePayload FromEntity(Message message) => new(
+    public static MessageRealtimePayload FromEntity(Message message) => new(
         message.Id,
         message.ConversationId,
         message.Direction.ToString(),

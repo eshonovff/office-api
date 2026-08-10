@@ -93,7 +93,7 @@ public class MediaDownloadJob(
     /// </summary>
     private Task PublishAsync(Message message, CancellationToken ct) =>
         events.MessageReceivedAsync(
-            message.Conversation.ChannelId, message.Conversation.AssignedTo, InboundMessagePayload.FromEntity(message), ct);
+            message.Conversation.ChannelId, message.Conversation.AssignedTo, MessageRealtimePayload.FromEntity(message), ct);
 
     private async Task<string?> TryGenerateThumbnailAsync(string fullPath, string mediaFolder, Guid channelId, Guid messageId, CancellationToken ct)
     {

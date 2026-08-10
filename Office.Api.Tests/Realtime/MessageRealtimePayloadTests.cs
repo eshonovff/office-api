@@ -3,7 +3,7 @@ using Office.Api.Realtime;
 
 namespace Office.Api.Tests.Realtime;
 
-public class InboundMessagePayloadTests
+public class MessageRealtimePayloadTests
 {
     private static Message CreateMessage(Guid id) => new()
     {
@@ -20,7 +20,7 @@ public class InboundMessagePayloadTests
     {
         var message = CreateMessage(Guid.NewGuid());
 
-        var payload = InboundMessagePayload.FromEntity(message);
+        var payload = MessageRealtimePayload.FromEntity(message);
 
         Assert.Null(payload.MediaUrl);
         Assert.Null(payload.ThumbnailUrl);
@@ -33,7 +33,7 @@ public class InboundMessagePayloadTests
         var message = CreateMessage(id);
         message.MediaUrl = "whatsapp-media/some-channel/019feb.jpg";
 
-        var payload = InboundMessagePayload.FromEntity(message);
+        var payload = MessageRealtimePayload.FromEntity(message);
 
         Assert.Equal($"/api/messages/{id}/media", payload.MediaUrl);
         Assert.DoesNotContain("whatsapp-media", payload.MediaUrl);
@@ -46,7 +46,7 @@ public class InboundMessagePayloadTests
         var message = CreateMessage(id);
         message.ThumbnailUrl = "whatsapp-media/some-channel/019feb_thumb.jpg";
 
-        var payload = InboundMessagePayload.FromEntity(message);
+        var payload = MessageRealtimePayload.FromEntity(message);
 
         Assert.Equal($"/api/messages/{id}/thumbnail", payload.ThumbnailUrl);
     }
@@ -57,7 +57,7 @@ public class InboundMessagePayloadTests
         var message = CreateMessage(Guid.NewGuid());
         message.MediaDownloadError = "timed out after 5 retries";
 
-        var payload = InboundMessagePayload.FromEntity(message);
+        var payload = MessageRealtimePayload.FromEntity(message);
 
         Assert.Equal("timed out after 5 retries", payload.MediaDownloadError);
         Assert.Null(payload.MediaUrl);
@@ -72,7 +72,7 @@ public class InboundMessagePayloadTests
         message.DeliveryStatus = MessageDeliveryStatus.Read;
         message.VoiceDurationSeconds = 7;
 
-        var payload = InboundMessagePayload.FromEntity(message);
+        var payload = MessageRealtimePayload.FromEntity(message);
 
         Assert.Equal("Audio", payload.Type);
         Assert.Equal("Inbound", payload.Direction);

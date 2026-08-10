@@ -123,13 +123,31 @@ public class WebhookProcessor(
 
         var externalIds = updates.Select(u => u.MessageExternalId).ToList();
         var messages = await db.Messages
+            .Include(m => m.Conversation)
             .Where(m => m.ExternalId != null && externalIds.Contains(m.ExternalId))
             .ToDictionaryAsync(m => m.ExternalId!, ct);
 
+        var changedMessages = new List<Message>();
         foreach (var update in updates)
         {
             if (messages.TryGetValue(update.MessageExternalId, out var message) && update.Status > message.DeliveryStatus)
+            {
                 message.DeliveryStatus = update.Status;
+                changedMessages.Add(message);
+            }
+        }
+
+        if (changedMessages.Count == 0)
+            return;
+
+        await db.SaveChangesAsync(ct);
+
+        // sent/delivered/read/failed — тамоми "тик"-ҳое, ки WhatsApp UI нишон медиҳад,
+        // на танҳо delivered/read; коди зерин фарқ намекунад, пас ҳама якхела ирсол мешаванд.
+        foreach (var message in changedMessages)
+        {
+            await events.MessageSentAsync(
+                channel.Id, message.Conversation.AssignedTo, MessageRealtimePayload.FromEntity(message), ct);
         }
     }
 
