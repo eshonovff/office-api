@@ -16,6 +16,16 @@ public static class WhatsAppPayloadParser
             ? idEl.GetString()
             : null;
 
+    /// <summary>Wamid аз response-и `POST /messages` (матн, шаблон ё медиа) — то навсозиҳои статус (delivered/read) ба паём мувофиқ оянд.</summary>
+    public static string? ExtractSentMessageId(string responseBody)
+    {
+        using var doc = JsonDocument.Parse(responseBody);
+        return doc.RootElement.TryGetProperty("messages", out var messagesEl) && messagesEl.ValueKind == JsonValueKind.Array &&
+               messagesEl.GetArrayLength() > 0 && messagesEl[0].TryGetProperty("id", out var idEl)
+            ? idEl.GetString()
+            : null;
+    }
+
     public static IReadOnlyList<ParsedWebhookMessage> ParseMessages(JsonElement payload)
     {
         var result = new List<ParsedWebhookMessage>();

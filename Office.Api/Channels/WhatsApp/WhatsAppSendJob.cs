@@ -31,7 +31,7 @@ public class WhatsAppSendJob(AppDbContext db, IChannelProviderFactory factory, I
 
         try
         {
-            await provider.SendMessageAsync(channel, message.Conversation.ExternalId, message.Body ?? string.Empty, ct);
+            message.ExternalId = await provider.SendMessageAsync(channel, message.Conversation.ExternalId, message.Body ?? string.Empty, ct);
             message.DeliveryStatus = MessageDeliveryStatus.Sent;
             await db.SaveChangesAsync(ct);
         }

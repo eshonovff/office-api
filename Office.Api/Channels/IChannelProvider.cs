@@ -22,10 +22,11 @@ public interface IChannelProvider
     /// <summary>Табдили JSON-и хоми webhook ба навсозиҳои статуси расониш (sent/delivered/read/failed).</summary>
     Task<IReadOnlyList<ParsedStatusUpdate>> ParseStatusUpdatesAsync(Channel channel, JsonElement payload, CancellationToken ct);
 
-    Task SendMessageAsync(Channel channel, string conversationExternalId, string body, CancellationToken ct);
+    /// <summary>Wamid-ро бармегардонад (агар дастрас бошад), то навсозиҳои статус (delivered/read) ба паём мувофиқ оянд.</summary>
+    Task<string?> SendMessageAsync(Channel channel, string conversationExternalId, string body, CancellationToken ct);
 
-    /// <summary>Фиристодани шаблони тасдиқшуда (берун аз тирезаи 24-соата кор мекунад).</summary>
-    Task SendTemplateAsync(
+    /// <summary>Фиристодани шаблони тасдиқшуда (берун аз тирезаи 24-соата кор мекунад). Wamid-ро бармегардонад.</summary>
+    Task<string?> SendTemplateAsync(
         Channel channel, string conversationExternalId, string templateName, string languageCode,
         IReadOnlyList<string> parameters, CancellationToken ct);
 

@@ -24,6 +24,31 @@ public class WhatsAppPayloadParserTests
     }
 
     [Fact]
+    public void ExtractSentMessageId_ValidSendResponse_ReturnsWamid()
+    {
+        const string responseBody = """
+            {"messaging_product":"whatsapp","contacts":[{"input":"992706666149","wa_id":"992706666149"}],
+             "messages":[{"id":"wamid.HBgMOTkyNzA2NjY2MTQ5FQIAERgSOUU1NEEzNjg0RURGRDczQzhBAA=="}]}
+            """;
+
+        Assert.Equal("wamid.HBgMOTkyNzA2NjY2MTQ5FQIAERgSOUU1NEEzNjg0RURGRDczQzhBAA==", WhatsAppPayloadParser.ExtractSentMessageId(responseBody));
+    }
+
+    [Fact]
+    public void ExtractSentMessageId_EmptyMessagesArray_ReturnsNull()
+    {
+        const string responseBody = """{"messaging_product":"whatsapp","contacts":[],"messages":[]}""";
+        Assert.Null(WhatsAppPayloadParser.ExtractSentMessageId(responseBody));
+    }
+
+    [Fact]
+    public void ExtractSentMessageId_NoMessagesField_ReturnsNull()
+    {
+        const string responseBody = """{"messaging_product":"whatsapp"}""";
+        Assert.Null(WhatsAppPayloadParser.ExtractSentMessageId(responseBody));
+    }
+
+    [Fact]
     public void ParseMessages_TextMessage_ReturnsSingleMessage()
     {
         using var doc = JsonDocument.Parse("""
