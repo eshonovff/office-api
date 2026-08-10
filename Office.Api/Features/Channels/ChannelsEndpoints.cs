@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using Office.Api.Auth;
 using Office.Api.Channels;
@@ -19,6 +20,13 @@ public static class ChannelsEndpoints
             .RequirePermission(Permissions.Channels.Manage)
             .WithSummary("Рӯйхати каналҳо")
             .Produces<IEnumerable<ChannelListItem>>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden);
+
+        group.MapGet("/mine", ListMineAsync)
+            .RequirePermission(Permissions.Inbox.View)
+            .WithSummary("Рӯйхати каналҳое, ки корбар барои Inbox дастрасӣ дорад — на channels.manage, барои JoinChannel-и realtime")
+            .Produces<IEnumerable<ChannelSummary>>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden);
 
@@ -84,6 +92,14 @@ public static class ChannelsEndpoints
     {
         var channels = await db.Channels.AsNoTracking().OrderBy(c => c.Name).ToListAsync(ct);
         return Results.Ok(channels.Select(ToListItem));
+    }
+
+    private static async Task<IResult> ListMineAsync(
+        ClaimsPrincipal principal, AppDbContext db, IChannelAccessGuard access, CancellationToken ct)
+    {
+        var query = await access.ApplyChannelAccessFilterAsync(db.Channels.AsNoTracking(), principal, ct);
+        var channels = await query.OrderBy(c => c.Name).ToListAsync(ct);
+        return Results.Ok(channels.Select(ToSummary));
     }
 
     private static async Task<IResult> GetAsync(Guid id, AppDbContext db, CancellationToken ct)
@@ -194,6 +210,9 @@ public static class ChannelsEndpoints
 
     private static ChannelListItem ToListItem(Channel channel) => new(
         channel.Id, channel.Type.ToString(), channel.Name, channel.ExternalId, channel.IsActive, channel.CreatedAt);
+
+    private static ChannelSummary ToSummary(Channel channel) => new(
+        channel.Id, channel.Type.ToString(), channel.Name, channel.IsActive);
 
     private static ChannelDetail ToDetail(Channel channel) => new(
         channel.Id,
