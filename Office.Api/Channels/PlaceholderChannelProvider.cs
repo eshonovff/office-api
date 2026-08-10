@@ -87,6 +87,14 @@ public class PlaceholderChannelProvider(IConfiguration configuration) : IChannel
     public Task<Stream> DownloadMediaAsync(Channel channel, string mediaExternalId, CancellationToken ct)
         => throw new NotImplementedException("DownloadMedia дар фазаи 5/7 амалӣ мешавад.");
 
+    public Task<string> UploadMediaAsync(Channel channel, Stream content, string mimeType, string fileName, CancellationToken ct)
+        => throw new NotImplementedException("UploadMedia дар фазаи 5/7 амалӣ мешавад.");
+
+    public Task<string?> SendMediaMessageAsync(
+        Channel channel, string conversationExternalId, string mediaExternalId, MessageType type,
+        string? caption, bool isVoiceNote, CancellationToken ct)
+        => throw new NotImplementedException("SendMediaMessage дар фазаи 5/7 амалӣ мешавад.");
+
     public Task<IReadOnlyList<WhatsAppTemplateInfo>> GetApprovedTemplatesAsync(Channel channel, CancellationToken ct)
         => throw new NotImplementedException("GetApprovedTemplates дар фазаи 5/7 амалӣ мешавад.");
 }

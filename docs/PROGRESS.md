@@ -4,7 +4,7 @@
 
 **Фазаи ҷорӣ:** `phase-6-inbox`
 **Ветка:** `dev`
-**Санаи навсозӣ:** 2026-08-09
+**Санаи навсозӣ:** 2026-08-10
 
 ## Ҳолати фазаҳо
 
@@ -15,7 +15,7 @@
 | 2 | Проект ва таск | ✅ тамом |
 | 3 | Realtime | ✅ тамом |
 | 4 | Инфраструктураи каналҳо | ✅ тамом |
-| 5 | WhatsApp | 🟡 фиристодан/қабул дар сервер бо WhatsApp-и воқеӣ тасдиқ шуд; статус/media/тиреза ҳанӯз не |
+| 5 | WhatsApp | 🟡 фиристодан/қабул, media (расм/овоз/voice note/ҳуҷҷат) дар сервер бо WhatsApp-и воқеӣ тасдиқ шуд; статус/тиреза ҳанӯз не |
 | 6 | Инбокс | 🟡 фиристодан/қабул, филтри доступ, mark-as-read тасдиқ шуд; notes, tags, board, CRUD-и шаблон нашудаанд |
 | 7 | Instagram + Facebook | ⬜ нашуда |
 | 8 | Deploy | ⬜ нашуда |
@@ -76,6 +76,13 @@
 | 2026-08-09 | Санҷиши зиндаи WhatsApp-и воқеӣ дар сервер (office.nizom.tj): фиристодан ва қабул тасдиқ шуд | Корбар бевосита дар сервер санҷид (deploy-и `docs/deploy-runbook.md`, канали воқеии WhatsApp тавассути `POST /api/channels`). Статуси `delivered`/`read`, нусхабардории media баъди мӯҳлат, ва рафтори тирезаи 24-соата ҳанӯз алоҳида тасдиқ нашудаанд — фазаи 5/6 то ҳол ✅ пурра нест |
 | 2026-08-09 | Филтри доступи 6.12-6.14 (`channel_members`/`only_assigned`) илова шуд: `Office.Api/Common/ConversationAccessResolver.cs` (pure, тестшуда — алгуи `PermissionResolver`) + `ChannelAccessGuard`/`IChannelAccessGuard` (DB-backed, алгуи `ProjectAccessGuard`, як ҷои умумӣ барои ҳамаи 5 endpoint-и Conversations) | `CanSeeAllChannels` = Owner/Admin (ҳамон формулаи `ProjectAccessGuard.CanSeeAllProjects`, permission-и нав илова нашуд). Санҷидашуда бо `curl` бо корманди дуюм (SQL, бе SMS-и воқеӣ): узви канал не → 404/холӣ; узв шуд → намоён; `only_assigned=true` ва таъиннашуда → боз 404/холӣ; таъин шуд → намоён |
 | 2026-08-09 | 6.10 `POST /api/conversations/{id}/read` илова шуд — паёмҳои воридотии `Read`-нашуда → `Read`, `unreadCount` → 0, permission `inbox.view`, ҳамон `ChannelAccessGuard` | Event-и мавҷуда барои "read" мустақим намеғунҷад (4-тои `IInboxEventPublisher` танҳо MessageReceived/Sent/Assigned/StatusChanged); `ConversationStatusChangedAsync` ҳамчун сигнали умумии "чат нав шуд" такрор истифода шуд (payload = `ConversationDetail`-и пурра бо `unreadCount:0`) — event-и нав илова накардам |
+| 2026-08-10 | Дастгирии пурраи media-и Inbox (қабул/фиристодан/нигоҳдорӣ) — на дар рӯйхати рақамдори фазаи 5/6, вазифаи алоҳидаи корбар | Корбар бевосита хост: боркунии боэътимоди media-и воридотӣ, фиристодани замима/voice note, тозакунии худкор. Ҳамаи 10 commit дар `feat/inbox-media` бо WhatsApp-и воқеӣ санҷида шуд (сурат, voice note — ҳарду ба телефон омаданд, санҷидашуда аз ҷониби корбар) |
+| 2026-08-10 | Танҳо ffmpeg/ffprobe барои thumbnail, transcode ва пурсиши давомнокӣ — package-и нави тасвир (SixLabors.ImageSharp) илова НАШУД | Корбар бевосита интихоб кард: ffmpeg аллакай барои voice note лозим буд, package-и иловагӣ лозим намонд. Се шарти ҳатмии корбар риоя шуд: (1) `ProcessStartInfo.ArgumentList` танҳо, ҳеҷ гоҳ сатри фармони ҳамҷояшуда (номи файли муштарӣ метавонад ҳар чиз бошад — хатари command injection), (2) timeout 30 сония бо куштани process дар хатогӣ/анҷоми вақт, (3) навбати алоҳидаи Hangfire (`media`, `WorkerCount=2`) — агар баъдан коркарди расм мушкил шавад, SkiaSharp (MIT) ҳамчун вариант зикр шуд |
+| 2026-08-10 | Боркунии media-и воридотӣ (қаблан inline дар `WebhookProcessor`, хатогӣ хомӯшона гум мешуд) ба `MediaDownloadJob`-и Hangfire (навбати `media`, 5 такрор бо backoff то 6 соат) кӯчонида шуд | Media id-и Meta пас аз ~5 дақиқа эътибор надорад ва файл пас аз 30 рӯз нест мешавад — боркунии боэътимод бо такрор лозим аст. Хатогӣ дар `Message.MediaDownloadError` сабт мешавад (пок мешавад агар такрор комёб шавад) — на танҳо дар log |
+| 2026-08-10 | Фиристодани media (замима/voice note) пурра асинхронӣ — endpoint 202 (на 201-и матни оддӣ) бармегардонад, `MediaSendJob` дар навбати `media` кор мекунад | Voice note transcode ва боркунии файли калон метавонад чанд сония тӯл кашад — дархости HTTP набояд интизор шавад. Farqi аз матни оддӣ (синхронӣ, дар ҳамон дархост) возеҳ дар DoD зикр шуд |
+| 2026-08-10 | Ошкор ва ислоҳ шуд: `WhatsAppProvider` ҳеҷ гоҳ wamid (media/message id)-и аз Meta бармегаштаро сабт намекард — статуси webhook (`delivered`/`read`) ҳеҷ гоҳ ба паёми содиротӣ мувофиқ намеомад | Ҳангоми санҷиши зинда пайдо шуд: паёми фиристодашуда `external_id = null` дошт. `SendMediaMessageAsync` акнун wamid-ро бармегардонад, `MediaSendJob` онро дар `Message.ExternalId` сабт мекунад — санҷидашуда: статус ба `Delivered` фавран иваз шуд. Роҳи матни оддӣ ҳанӯз ин мушкилро дорад (берун аз доираи ин вазифа, алоҳида зикр шуд) |
+| 2026-08-10 | Нигоҳдории media вобаста ба навъ (`MediaRetentionCleanupJob`, recurring Hangfire, ҳаррӯза): расм/овоз/ҳуҷҷат 365 рӯз, видео 7 рӯз (`MediaRetention:*` дар appsettings) | Файл нест мешавад, вале сатри `Message` ва thumbnail не — `MediaDeletedAt` танзим мешавад, то UI гуфта тавонад файл дигар дар сервер нест, на балои холӣ нишон диҳад. Санҷидашуда: паёми воқеӣ 400 рӯз ақиб бурда шуд, job иҷро шуд, файл нест шуд, сатр монд |
+| 2026-08-10 | `UploadsPathResolver` (Common/) — мантиқи такрории ҳалли `Uploads:RootPath` (қаблан дар 2 ҷои дигар такрор буд) ба як ҷо ҷамъ шуд | Бо илова шудани 3 истифодабарандаи нав (`MediaDownloadJob`, endpoint-ҳои media, `MediaSendJob`, `MediaRetentionCleanupJob`) такрор аз 3 зиёд шуд — вақти ҷудо кардан расид |
 
 ## Масъалаҳои кушода
 

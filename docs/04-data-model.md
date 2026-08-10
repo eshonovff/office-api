@@ -59,10 +59,17 @@ conversations(id, channel_id, external_id, contact_name, contact_avatar_url,
 
 messages(id, conversation_id, direction, type, body, media_url,
          external_id UNIQUE, delivery_status, is_internal_note,
-         sent_by_user_id, created_at)
+         sent_by_user_id, created_at,
+         mime_type, size_bytes, original_file_name, media_external_id,
+         voice_duration_seconds, thumbnail_url, media_deleted_at,
+         media_download_error)
          -- direction: inbound | outbound
          -- type: text | image | video | audio | file | story_reply
          -- delivery_status: pending | sent | delivered | read | failed
+         -- media_external_id: WhatsApp-и media id (аз ExternalId ҷудо — он message id аст)
+         -- voice_duration_seconds: танҳо барои voice note (мавҷудияти он = аломати voice note)
+         -- media_deleted_at: retention job файлро нест кард, вале сатри паём мемонад
+         -- media_download_error: боркунии воридотӣ пас аз ҳама кӯшишҳо ноком шуд (нест хомӯшона)
 
 conversation_tags(conversation_id, tag_id)
 tags(id, name, color)

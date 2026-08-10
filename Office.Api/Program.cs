@@ -15,6 +15,7 @@ using Office.Api.Channels;
 using Office.Api.Channels.WhatsApp;
 using Office.Api.Common;
 using Office.Api.Data;
+using Office.Api.Media;
 using Office.Api.Features.Auth;
 using Office.Api.Features.Channels;
 using Office.Api.Features.Conversations;
@@ -89,6 +90,15 @@ builder.Services.AddHangfire(config => config
     .UseRecommendedSerializerSettings()
     .UsePostgreSqlStorage(options => options.UseNpgsqlConnection(hangfireConnectionString)));
 builder.Services.AddHangfireServer();
+
+// Коркарди медиа (transcode/thumbnail — CPU вазнин) дар навбати ҷудогонаи
+// маҳдуд, то якчанд боркунии ҳамзамон CPU-и серверро банд накунад.
+builder.Services.AddHangfireServer(options =>
+{
+    options.ServerName = "media-worker";
+    options.Queues = ["media"];
+    options.WorkerCount = 2;
+});
 
 builder.Services.AddCors(options =>
 {
@@ -171,12 +181,16 @@ builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddHostedService<DeadlineNotificationBackgroundService>();
 
 builder.Services.AddSingleton<IChannelCredentialsProtector, ChannelCredentialsProtector>();
+builder.Services.AddSingleton<IMediaProcessor, FfmpegMediaProcessor>();
 builder.Services.AddScoped<PlaceholderChannelProvider>();
 builder.Services.AddHttpClient<WhatsAppProvider>();
 builder.Services.AddScoped<IChannelProviderFactory, ChannelProviderFactory>();
 builder.Services.AddScoped<WebhookProcessor>();
 builder.Services.AddScoped<WebhookLogCleanupJob>();
 builder.Services.AddScoped<WhatsAppSendJob>();
+builder.Services.AddScoped<MediaDownloadJob>();
+builder.Services.AddScoped<MediaSendJob>();
+builder.Services.AddScoped<MediaRetentionCleanupJob>();
 
 builder.Services.AddHttpClient<ISmsSender, OsonSmsSender>();
 
@@ -241,6 +255,9 @@ app.UseHangfireDashboard("/hangfire", new DashboardOptions
 
 RecurringJob.AddOrUpdate<WebhookLogCleanupJob>(
     "webhook-log-cleanup", job => job.RunAsync(CancellationToken.None), Cron.Daily);
+
+RecurringJob.AddOrUpdate<MediaRetentionCleanupJob>(
+    "media-retention-cleanup", job => job.RunAsync(CancellationToken.None), Cron.Daily);
 
 // Development: ҳамеша иҷро шавад. Production: танҳо агар RUN_MIGRATIONS=true.
 var runMigrations = app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("RUN_MIGRATIONS");

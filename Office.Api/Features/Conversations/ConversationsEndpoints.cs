@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using Office.Api.Auth;
 using Office.Api.Channels;
@@ -6,6 +7,7 @@ using Office.Api.Channels.WhatsApp;
 using Office.Api.Common;
 using Office.Api.Data;
 using Office.Api.Data.Entities;
+using Office.Api.Media;
 using Office.Api.Realtime;
 using Permissions = Office.Api.Auth.Permissions;
 
@@ -60,6 +62,26 @@ public static class ConversationsEndpoints
             .WithSummary("Иваз кардани статус ва/ё корманди таъиншуда — пӯшидан (`Closed`) бо inbox.close иловагӣ")
             .Produces<ConversationDetail>(StatusCodes.Status200OK)
             .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        group.MapPost("/{id:guid}/media", UploadMediaAsync)
+            .DisableAntiforgery()
+            .RequirePermission(Permissions.Inbox.Reply)
+            .WithSummary("Фиристодани файли замима (расм/видео/овоз/ҳуҷҷат) — лимит вобаста ба навъ")
+            .Produces<MessageDto>(StatusCodes.Status202Accepted)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        group.MapPost("/{id:guid}/voice-note", UploadVoiceNoteAsync)
+            .DisableAntiforgery()
+            .RequirePermission(Permissions.Inbox.Reply)
+            .WithSummary("Фиристодани voice note — webm/opus аз браузер, дар сервер ба ogg/opus transcode мешавад")
+            .Produces<MessageDto>(StatusCodes.Status202Accepted)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden)
@@ -258,6 +280,127 @@ public static class ConversationsEndpoints
         return Results.Created($"/api/conversations/{id}/messages/{message.Id}", dto);
     }
 
+    private static async Task<IResult> UploadMediaAsync(
+        Guid id,
+        IFormFile file,
+        ClaimsPrincipal principal,
+        AppDbContext db,
+        IChannelAccessGuard access,
+        IBackgroundJobClient backgroundJobs,
+        IConfiguration configuration,
+        IWebHostEnvironment env,
+        CancellationToken ct)
+    {
+        var conversation = await db.Conversations.Include(c => c.Channel).FirstOrDefaultAsync(c => c.Id == id, ct);
+        if (conversation is null)
+            return Results.NotFound();
+
+        if (!await access.HasAccessAsync(principal, conversation.ChannelId, conversation.AssignedTo, ct))
+            return Results.NotFound();
+
+        if (file.Length <= 0)
+            return Results.BadRequest();
+
+        var mimeType = string.IsNullOrEmpty(file.ContentType) ? "application/octet-stream" : file.ContentType;
+        var (messageType, maxSizeBytes) = MediaUploadValidator.Classify(mimeType);
+
+        if (!MediaUploadValidator.IsWithinLimit(mimeType, file.Length))
+            return SizeLimitProblem(maxSizeBytes);
+
+        return await SaveAndEnqueueAsync(
+            conversation, file, messageType, mimeType, isVoiceNote: false, forcedExtension: null,
+            principal, db, backgroundJobs, configuration, env, ct);
+    }
+
+    private static async Task<IResult> UploadVoiceNoteAsync(
+        Guid id,
+        IFormFile file,
+        ClaimsPrincipal principal,
+        AppDbContext db,
+        IChannelAccessGuard access,
+        IBackgroundJobClient backgroundJobs,
+        IConfiguration configuration,
+        IWebHostEnvironment env,
+        CancellationToken ct)
+    {
+        var conversation = await db.Conversations.Include(c => c.Channel).FirstOrDefaultAsync(c => c.Id == id, ct);
+        if (conversation is null)
+            return Results.NotFound();
+
+        if (!await access.HasAccessAsync(principal, conversation.ChannelId, conversation.AssignedTo, ct))
+            return Results.NotFound();
+
+        if (file.Length <= 0)
+            return Results.BadRequest();
+
+        // Ҳамеша аудио — MediaRecorder-и браузер webm/opus мефиристад, дар MediaSendJob ба ogg/opus transcode мешавад.
+        if (!MediaUploadValidator.IsWithinLimit("audio/webm", file.Length))
+            return SizeLimitProblem(MediaUploadValidator.AudioVideoMaxBytes);
+
+        var mimeType = string.IsNullOrEmpty(file.ContentType) ? "audio/webm" : file.ContentType;
+
+        return await SaveAndEnqueueAsync(
+            conversation, file, MessageType.Audio, mimeType, isVoiceNote: true, forcedExtension: ".webm",
+            principal, db, backgroundJobs, configuration, env, ct);
+    }
+
+    private static IResult SizeLimitProblem(long maxSizeBytes) => Results.Problem(
+        title: "Файл калон аст",
+        detail: $"Барои ин навъи файл ҳаҷми ҳадди аксар {maxSizeBytes / (1024 * 1024)} МБ аст.",
+        statusCode: StatusCodes.Status400BadRequest);
+
+    private static async Task<IResult> SaveAndEnqueueAsync(
+        Conversation conversation,
+        IFormFile file,
+        MessageType messageType,
+        string mimeType,
+        bool isVoiceNote,
+        string? forcedExtension,
+        ClaimsPrincipal principal,
+        AppDbContext db,
+        IBackgroundJobClient backgroundJobs,
+        IConfiguration configuration,
+        IWebHostEnvironment env,
+        CancellationToken ct)
+    {
+        var userId = principal.GetUserId();
+        var rootPath = UploadsPathResolver.ResolveRootPath(configuration, env);
+        var mediaFolder = Path.Combine(rootPath, "whatsapp-media", conversation.ChannelId.ToString());
+        Directory.CreateDirectory(mediaFolder);
+
+        var extension = forcedExtension ?? Path.GetExtension(file.FileName);
+        var storedFileName = $"{Guid.CreateVersion7()}{extension}";
+        var fullPath = Path.Combine(mediaFolder, storedFileName);
+
+        await using (var stream = File.Create(fullPath))
+            await file.CopyToAsync(stream, ct);
+
+        var message = new Message
+        {
+            Id = Guid.CreateVersion7(),
+            ConversationId = conversation.Id,
+            Direction = MessageDirection.Outbound,
+            Type = messageType,
+            MediaUrl = Path.Combine("whatsapp-media", conversation.ChannelId.ToString(), storedFileName),
+            MimeType = mimeType,
+            SizeBytes = file.Length,
+            OriginalFileName = file.FileName,
+            DeliveryStatus = MessageDeliveryStatus.Pending,
+            SentByUserId = userId,
+            CreatedAt = DateTimeOffset.UtcNow,
+        };
+
+        db.Messages.Add(message);
+        await db.SaveChangesAsync(ct);
+
+        backgroundJobs.Enqueue<MediaSendJob>(j => j.SendAsync(message.Id, isVoiceNote, CancellationToken.None));
+
+        var sender = await db.Users.AsNoTracking().FirstAsync(u => u.Id == userId, ct);
+        var dto = ToMessageDto(message) with { SentByUserName = sender.FullName };
+
+        return Results.Accepted($"/api/conversations/{conversation.Id}/messages/{message.Id}", dto);
+    }
+
     private static async Task<IResult> ListMessagesAsync(
         Guid id, int? page, int? pageSize, ClaimsPrincipal principal, AppDbContext db, IChannelAccessGuard access, CancellationToken ct)
     {
@@ -383,5 +526,6 @@ public static class ConversationsEndpoints
     private static MessageDto ToMessageDto(Message m) => new(
         m.Id, m.ConversationId, m.Direction.ToString(), m.Type.ToString(), m.Body, m.MediaUrl,
         m.ExternalId, m.DeliveryStatus.ToString(), m.IsInternalNote, m.SentByUserId, m.SentByUser?.FullName,
-        m.CreatedAt);
+        m.CreatedAt, m.MimeType, m.SizeBytes, m.OriginalFileName, m.VoiceDurationSeconds, m.ThumbnailUrl,
+        m.MediaDeletedAt, m.MediaDownloadError);
 }

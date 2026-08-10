@@ -13,8 +13,8 @@ RUN dotnet publish Office.Api/Office.Api.csproj -c Release -o /app/publish --no-
 FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine AS runtime
 WORKDIR /app
 
-# curl барои HEALTHCHECK лозим аст — image-и пойгоҳӣ онро надорад.
-RUN apk add --no-cache curl krb5-libs \
+# curl барои HEALTHCHECK, ffmpeg барои transcode-и voice note ва thumbnail-и медиа лозим аст.
+RUN apk add --no-cache curl krb5-libs ffmpeg \
     && addgroup -S -g 1000 officeapi \
     && adduser -S -u 1000 -G officeapi officeapi \
     && mkdir -p /var/office/uploads /var/office/keys \

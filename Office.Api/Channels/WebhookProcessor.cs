@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using Office.Api.Data;
 using Office.Api.Data.Entities;
@@ -9,14 +10,13 @@ namespace Office.Api.Channels;
 /// <summary>
 /// Job-и Hangfire барои коркарди webhook-и сабтшуда: parse → идентификатсияи
 /// канал → идентификатсияи conversation → идемпотентии паём → upsert →
-/// навсозии статус → нусхабардории media → огоҳии realtime.
+/// навсозии статус → enqueue-и боркунии media → огоҳии realtime.
 /// </summary>
 public class WebhookProcessor(
     AppDbContext db,
     IChannelProviderFactory factory,
     IInboxEventPublisher events,
-    IConfiguration configuration,
-    IWebHostEnvironment env,
+    IBackgroundJobClient backgroundJobs,
     ILogger<WebhookProcessor> logger)
 {
     public async Task ProcessAsync(Guid webhookLogId, CancellationToken ct)
@@ -111,7 +111,7 @@ public class WebhookProcessor(
             await events.MessageReceivedAsync(channel.Id, conversation.AssignedTo, payload, ct);
 
             if (mediaExternalId is not null)
-                await DownloadAndStoreMediaAsync(channel, provider, message, mediaExternalId, ct);
+                backgroundJobs.Enqueue<MediaDownloadJob>(j => j.DownloadAsync(message.Id, mediaExternalId, CancellationToken.None));
         }
     }
 
@@ -131,41 +131,6 @@ public class WebhookProcessor(
             if (messages.TryGetValue(update.MessageExternalId, out var message) && update.Status > message.DeliveryStatus)
                 message.DeliveryStatus = update.Status;
         }
-    }
-
-    private async Task DownloadAndStoreMediaAsync(
-        Channel channel, IChannelProvider provider, Message message, string mediaExternalId, CancellationToken ct)
-    {
-        try
-        {
-            await using var stream = await provider.DownloadMediaAsync(channel, mediaExternalId, ct);
-
-            var mediaFolder = Path.Combine(ResolveRootPath(), "whatsapp-media", channel.Id.ToString());
-            Directory.CreateDirectory(mediaFolder);
-
-            var storedFileName = Guid.CreateVersion7().ToString();
-            var fullPath = Path.Combine(mediaFolder, storedFileName);
-
-            await using (var fileStream = File.Create(fullPath))
-                await stream.CopyToAsync(fileStream, ct);
-
-            message.MediaUrl = Path.Combine("whatsapp-media", channel.Id.ToString(), storedFileName);
-            await db.SaveChangesAsync(ct);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Нусхабардории media {MediaExternalId} барои паёми {MessageId} ноком шуд", mediaExternalId, message.Id);
-        }
-    }
-
-    private string ResolveRootPath()
-    {
-        var configured = configuration["Uploads:RootPath"];
-        var basePath = configured is { Length: > 0 }
-            ? (Path.IsPathRooted(configured) ? configured : Path.Combine(env.ContentRootPath, configured))
-            : Path.Combine(env.ContentRootPath, "uploads");
-
-        return Path.GetFullPath(basePath);
     }
 
     private async Task<List<(Message Message, Conversation Conversation, string? MediaExternalId)>> UpsertConversationWithMessagesAsync(
@@ -205,6 +170,8 @@ public class WebhookProcessor(
                 Type = parsed.Type,
                 Body = parsed.Body,
                 MediaUrl = parsed.MediaUrl,
+                MimeType = parsed.MimeType,
+                OriginalFileName = parsed.OriginalFileName,
                 ExternalId = parsed.MessageExternalId,
                 DeliveryStatus = parsed.Direction == MessageDirection.Inbound
                     ? MessageDeliveryStatus.Delivered
