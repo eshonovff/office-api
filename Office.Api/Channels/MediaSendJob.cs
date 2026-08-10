@@ -4,25 +4,29 @@ using Office.Api.Channels.WhatsApp;
 using Office.Api.Common;
 using Office.Api.Data;
 using Office.Api.Data.Entities;
+using Office.Api.Media;
 using Office.Api.Realtime;
 
 namespace Office.Api.Channels;
 
 /// <summary>
-/// Файли аллакай бор ба диск шудаистода (аз endpoint) — ба провайдер бор ва
-/// фиристода мешавад. Дар навбати "media"-и Hangfire (маҳдуди ҳамзамонӣ) кор мекунад.
+/// Файли аллакай бор ба диск шудаистода (аз endpoint) — агар voice note бошад,
+/// пеш аз бор ба ogg/opus transcode мешавад (webm/opus-и браузер WhatsApp-ро
+/// ҳамчун voice note нишон намедиҳад) — сипас ба провайдер бор ва фиристода
+/// мешавад. Дар навбати "media"-и Hangfire (маҳдуди ҳамзамонӣ) кор мекунад.
 /// </summary>
 [Queue("media")]
 [AutomaticRetry(Attempts = 3, DelaysInSeconds = [30, 300, 1800])]
 public class MediaSendJob(
     AppDbContext db,
     IChannelProviderFactory factory,
+    IMediaProcessor mediaProcessor,
     IConfiguration configuration,
     IWebHostEnvironment env,
     IInboxEventPublisher events,
     ILogger<MediaSendJob> logger)
 {
-    public async Task SendAsync(Guid messageId, CancellationToken ct)
+    public async Task SendAsync(Guid messageId, bool isVoiceNote, CancellationToken ct)
     {
         var message = await db.Messages
             .Include(m => m.Conversation).ThenInclude(c => c.Channel)
@@ -38,15 +42,18 @@ public class MediaSendJob(
         var channel = conversation.Channel;
         var provider = factory.GetProvider(channel.Type);
         var rootPath = UploadsPathResolver.ResolveRootPath(configuration, env);
-        var fullPath = Path.Combine(rootPath, message.MediaUrl!);
 
         try
         {
+            if (isVoiceNote)
+                await TranscodeVoiceNoteAsync(message, rootPath, ct);
+
+            var fullPath = Path.Combine(rootPath, message.MediaUrl!);
             var mediaExternalId = await UploadAsync(provider, channel, fullPath, message, ct);
 
             var wamid = await provider.SendMediaMessageAsync(
                 channel, conversation.ExternalId, mediaExternalId, message.Type, message.Body,
-                isVoiceNote: false, ct);
+                isVoiceNote, ct);
 
             message.MediaExternalId = mediaExternalId;
             message.ExternalId = wamid;
@@ -61,6 +68,21 @@ public class MediaSendJob(
 
         await db.SaveChangesAsync(ct);
         await PublishAsync(channel.Id, conversation.AssignedTo, message, ct);
+    }
+
+    private async Task TranscodeVoiceNoteAsync(Message message, string rootPath, CancellationToken ct)
+    {
+        var sourceFullPath = Path.Combine(rootPath, message.MediaUrl!);
+        var oggRelativePath = Path.ChangeExtension(message.MediaUrl!, ".ogg");
+        var oggFullPath = Path.Combine(rootPath, oggRelativePath);
+
+        await mediaProcessor.TranscodeToOggOpusAsync(sourceFullPath, oggFullPath, ct);
+        message.VoiceDurationSeconds = await mediaProcessor.GetAudioDurationSecondsAsync(oggFullPath, ct);
+        message.MimeType = "audio/ogg";
+        message.MediaUrl = oggRelativePath;
+
+        if (File.Exists(sourceFullPath))
+            File.Delete(sourceFullPath);
     }
 
     private static async Task<string> UploadAsync(
