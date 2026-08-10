@@ -26,6 +26,23 @@ public class FfmpegMediaProcessor(ILogger<FfmpegMediaProcessor> logger) : IMedia
             : null;
     }
 
+    public async Task<IReadOnlyList<short>> GenerateWaveformPeaksAsync(string inputPath, int peakCount, CancellationToken ct)
+    {
+        var tempPcmPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.pcm");
+        try
+        {
+            await RunAsync("ffmpeg", FfmpegArgumentBuilder.ExtractRawPcm(inputPath, tempPcmPath), ct);
+            var pcmBytes = await File.ReadAllBytesAsync(tempPcmPath, ct);
+            var samples = WaveformPeakCalculator.ToSamples(pcmBytes);
+            return WaveformPeakCalculator.Compute(samples, peakCount);
+        }
+        finally
+        {
+            if (File.Exists(tempPcmPath))
+                File.Delete(tempPcmPath);
+        }
+    }
+
     private async Task<string> RunAsync(string fileName, IReadOnlyList<string> arguments, CancellationToken ct)
     {
         var startInfo = new ProcessStartInfo

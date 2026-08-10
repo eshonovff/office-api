@@ -30,4 +30,15 @@ public static class FfmpegArgumentBuilder
         "-of", "default=noprint_wrappers=1:nokey=1",
         inputPath,
     ];
+
+    /// <summary>PCM хом (16-bit signed mono, 8kHz — барои пикҳои шакли мавҷ кофист, decode-и вазнинро кам мекунад).</summary>
+    public static IReadOnlyList<string> ExtractRawPcm(string inputPath, string outputPath) =>
+    [
+        "-y",
+        "-i", inputPath,
+        "-ac", "1",
+        "-ar", "8000",
+        "-f", "s16le",
+        outputPath,
+    ];
 }
