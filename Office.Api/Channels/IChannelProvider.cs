@@ -36,8 +36,8 @@ public interface IChannelProvider
     /// <summary>Бор кардани медиа ба провайдер, барои дертар фиристодан. Media id-ро бармегардонад.</summary>
     Task<string> UploadMediaAsync(Channel channel, Stream content, string mimeType, string fileName, CancellationToken ct);
 
-    /// <summary>Фиристодани паёми медиа (расм/видео/овоз/ҳуҷҷат) бо media id-и аллакай боркардашуда.</summary>
-    Task SendMediaMessageAsync(
+    /// <summary>Фиристодани паёми медиа (расм/видео/овоз/ҳуҷҷат) бо media id-и аллакай боркардашуда. Wamid-ро бармегардонад (агар дастрас бошад).</summary>
+    Task<string?> SendMediaMessageAsync(
         Channel channel, string conversationExternalId, string mediaExternalId, MessageType type,
         string? caption, bool isVoiceNote, CancellationToken ct);
 

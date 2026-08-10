@@ -142,7 +142,7 @@ public class WhatsAppProvider(
         return doc.RootElement.GetProperty("id").GetString()!;
     }
 
-    public async Task SendMediaMessageAsync(
+    public async Task<string?> SendMediaMessageAsync(
         Channel channel, string conversationExternalId, string mediaExternalId, MessageType type,
         string? caption, bool isVoiceNote, CancellationToken ct)
     {
@@ -164,7 +164,17 @@ public class WhatsAppProvider(
             [waType] = mediaObject,
         };
 
-        await PostToGraphApiAsync(credentials, $"{credentials.PhoneNumberId}/messages", payload, ct);
+        var responseBody = await PostToGraphApiAsync(credentials, $"{credentials.PhoneNumberId}/messages", payload, ct);
+        return TryGetSentMessageId(responseBody);
+    }
+
+    private static string? TryGetSentMessageId(string responseBody)
+    {
+        using var doc = JsonDocument.Parse(responseBody);
+        return doc.RootElement.TryGetProperty("messages", out var messagesEl) && messagesEl.ValueKind == JsonValueKind.Array &&
+               messagesEl.GetArrayLength() > 0 && messagesEl[0].TryGetProperty("id", out var idEl)
+            ? idEl.GetString()
+            : null;
     }
 
     public async Task<IReadOnlyList<WhatsAppTemplateInfo>> GetApprovedTemplatesAsync(Channel channel, CancellationToken ct)
@@ -219,7 +229,7 @@ public class WhatsAppProvider(
         return WhatsAppCredentials.Parse(protector.Unprotect(channel.CredentialsEncrypted));
     }
 
-    private async Task PostToGraphApiAsync(WhatsAppCredentials credentials, string path, object payload, CancellationToken ct)
+    private async Task<string> PostToGraphApiAsync(WhatsAppCredentials credentials, string path, object payload, CancellationToken ct)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, $"{GraphApiBaseUrl}/{GraphApiVersion}/{path}")
         {
@@ -229,7 +239,7 @@ public class WhatsAppProvider(
 
         var response = await httpClient.SendAsync(request, ct);
         if (response.IsSuccessStatusCode)
-            return;
+            return await response.Content.ReadAsStringAsync(ct);
 
         var responseBody = await response.Content.ReadAsStringAsync(ct);
         var errorCode = TryGetErrorCode(responseBody);

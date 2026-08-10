@@ -1,5 +1,6 @@
 using Hangfire;
 using Microsoft.EntityFrameworkCore;
+using Office.Api.Common;
 using Office.Api.Data;
 using Office.Api.Data.Entities;
 using Office.Api.Media;
@@ -43,7 +44,7 @@ public class MediaDownloadJob(
         {
             await using var stream = await provider.DownloadMediaAsync(channel, mediaExternalId, ct);
 
-            var mediaFolder = Path.Combine(ResolveRootPath(), "whatsapp-media", channel.Id.ToString());
+            var mediaFolder = Path.Combine(UploadsPathResolver.ResolveRootPath(configuration, env), "whatsapp-media", channel.Id.ToString());
             Directory.CreateDirectory(mediaFolder);
 
             var storedFileName = Guid.CreateVersion7().ToString();
@@ -109,13 +110,4 @@ public class MediaDownloadJob(
         }
     }
 
-    private string ResolveRootPath()
-    {
-        var configured = configuration["Uploads:RootPath"];
-        var basePath = configured is { Length: > 0 }
-            ? (Path.IsPathRooted(configured) ? configured : Path.Combine(env.ContentRootPath, configured))
-            : Path.Combine(env.ContentRootPath, "uploads");
-
-        return Path.GetFullPath(basePath);
-    }
 }

@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using Office.Api.Auth;
 using Office.Api.Channels;
@@ -6,6 +7,7 @@ using Office.Api.Channels.WhatsApp;
 using Office.Api.Common;
 using Office.Api.Data;
 using Office.Api.Data.Entities;
+using Office.Api.Media;
 using Office.Api.Realtime;
 using Permissions = Office.Api.Auth.Permissions;
 
@@ -60,6 +62,16 @@ public static class ConversationsEndpoints
             .WithSummary("Иваз кардани статус ва/ё корманди таъиншуда — пӯшидан (`Closed`) бо inbox.close иловагӣ")
             .Produces<ConversationDetail>(StatusCodes.Status200OK)
             .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        group.MapPost("/{id:guid}/media", UploadMediaAsync)
+            .DisableAntiforgery()
+            .RequirePermission(Permissions.Inbox.Reply)
+            .WithSummary("Фиристодани файли замима (расм/видео/овоз/ҳуҷҷат) — лимит вобаста ба навъ")
+            .Produces<MessageDto>(StatusCodes.Status202Accepted)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden)
@@ -256,6 +268,75 @@ public static class ConversationsEndpoints
         await events.MessageSentAsync(conversation.ChannelId, conversation.AssignedTo, dto, ct);
 
         return Results.Created($"/api/conversations/{id}/messages/{message.Id}", dto);
+    }
+
+    private static async Task<IResult> UploadMediaAsync(
+        Guid id,
+        IFormFile file,
+        ClaimsPrincipal principal,
+        AppDbContext db,
+        IChannelAccessGuard access,
+        IBackgroundJobClient backgroundJobs,
+        IConfiguration configuration,
+        IWebHostEnvironment env,
+        CancellationToken ct)
+    {
+        var conversation = await db.Conversations.Include(c => c.Channel).FirstOrDefaultAsync(c => c.Id == id, ct);
+        if (conversation is null)
+            return Results.NotFound();
+
+        if (!await access.HasAccessAsync(principal, conversation.ChannelId, conversation.AssignedTo, ct))
+            return Results.NotFound();
+
+        if (file.Length <= 0)
+            return Results.BadRequest();
+
+        var mimeType = string.IsNullOrEmpty(file.ContentType) ? "application/octet-stream" : file.ContentType;
+        var (messageType, maxSizeBytes) = MediaUploadValidator.Classify(mimeType);
+
+        if (!MediaUploadValidator.IsWithinLimit(mimeType, file.Length))
+        {
+            return Results.Problem(
+                title: "Файл калон аст",
+                detail: $"Барои ин навъи файл ҳаҷми ҳадди аксар {maxSizeBytes / (1024 * 1024)} МБ аст.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        var userId = principal.GetUserId();
+        var rootPath = UploadsPathResolver.ResolveRootPath(configuration, env);
+        var mediaFolder = Path.Combine(rootPath, "whatsapp-media", conversation.ChannelId.ToString());
+        Directory.CreateDirectory(mediaFolder);
+
+        var storedFileName = $"{Guid.CreateVersion7()}{Path.GetExtension(file.FileName)}";
+        var fullPath = Path.Combine(mediaFolder, storedFileName);
+
+        await using (var stream = File.Create(fullPath))
+            await file.CopyToAsync(stream, ct);
+
+        var message = new Message
+        {
+            Id = Guid.CreateVersion7(),
+            ConversationId = conversation.Id,
+            Direction = MessageDirection.Outbound,
+            Type = messageType,
+            MediaUrl = Path.Combine("whatsapp-media", conversation.ChannelId.ToString(), storedFileName),
+            MimeType = mimeType,
+            SizeBytes = file.Length,
+            OriginalFileName = file.FileName,
+            DeliveryStatus = MessageDeliveryStatus.Pending,
+            SentByUserId = userId,
+            CreatedAt = DateTimeOffset.UtcNow,
+        };
+
+        db.Messages.Add(message);
+        await db.SaveChangesAsync(ct);
+
+        backgroundJobs.Enqueue<MediaSendJob>(j => j.SendAsync(message.Id, CancellationToken.None));
+
+        var sender = await db.Users.AsNoTracking().FirstAsync(u => u.Id == userId, ct);
+        var dto = ToMessageDto(message) with { SentByUserName = sender.FullName };
+
+        return Results.Accepted($"/api/conversations/{id}/messages/{message.Id}", dto);
     }
 
     private static async Task<IResult> ListMessagesAsync(

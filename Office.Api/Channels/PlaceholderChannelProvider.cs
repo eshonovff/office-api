@@ -90,7 +90,7 @@ public class PlaceholderChannelProvider(IConfiguration configuration) : IChannel
     public Task<string> UploadMediaAsync(Channel channel, Stream content, string mimeType, string fileName, CancellationToken ct)
         => throw new NotImplementedException("UploadMedia дар фазаи 5/7 амалӣ мешавад.");
 
-    public Task SendMediaMessageAsync(
+    public Task<string?> SendMediaMessageAsync(
         Channel channel, string conversationExternalId, string mediaExternalId, MessageType type,
         string? caption, bool isVoiceNote, CancellationToken ct)
         => throw new NotImplementedException("SendMediaMessage дар фазаи 5/7 амалӣ мешавад.");
