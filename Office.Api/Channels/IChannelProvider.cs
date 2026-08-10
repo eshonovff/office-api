@@ -33,6 +33,14 @@ public interface IChannelProvider
 
     Task<Stream> DownloadMediaAsync(Channel channel, string mediaExternalId, CancellationToken ct);
 
+    /// <summary>Бор кардани медиа ба провайдер, барои дертар фиристодан. Media id-ро бармегардонад.</summary>
+    Task<string> UploadMediaAsync(Channel channel, Stream content, string mimeType, string fileName, CancellationToken ct);
+
+    /// <summary>Фиристодани паёми медиа (расм/видео/овоз/ҳуҷҷат) бо media id-и аллакай боркардашуда.</summary>
+    Task SendMediaMessageAsync(
+        Channel channel, string conversationExternalId, string mediaExternalId, MessageType type,
+        string? caption, bool isVoiceNote, CancellationToken ct);
+
     /// <summary>Рӯйхати шаблонҳои тасдиқшудаи Meta барои ин канал.</summary>
     Task<IReadOnlyList<WhatsAppTemplateInfo>> GetApprovedTemplatesAsync(Channel channel, CancellationToken ct);
 }
