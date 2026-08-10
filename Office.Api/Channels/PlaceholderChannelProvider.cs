@@ -73,10 +73,10 @@ public class PlaceholderChannelProvider(IConfiguration configuration) : IChannel
         return Task.FromResult<IReadOnlyList<ParsedWebhookMessage>>(result);
     }
 
-    public Task SendMessageAsync(Channel channel, string conversationExternalId, string body, CancellationToken ct)
+    public Task<string?> SendMessageAsync(Channel channel, string conversationExternalId, string body, CancellationToken ct)
         => throw new NotImplementedException("SendMessage дар фазаи 5 (WhatsApp) ва фазаи 7 (Instagram/Facebook) амалӣ мешавад.");
 
-    public Task SendTemplateAsync(
+    public Task<string?> SendTemplateAsync(
         Channel channel, string conversationExternalId, string templateName, string languageCode,
         IReadOnlyList<string> parameters, CancellationToken ct)
         => throw new NotImplementedException("SendTemplate дар фазаи 5/7 амалӣ мешавад.");

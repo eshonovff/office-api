@@ -39,7 +39,7 @@ public class WhatsAppProvider(
     public Task<IReadOnlyList<ParsedStatusUpdate>> ParseStatusUpdatesAsync(Channel channel, JsonElement payload, CancellationToken ct) =>
         Task.FromResult(WhatsAppPayloadParser.ParseStatusUpdates(payload));
 
-    public async Task SendMessageAsync(Channel channel, string conversationExternalId, string body, CancellationToken ct)
+    public async Task<string?> SendMessageAsync(Channel channel, string conversationExternalId, string body, CancellationToken ct)
     {
         var credentials = GetCredentials(channel);
         var payload = new
@@ -51,10 +51,11 @@ public class WhatsAppProvider(
             text = new { body },
         };
 
-        await PostToGraphApiAsync(credentials, $"{credentials.PhoneNumberId}/messages", payload, ct);
+        var responseBody = await PostToGraphApiAsync(credentials, $"{credentials.PhoneNumberId}/messages", payload, ct);
+        return WhatsAppPayloadParser.ExtractSentMessageId(responseBody);
     }
 
-    public async Task SendTemplateAsync(
+    public async Task<string?> SendTemplateAsync(
         Channel channel, string conversationExternalId, string templateName, string languageCode,
         IReadOnlyList<string> parameters, CancellationToken ct)
     {
@@ -78,7 +79,8 @@ public class WhatsAppProvider(
             },
         };
 
-        await PostToGraphApiAsync(credentials, $"{credentials.PhoneNumberId}/messages", payload, ct);
+        var responseBody = await PostToGraphApiAsync(credentials, $"{credentials.PhoneNumberId}/messages", payload, ct);
+        return WhatsAppPayloadParser.ExtractSentMessageId(responseBody);
     }
 
     public async Task MarkAsReadAsync(Channel channel, string messageExternalId, CancellationToken ct)
@@ -165,16 +167,7 @@ public class WhatsAppProvider(
         };
 
         var responseBody = await PostToGraphApiAsync(credentials, $"{credentials.PhoneNumberId}/messages", payload, ct);
-        return TryGetSentMessageId(responseBody);
-    }
-
-    private static string? TryGetSentMessageId(string responseBody)
-    {
-        using var doc = JsonDocument.Parse(responseBody);
-        return doc.RootElement.TryGetProperty("messages", out var messagesEl) && messagesEl.ValueKind == JsonValueKind.Array &&
-               messagesEl.GetArrayLength() > 0 && messagesEl[0].TryGetProperty("id", out var idEl)
-            ? idEl.GetString()
-            : null;
+        return WhatsAppPayloadParser.ExtractSentMessageId(responseBody);
     }
 
     public async Task<IReadOnlyList<WhatsAppTemplateInfo>> GetApprovedTemplatesAsync(Channel channel, CancellationToken ct)

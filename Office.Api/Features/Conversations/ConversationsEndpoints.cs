@@ -246,16 +246,11 @@ public static class ConversationsEndpoints
 
         try
         {
-            if (isTemplate)
-            {
-                await provider.SendTemplateAsync(
+            message.ExternalId = isTemplate
+                ? await provider.SendTemplateAsync(
                     conversation.Channel, conversation.ExternalId, request.TemplateName!,
-                    request.TemplateLanguage ?? "en_US", request.TemplateParameters ?? [], ct);
-            }
-            else
-            {
-                await provider.SendMessageAsync(conversation.Channel, conversation.ExternalId, request.Body!, ct);
-            }
+                    request.TemplateLanguage ?? "en_US", request.TemplateParameters ?? [], ct)
+                : await provider.SendMessageAsync(conversation.Channel, conversation.ExternalId, request.Body!, ct);
 
             message.DeliveryStatus = MessageDeliveryStatus.Sent;
         }
