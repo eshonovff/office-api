@@ -244,6 +244,7 @@ app.MapChannelsEndpoints();
 app.MapWebhookEndpoints();
 app.MapLegalEndpoints();
 app.MapConversationsEndpoints();
+app.MapMessagesEndpoints();
 
 app.MapHub<BoardHub>("/hubs/board");
 app.MapHub<InboxHub>("/hubs/inbox");

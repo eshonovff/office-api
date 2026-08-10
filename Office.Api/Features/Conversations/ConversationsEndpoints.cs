@@ -524,8 +524,10 @@ public static class ConversationsEndpoints
         c.LastMessageAt, c.UnreadCount, c.WindowExpiresAt, c.CreatedAt);
 
     private static MessageDto ToMessageDto(Message m) => new(
-        m.Id, m.ConversationId, m.Direction.ToString(), m.Type.ToString(), m.Body, m.MediaUrl,
+        m.Id, m.ConversationId, m.Direction.ToString(), m.Type.ToString(), m.Body,
+        m.MediaUrl is not null ? $"/api/messages/{m.Id}/media" : null,
         m.ExternalId, m.DeliveryStatus.ToString(), m.IsInternalNote, m.SentByUserId, m.SentByUser?.FullName,
-        m.CreatedAt, m.MimeType, m.SizeBytes, m.OriginalFileName, m.VoiceDurationSeconds, m.ThumbnailUrl,
+        m.CreatedAt, m.MimeType, m.SizeBytes, m.OriginalFileName, m.VoiceDurationSeconds,
+        m.ThumbnailUrl is not null ? $"/api/messages/{m.Id}/thumbnail" : null,
         m.MediaDeletedAt, m.MediaDownloadError);
 }
