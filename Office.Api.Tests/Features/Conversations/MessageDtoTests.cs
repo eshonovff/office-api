@@ -124,4 +124,44 @@ public class MessageDtoTests
 
         Assert.Equal(deletedAt, dto.MediaDeletedAt);
     }
+
+    [Fact]
+    public void FromEntity_NoWaveformPeaks_WaveformPeaksIsNull()
+    {
+        var message = CreateMessage(Guid.NewGuid());
+        message.Type = MessageType.Audio;
+        message.WaveformPeaks = null;
+
+        var dto = MessageDto.FromEntity(message);
+
+        Assert.Null(dto.WaveformPeaks);
+    }
+
+    [Fact]
+    public void FromEntity_WaveformPeaksStored_ConvertsZeroToHundredIntoZeroToOneFloats()
+    {
+        var message = CreateMessage(Guid.NewGuid());
+        message.Type = MessageType.Audio;
+        message.WaveformPeaks = [0, 25, 50, 75, 100];
+
+        var dto = MessageDto.FromEntity(message);
+
+        Assert.Equal([0.0, 0.25, 0.5, 0.75, 1.0], dto.WaveformPeaks);
+    }
+
+    [Fact]
+    public void FromEntity_DeletedAudio_StillSurvivesWithWaveformPeaks()
+    {
+        // Қарори қасдӣ: peaks (ба монанди thumbnail) аз тозакунии retention халос
+        // мешавад — playback имконнопазир аст, вале шакли мавҷ дар архив мемонад.
+        var message = CreateMessage(Guid.NewGuid());
+        message.Type = MessageType.Audio;
+        message.WaveformPeaks = [10, 20, 30];
+        message.MediaDeletedAt = DateTimeOffset.UtcNow;
+
+        var dto = MessageDto.FromEntity(message);
+
+        Assert.NotNull(dto.WaveformPeaks);
+        Assert.Equal(3, dto.WaveformPeaks.Count);
+    }
 }

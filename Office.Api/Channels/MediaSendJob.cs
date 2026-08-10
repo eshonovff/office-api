@@ -4,6 +4,7 @@ using Office.Api.Channels.WhatsApp;
 using Office.Api.Common;
 using Office.Api.Data;
 using Office.Api.Data.Entities;
+using Office.Api.Features.Conversations;
 using Office.Api.Media;
 using Office.Api.Realtime;
 
@@ -30,6 +31,7 @@ public class MediaSendJob(
     {
         var message = await db.Messages
             .Include(m => m.Conversation).ThenInclude(c => c.Channel)
+            .Include(m => m.SentByUser)
             .FirstOrDefaultAsync(m => m.Id == messageId, ct);
 
         if (message is null)
@@ -49,6 +51,12 @@ public class MediaSendJob(
                 await TranscodeVoiceNoteAsync(message, rootPath, ct);
 
             var fullPath = Path.Combine(rootPath, message.MediaUrl!);
+
+            // Ҳамон вазифае, ки MediaDownloadJob барои Audio-и воридотӣ иҷро мекунад —
+            // вагарна пикҳои овозҳои худи мо (на мижоз) намоиш дода намешаванд.
+            if (message.Type == MessageType.Audio)
+                message.WaveformPeaks = await TryGenerateWaveformPeaksAsync(fullPath, message.Id, ct);
+
             var mediaExternalId = await UploadAsync(provider, channel, fullPath, message, ct);
 
             var wamid = await provider.SendMediaMessageAsync(
@@ -94,26 +102,19 @@ public class MediaSendJob(
             message.OriginalFileName ?? Path.GetFileName(fullPath), ct);
     }
 
-    private Task PublishAsync(Guid channelId, Guid? assignedTo, Message message, CancellationToken ct)
+    private async Task<short[]?> TryGenerateWaveformPeaksAsync(string fullPath, Guid messageId, CancellationToken ct)
     {
-        var payload = new
+        try
         {
-            message.Id,
-            message.ConversationId,
-            Direction = message.Direction.ToString(),
-            Type = message.Type.ToString(),
-            message.Body,
-            message.MediaUrl,
-            message.MimeType,
-            message.SizeBytes,
-            message.OriginalFileName,
-            message.VoiceDurationSeconds,
-            message.ThumbnailUrl,
-            message.ExternalId,
-            DeliveryStatus = message.DeliveryStatus.ToString(),
-            message.CreatedAt,
-        };
-
-        return events.MessageSentAsync(channelId, assignedTo, payload, ct);
+            return [.. await mediaProcessor.GenerateWaveformPeaksAsync(fullPath, WaveformPeakCalculator.DefaultPeakCount, ct)];
+        }
+        catch (MediaProcessingException ex)
+        {
+            logger.LogWarning(ex, "Сохтани пикҳои шакли мавҷ барои паёми {MessageId} ноком шуд", messageId);
+            return null;
+        }
     }
+
+    private Task PublishAsync(Guid channelId, Guid? assignedTo, Message message, CancellationToken ct) =>
+        events.MessageSentAsync(channelId, assignedTo, MessageDto.FromEntity(message), ct);
 }
