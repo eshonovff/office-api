@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Office.Api.Common;
 using Office.Api.Data;
 using Office.Api.Data.Entities;
+using Office.Api.Features.Conversations;
 using Office.Api.Media;
 using Office.Api.Realtime;
 
@@ -93,7 +94,7 @@ public class MediaDownloadJob(
     /// </summary>
     private Task PublishAsync(Message message, CancellationToken ct) =>
         events.MessageReceivedAsync(
-            message.Conversation.ChannelId, message.Conversation.AssignedTo, MessageRealtimePayload.FromEntity(message), ct);
+            message.Conversation.ChannelId, message.Conversation.AssignedTo, MessageDto.FromEntity(message), ct);
 
     private async Task<string?> TryGenerateThumbnailAsync(string fullPath, string mediaFolder, Guid channelId, Guid messageId, CancellationToken ct)
     {

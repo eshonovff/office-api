@@ -3,6 +3,7 @@ using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using Office.Api.Data;
 using Office.Api.Data.Entities;
+using Office.Api.Features.Conversations;
 using Office.Api.Realtime;
 
 namespace Office.Api.Channels;
@@ -96,19 +97,7 @@ public class WebhookProcessor(
 
         foreach (var (message, conversation, mediaExternalId) in savedMessages)
         {
-            var payload = new
-            {
-                message.Id,
-                message.ConversationId,
-                Direction = message.Direction.ToString(),
-                Type = message.Type.ToString(),
-                message.Body,
-                message.MediaUrl,
-                message.ExternalId,
-                DeliveryStatus = message.DeliveryStatus.ToString(),
-                message.CreatedAt,
-            };
-            await events.MessageReceivedAsync(channel.Id, conversation.AssignedTo, payload, ct);
+            await events.MessageReceivedAsync(channel.Id, conversation.AssignedTo, MessageDto.FromEntity(message), ct);
 
             if (mediaExternalId is not null)
                 backgroundJobs.Enqueue<MediaDownloadJob>(j => j.DownloadAsync(message.Id, mediaExternalId, CancellationToken.None));
@@ -124,6 +113,7 @@ public class WebhookProcessor(
         var externalIds = updates.Select(u => u.MessageExternalId).ToList();
         var messages = await db.Messages
             .Include(m => m.Conversation)
+            .Include(m => m.SentByUser)
             .Where(m => m.ExternalId != null && externalIds.Contains(m.ExternalId))
             .ToDictionaryAsync(m => m.ExternalId!, ct);
 
@@ -147,7 +137,7 @@ public class WebhookProcessor(
         foreach (var message in changedMessages)
         {
             await events.MessageSentAsync(
-                channel.Id, message.Conversation.AssignedTo, MessageRealtimePayload.FromEntity(message), ct);
+                channel.Id, message.Conversation.AssignedTo, MessageDto.FromEntity(message), ct);
         }
     }
 
