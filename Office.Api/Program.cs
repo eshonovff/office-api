@@ -91,6 +91,15 @@ builder.Services.AddHangfire(config => config
     .UsePostgreSqlStorage(options => options.UseNpgsqlConnection(hangfireConnectionString)));
 builder.Services.AddHangfireServer();
 
+// Коркарди медиа (transcode/thumbnail — CPU вазнин) дар навбати ҷудогонаи
+// маҳдуд, то якчанд боркунии ҳамзамон CPU-и серверро банд накунад.
+builder.Services.AddHangfireServer(options =>
+{
+    options.ServerName = "media-worker";
+    options.Queues = ["media"];
+    options.WorkerCount = 2;
+});
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy(FrontendCorsPolicy, policy => policy
