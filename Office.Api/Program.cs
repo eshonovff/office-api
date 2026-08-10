@@ -188,6 +188,7 @@ builder.Services.AddScoped<IChannelProviderFactory, ChannelProviderFactory>();
 builder.Services.AddScoped<WebhookProcessor>();
 builder.Services.AddScoped<WebhookLogCleanupJob>();
 builder.Services.AddScoped<WhatsAppSendJob>();
+builder.Services.AddScoped<MediaDownloadJob>();
 
 builder.Services.AddHttpClient<ISmsSender, OsonSmsSender>();
 
