@@ -25,7 +25,7 @@ public static class ChannelsEndpoints
 
         group.MapGet("/mine", ListMineAsync)
             .RequirePermission(Permissions.Inbox.View)
-            .WithSummary("Рӯйхати каналҳое, ки корбар барои Inbox дастрасӣ дорад — на channels.manage, барои JoinChannel-и realtime")
+            .WithSummary("Рӯйхати каналҳое, ки корбар дар Inbox сӯҳбат дорад (филтр) — ҳар кадом бо joinable барои SignalR JoinChannel")
             .Produces<IEnumerable<ChannelSummary>>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden);
@@ -97,9 +97,9 @@ public static class ChannelsEndpoints
     private static async Task<IResult> ListMineAsync(
         ClaimsPrincipal principal, AppDbContext db, IChannelAccessGuard access, CancellationToken ct)
     {
-        var query = await access.ApplyChannelAccessFilterAsync(db.Channels.AsNoTracking(), principal, ct);
+        var (query, joinable) = await access.ApplyChannelAccessFilterAsync(db.Channels.AsNoTracking(), principal, ct);
         var channels = await query.OrderBy(c => c.Name).ToListAsync(ct);
-        return Results.Ok(channels.Select(ToSummary));
+        return Results.Ok(channels.Select(c => ToSummary(c, joinable)));
     }
 
     private static async Task<IResult> GetAsync(
@@ -218,8 +218,8 @@ public static class ChannelsEndpoints
     private static ChannelListItem ToListItem(Channel channel) => new(
         channel.Id, channel.Type.ToString(), channel.Name, channel.ExternalId, channel.IsActive, channel.CreatedAt);
 
-    private static ChannelSummary ToSummary(Channel channel) => new(
-        channel.Id, channel.Type.ToString(), channel.Name, channel.IsActive);
+    private static ChannelSummary ToSummary(Channel channel, bool joinable) => new(
+        channel.Id, channel.Type.ToString(), channel.Name, channel.IsActive, joinable);
 
     private static ChannelDetail ToDetail(Channel channel) => new(
         channel.Id,

@@ -7,28 +7,34 @@ public class ChannelListAccessResolverTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void Resolve_CanSeeAllChannels_ReturnsAllRegardlessOfOnlyAssigned(bool onlyAssigned)
+    public void Resolve_CanSeeAllChannels_ReturnsAllJoinableRegardlessOfOnlyAssigned(bool onlyAssigned)
     {
-        Assert.Equal(ChannelListScope.All, ChannelListAccessResolver.Resolve(canSeeAllChannels: true, onlyAssigned));
+        var policy = ChannelListAccessResolver.Resolve(canSeeAllChannels: true, onlyAssigned);
+
+        Assert.Equal(ChannelListScope.All, policy.Scope);
+        Assert.True(policy.Joinable);
     }
 
     [Fact]
-    public void Resolve_NotAdminAndNotOnlyAssigned_ReturnsMembersOnly()
+    public void Resolve_NotAdminAndNotOnlyAssigned_ReturnsMembersOnlyJoinable()
     {
-        Assert.Equal(
-            ChannelListScope.MembersOnly,
-            ChannelListAccessResolver.Resolve(canSeeAllChannels: false, onlyAssigned: false));
+        var policy = ChannelListAccessResolver.Resolve(canSeeAllChannels: false, onlyAssigned: false);
+
+        Assert.Equal(ChannelListScope.MembersOnly, policy.Scope);
+        Assert.True(policy.Joinable);
     }
 
     [Fact]
-    public void Resolve_NotAdminAndOnlyAssigned_ReturnsNone()
+    public void Resolve_NotAdminAndOnlyAssigned_ReturnsAssignedOnlyNotJoinable()
     {
         // only_assigned корбар ба ягон гурӯҳи канали пурра дастрасӣ надорад — паёмҳои
-        // таъиншудаашро тавассути user:{id} мегирад, на channel:{id} (ҳамон алгуи
-        // InboxHub.JoinChannel-и HasAccessAsync бо assignedTo:null).
-        Assert.Equal(
-            ChannelListScope.None,
-            ChannelListAccessResolver.Resolve(canSeeAllChannels: false, onlyAssigned: true));
+        // таъиншудаашро тавассути гурӯҳи user:{id} мегирад, на channel:{id} (ҳамон алгуи
+        // InboxHub.JoinChannel-и HasAccessAsync бо assignedTo:null) — бинобар ин на joinable,
+        // вале ба ин маъно нест, ки рӯйхаташ бояд холӣ бошад (ниг. масъалаи №4-и PROGRESS.md).
+        var policy = ChannelListAccessResolver.Resolve(canSeeAllChannels: false, onlyAssigned: true);
+
+        Assert.Equal(ChannelListScope.AssignedOnly, policy.Scope);
+        Assert.False(policy.Joinable);
     }
 
     // CanAccessChannel — санҷиши як канали мушаххас (GET /{id}, /{id}/whatsapp-templates), на филтри рӯйхат.
@@ -36,30 +42,32 @@ public class ChannelListAccessResolverTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void CanAccessChannel_ScopeAll_AlwaysAllowed(bool isChannelMember)
+    public void CanAccessChannel_ScopeAll_AlwaysAllowed(bool isInScope)
     {
-        Assert.True(ChannelListAccessResolver.CanAccessChannel(ChannelListScope.All, isChannelMember));
+        Assert.True(ChannelListAccessResolver.CanAccessChannel(ChannelListScope.All, isInScope));
     }
 
     [Fact]
     public void CanAccessChannel_ScopeMembersOnly_IsMember_Allowed()
     {
-        Assert.True(ChannelListAccessResolver.CanAccessChannel(ChannelListScope.MembersOnly, isChannelMember: true));
+        Assert.True(ChannelListAccessResolver.CanAccessChannel(ChannelListScope.MembersOnly, isInScope: true));
     }
 
     [Fact]
     public void CanAccessChannel_ScopeMembersOnly_NotMember_Denied()
     {
-        Assert.False(ChannelListAccessResolver.CanAccessChannel(ChannelListScope.MembersOnly, isChannelMember: false));
+        Assert.False(ChannelListAccessResolver.CanAccessChannel(ChannelListScope.MembersOnly, isInScope: false));
     }
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void CanAccessChannel_ScopeNone_AlwaysDenied(bool isChannelMember)
+    [Fact]
+    public void CanAccessChannel_ScopeAssignedOnly_HasAssignedConversationInChannel_Allowed()
     {
-        // only_assigned корбар — ҳатто агар (назариявӣ) узви канал бошад ҳам, то фазаи 4-и
-        // GET /channels/{id} дастрасӣ надорад (ниг. масъалаи №7-и PROGRESS.md).
-        Assert.False(ChannelListAccessResolver.CanAccessChannel(ChannelListScope.None, isChannelMember));
+        Assert.True(ChannelListAccessResolver.CanAccessChannel(ChannelListScope.AssignedOnly, isInScope: true));
+    }
+
+    [Fact]
+    public void CanAccessChannel_ScopeAssignedOnly_NoAssignedConversationInChannel_Denied()
+    {
+        Assert.False(ChannelListAccessResolver.CanAccessChannel(ChannelListScope.AssignedOnly, isInScope: false));
     }
 }

@@ -14,8 +14,12 @@ public interface IChannelAccessGuard
     /// <summary>Барои GET/{id}, .../messages, PATCH — санҷиши як conversation-и мушаххас.</summary>
     Task<bool> HasAccessAsync(ClaimsPrincipal principal, Guid channelId, Guid? assignedTo, CancellationToken ct);
 
-    /// <summary>Барои GET /api/channels/mine — кадом каналҳо (на conversation-и мушаххас) корбар мебинад.</summary>
-    Task<IQueryable<Channel>> ApplyChannelAccessFilterAsync(IQueryable<Channel> query, ClaimsPrincipal principal, CancellationToken ct);
+    /// <summary>
+    /// Барои GET /api/channels/mine — кадом каналҳо (на conversation-и мушаххас) корбар
+    /// мебинад, ва оё онҳо barои SignalR JoinChannel joinable ҳастанд.
+    /// </summary>
+    Task<(IQueryable<Channel> Query, bool Joinable)> ApplyChannelAccessFilterAsync(
+        IQueryable<Channel> query, ClaimsPrincipal principal, CancellationToken ct);
 
     /// <summary>Барои GET /{id}, /{id}/whatsapp-templates — санҷиши як канали мушаххас (на рӯйхат).</summary>
     Task<bool> CanAccessChannelAsync(ClaimsPrincipal principal, Guid channelId, CancellationToken ct);
@@ -51,31 +55,40 @@ public class ChannelAccessGuard(AppDbContext db) : IChannelAccessGuard
         return ConversationAccessResolver.CanAccess(canSeeAllChannels: false, isMember, onlyAssigned, assignedTo == userId);
     }
 
-    public async Task<IQueryable<Channel>> ApplyChannelAccessFilterAsync(
+    public async Task<(IQueryable<Channel> Query, bool Joinable)> ApplyChannelAccessFilterAsync(
         IQueryable<Channel> query, ClaimsPrincipal principal, CancellationToken ct)
     {
         var userId = principal.GetUserId();
         var onlyAssigned = await GetOnlyAssignedAsync(userId, ct);
-        var scope = ChannelListAccessResolver.Resolve(CanSeeAllChannels(principal), onlyAssigned);
+        var policy = ChannelListAccessResolver.Resolve(CanSeeAllChannels(principal), onlyAssigned);
 
-        return scope switch
+        var filtered = policy.Scope switch
         {
             ChannelListScope.All => query,
             ChannelListScope.MembersOnly => query.Where(c => c.Members.Any(m => m.UserId == userId)),
+            ChannelListScope.AssignedOnly => query.Where(c => c.Conversations.Any(conv => conv.AssignedTo == userId)),
             _ => query.Where(c => false),
         };
+
+        return (filtered, policy.Joinable);
     }
 
     public async Task<bool> CanAccessChannelAsync(ClaimsPrincipal principal, Guid channelId, CancellationToken ct)
     {
         var userId = principal.GetUserId();
         var onlyAssigned = await GetOnlyAssignedAsync(userId, ct);
-        var scope = ChannelListAccessResolver.Resolve(CanSeeAllChannels(principal), onlyAssigned);
+        var policy = ChannelListAccessResolver.Resolve(CanSeeAllChannels(principal), onlyAssigned);
 
-        var isChannelMember = scope == ChannelListScope.MembersOnly &&
-            await db.ChannelMembers.AnyAsync(m => m.ChannelId == channelId && m.UserId == userId, ct);
+        var isInScope = policy.Scope switch
+        {
+            ChannelListScope.MembersOnly =>
+                await db.ChannelMembers.AnyAsync(m => m.ChannelId == channelId && m.UserId == userId, ct),
+            ChannelListScope.AssignedOnly =>
+                await db.Conversations.AnyAsync(c => c.ChannelId == channelId && c.AssignedTo == userId, ct),
+            _ => false,
+        };
 
-        return ChannelListAccessResolver.CanAccessChannel(scope, isChannelMember);
+        return ChannelListAccessResolver.CanAccessChannel(policy.Scope, isInScope);
     }
 
     private Task<bool> GetOnlyAssignedAsync(Guid userId, CancellationToken ct) =>

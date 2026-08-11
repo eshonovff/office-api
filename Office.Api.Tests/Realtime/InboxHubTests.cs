@@ -16,8 +16,9 @@ public class InboxHubTests
         public Task<IQueryable<Conversation>> ApplyAccessFilterAsync(
             IQueryable<Conversation> query, ClaimsPrincipal principal, CancellationToken ct) => Task.FromResult(query);
 
-        public Task<IQueryable<Channel>> ApplyChannelAccessFilterAsync(
-            IQueryable<Channel> query, ClaimsPrincipal principal, CancellationToken ct) => Task.FromResult(query);
+        public Task<(IQueryable<Channel> Query, bool Joinable)> ApplyChannelAccessFilterAsync(
+            IQueryable<Channel> query, ClaimsPrincipal principal, CancellationToken ct) =>
+            Task.FromResult((query, true));
 
         public Task<bool> CanAccessChannelAsync(ClaimsPrincipal principal, Guid channelId, CancellationToken ct) =>
             Task.FromResult(result);

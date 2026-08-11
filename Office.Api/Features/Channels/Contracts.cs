@@ -4,8 +4,12 @@ public record ChannelMemberDto(Guid UserId, string FullName, string Username);
 
 public record ChannelListItem(Guid Id, string Type, string Name, string ExternalId, bool IsActive, DateTimeOffset CreatedAt);
 
-/// <summary>GET /api/channels/mine — барои inbox.view, на channels.manage; ExternalId/CreatedAt-ро намебарорад.</summary>
-public record ChannelSummary(Guid Id, string Type, string Name, bool IsActive);
+/// <summary>
+/// GET /api/channels/mine — барои inbox.view, на channels.manage; ExternalId/CreatedAt-ро
+/// намебарорад. Joinable = оё frontend бояд channel:{id}-и SignalR-ро бипайвандад — барои
+/// only_assigned операторон false аст, чунки онҳо навсозиро тавассути user:{id} мегиранд.
+/// </summary>
+public record ChannelSummary(Guid Id, string Type, string Name, bool IsActive, bool Joinable);
 
 public record ChannelDetail(
     Guid Id,
