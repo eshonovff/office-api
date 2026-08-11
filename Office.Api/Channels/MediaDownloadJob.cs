@@ -3,7 +3,9 @@ using Microsoft.EntityFrameworkCore;
 using Office.Api.Common;
 using Office.Api.Data;
 using Office.Api.Data.Entities;
+using Office.Api.Features.Conversations;
 using Office.Api.Media;
+using Office.Api.Realtime;
 
 namespace Office.Api.Channels;
 
@@ -21,6 +23,7 @@ public class MediaDownloadJob(
     IMediaProcessor mediaProcessor,
     IConfiguration configuration,
     IWebHostEnvironment env,
+    IInboxEventPublisher events,
     ILogger<MediaDownloadJob> logger)
 {
     private const int ThumbnailMaxDimension = 320;
@@ -69,6 +72,7 @@ public class MediaDownloadJob(
                 message.VoiceDurationSeconds = await TryProbeDurationAsync(fullPath, message.Id, ct);
 
             await db.SaveChangesAsync(ct);
+            await PublishAsync(message, ct);
         }
         catch (Exception ex)
         {
@@ -76,10 +80,21 @@ public class MediaDownloadJob(
 
             message.MediaDownloadError = ex.Message.Length > 1000 ? ex.Message[..1000] : ex.Message;
             await db.SaveChangesAsync(ct);
+            await PublishAsync(message, ct);
 
             throw; // AutomaticRetry-и Hangfire бо backoff такрор мекунад; агар кӯшишҳо тамом шаванд, хатогии дар боло сабтшуда мемонад.
         }
     }
+
+    /// <summary>
+    /// MessageReceived-и вебҳук бо ҳолати ПЕШ аз боркунӣ мефиристад (MediaUrl холӣ) —
+    /// бе ин, клиент ҳеҷ гоҳ намедонад, ки медиа (ва thumbnail/давомнокӣ) омода шуд ё
+    /// боркунӣ ноком шуд. Ҳамон номи event (MessageReceived) — паёми нав нест, танҳо
+    /// навсозии ҳамон паём, тибқи алгуи такрористифодаи event-ҳои мавҷуда.
+    /// </summary>
+    private Task PublishAsync(Message message, CancellationToken ct) =>
+        events.MessageReceivedAsync(
+            message.Conversation.ChannelId, message.Conversation.AssignedTo, MessageDto.FromEntity(message), ct);
 
     private async Task<string?> TryGenerateThumbnailAsync(string fullPath, string mediaFolder, Guid channelId, Guid messageId, CancellationToken ct)
     {

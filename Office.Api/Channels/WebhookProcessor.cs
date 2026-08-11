@@ -3,6 +3,7 @@ using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using Office.Api.Data;
 using Office.Api.Data.Entities;
+using Office.Api.Features.Conversations;
 using Office.Api.Realtime;
 
 namespace Office.Api.Channels;
@@ -96,19 +97,7 @@ public class WebhookProcessor(
 
         foreach (var (message, conversation, mediaExternalId) in savedMessages)
         {
-            var payload = new
-            {
-                message.Id,
-                message.ConversationId,
-                Direction = message.Direction.ToString(),
-                Type = message.Type.ToString(),
-                message.Body,
-                message.MediaUrl,
-                message.ExternalId,
-                DeliveryStatus = message.DeliveryStatus.ToString(),
-                message.CreatedAt,
-            };
-            await events.MessageReceivedAsync(channel.Id, conversation.AssignedTo, payload, ct);
+            await events.MessageReceivedAsync(channel.Id, conversation.AssignedTo, MessageDto.FromEntity(message), ct);
 
             if (mediaExternalId is not null)
                 backgroundJobs.Enqueue<MediaDownloadJob>(j => j.DownloadAsync(message.Id, mediaExternalId, CancellationToken.None));
@@ -123,13 +112,32 @@ public class WebhookProcessor(
 
         var externalIds = updates.Select(u => u.MessageExternalId).ToList();
         var messages = await db.Messages
+            .Include(m => m.Conversation)
+            .Include(m => m.SentByUser)
             .Where(m => m.ExternalId != null && externalIds.Contains(m.ExternalId))
             .ToDictionaryAsync(m => m.ExternalId!, ct);
 
+        var changedMessages = new List<Message>();
         foreach (var update in updates)
         {
             if (messages.TryGetValue(update.MessageExternalId, out var message) && update.Status > message.DeliveryStatus)
+            {
                 message.DeliveryStatus = update.Status;
+                changedMessages.Add(message);
+            }
+        }
+
+        if (changedMessages.Count == 0)
+            return;
+
+        await db.SaveChangesAsync(ct);
+
+        // sent/delivered/read/failed — тамоми "тик"-ҳое, ки WhatsApp UI нишон медиҳад,
+        // на танҳо delivered/read; коди зерин фарқ намекунад, пас ҳама якхела ирсол мешаванд.
+        foreach (var message in changedMessages)
+        {
+            await events.MessageSentAsync(
+                channel.Id, message.Conversation.AssignedTo, MessageDto.FromEntity(message), ct);
         }
     }
 

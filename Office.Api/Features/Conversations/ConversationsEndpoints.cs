@@ -269,7 +269,7 @@ public static class ConversationsEndpoints
         await db.SaveChangesAsync(ct);
 
         var sender = await db.Users.AsNoTracking().FirstAsync(u => u.Id == userId, ct);
-        var dto = ToMessageDto(message) with { SentByUserName = sender.FullName };
+        var dto = MessageDto.FromEntity(message) with { SentByUserName = sender.FullName };
         await events.MessageSentAsync(conversation.ChannelId, conversation.AssignedTo, dto, ct);
 
         return Results.Created($"/api/conversations/{id}/messages/{message.Id}", dto);
@@ -391,7 +391,7 @@ public static class ConversationsEndpoints
         backgroundJobs.Enqueue<MediaSendJob>(j => j.SendAsync(message.Id, isVoiceNote, CancellationToken.None));
 
         var sender = await db.Users.AsNoTracking().FirstAsync(u => u.Id == userId, ct);
-        var dto = ToMessageDto(message) with { SentByUserName = sender.FullName };
+        var dto = MessageDto.FromEntity(message) with { SentByUserName = sender.FullName };
 
         return Results.Accepted($"/api/conversations/{conversation.Id}/messages/{message.Id}", dto);
     }
@@ -423,7 +423,7 @@ public static class ConversationsEndpoints
             .Take(resolvedPageSize)
             .ToListAsync(ct);
 
-        var items = messages.Select(ToMessageDto).ToList();
+        var items = messages.Select(MessageDto.FromEntity).ToList();
         return Results.Ok(new PagedResult<MessageDto>(items, totalCount, resolvedPage, resolvedPageSize));
     }
 
@@ -517,12 +517,4 @@ public static class ConversationsEndpoints
         c.Id, c.ChannelId, c.Channel.Type.ToString(), c.Channel.Name, c.ExternalId,
         c.ContactName, c.ContactAvatarUrl, c.Status.ToString(), c.AssignedTo, c.Assignee?.FullName,
         c.LastMessageAt, c.UnreadCount, c.WindowExpiresAt, c.CreatedAt);
-
-    private static MessageDto ToMessageDto(Message m) => new(
-        m.Id, m.ConversationId, m.Direction.ToString(), m.Type.ToString(), m.Body,
-        m.MediaUrl is not null ? $"/api/messages/{m.Id}/media" : null,
-        m.ExternalId, m.DeliveryStatus.ToString(), m.IsInternalNote, m.SentByUserId, m.SentByUser?.FullName,
-        m.CreatedAt, m.MimeType, m.SizeBytes, m.OriginalFileName, m.VoiceDurationSeconds,
-        m.ThumbnailUrl is not null ? $"/api/messages/{m.Id}/thumbnail" : null,
-        m.MediaDeletedAt, m.MediaDownloadError);
 }
