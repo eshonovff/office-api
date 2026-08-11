@@ -349,45 +349,29 @@ public static class TasksEndpoints
             .OrderBy(t => t.Position)
             .ToListAsync(ct);
 
-        double? beforePosition = null;
-        double? afterPosition = null;
+        var plan = TaskMovePlanner.Plan(
+            id,
+            siblings.Select(t => new TaskMovePlanner.Sibling(t.Id, t.Position)).ToList(),
+            request.BeforeTaskId,
+            request.AfterTaskId);
 
-        if (request.BeforeTaskId is not null)
+        if (plan.Status != TaskMovePlanner.PlanStatus.Ok)
+            return Results.BadRequest();
+
+        if (plan.NeedsReindex)
         {
-            var before = siblings.FirstOrDefault(t => t.Id == request.BeforeTaskId);
-            if (before is null)
-                return Results.BadRequest();
-            beforePosition = before.Position;
-        }
-
-        if (request.AfterTaskId is not null)
-        {
-            var after = siblings.FirstOrDefault(t => t.Id == request.AfterTaskId);
-            if (after is null)
-                return Results.BadRequest();
-            afterPosition = after.Position;
-        }
-
-        var newPosition = PositionCalculator.Calculate(beforePosition, afterPosition);
-
-        if (PositionCalculator.NeedsReindex(beforePosition, afterPosition, newPosition))
-        {
-            var ordered = new List<TaskEntity>(siblings);
-            var insertIndex = request.BeforeTaskId is null
-                ? 0
-                : ordered.FindIndex(t => t.Id == request.BeforeTaskId) + 1;
-            ordered.Insert(insertIndex, task);
-
+            var siblingsById = siblings.ToDictionary(t => t.Id);
             var position = PositionCalculator.Step;
-            foreach (var sibling in ordered)
+            foreach (var taskId in plan.ReindexedOrder)
             {
-                sibling.Position = position;
+                var entity = taskId == id ? task : siblingsById[taskId];
+                entity.Position = position;
                 position += PositionCalculator.Step;
             }
         }
         else
         {
-            task.Position = newPosition;
+            task.Position = plan.NewPosition;
         }
 
         task.ColumnId = request.ColumnId;
