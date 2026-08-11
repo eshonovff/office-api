@@ -3,6 +3,7 @@ using System.Threading.RateLimiting;
 using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -199,16 +200,30 @@ var app = builder.Build();
 
 app.UseExceptionHandler(exceptionHandlerApp => exceptionHandlerApp.Run(async context =>
 {
+    var error = context.Features.Get<IExceptionHandlerFeature>()?.Error;
+    var isClientInputError = error is not null && ClientErrorClassifier.IsClientInputError(error);
+
+    context.Response.StatusCode = isClientInputError
+        ? StatusCodes.Status400BadRequest
+        : StatusCodes.Status500InternalServerError;
+
     var problemDetailsService = context.RequestServices.GetRequiredService<IProblemDetailsService>();
     await problemDetailsService.WriteAsync(new ProblemDetailsContext
     {
         HttpContext = context,
-        ProblemDetails =
-        {
-            Title = "Хатогии сервер",
-            Detail = "Дар сервер хатогии дохилӣ рӯй дод.",
-            Status = StatusCodes.Status500InternalServerError,
-        },
+        ProblemDetails = isClientInputError
+            ? new()
+            {
+                Title = "Дархости нодуруст",
+                Detail = "Формати маълумоти фиристодашуда нодуруст аст.",
+                Status = StatusCodes.Status400BadRequest,
+            }
+            : new()
+            {
+                Title = "Хатогии сервер",
+                Detail = "Дар сервер хатогии дохилӣ рӯй дод.",
+                Status = StatusCodes.Status500InternalServerError,
+            },
     });
 }));
 

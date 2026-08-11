@@ -126,8 +126,8 @@ public static class TasksEndpoints
         Guid? assigneeId,
         Guid? labelId,
         string? priority,
-        DateTimeOffset? dueFrom,
-        DateTimeOffset? dueTo,
+        DateOnly? dueFrom,
+        DateOnly? dueTo,
         string? search,
         CancellationToken ct)
     {

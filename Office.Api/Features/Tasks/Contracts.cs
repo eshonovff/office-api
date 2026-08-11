@@ -10,7 +10,7 @@ public record TaskListItem(
     Guid? AssigneeId,
     string? AssigneeName,
     string Priority,
-    DateTimeOffset? DueDate,
+    DateOnly? DueDate,
     double Position,
     IReadOnlyList<LabelDto> Labels);
 
@@ -23,7 +23,7 @@ public record TaskDetail(
     Guid? AssigneeId,
     string? AssigneeName,
     string Priority,
-    DateTimeOffset? DueDate,
+    DateOnly? DueDate,
     double Position,
     Guid CreatedBy,
     DateTimeOffset CreatedAt,
@@ -41,14 +41,14 @@ public record CreateTaskRequest(
     string? Description,
     Guid? AssigneeId,
     string Priority,
-    DateTimeOffset? DueDate,
+    DateOnly? DueDate,
     IReadOnlyList<Guid>? LabelIds);
 
 public record UpdateTaskRequest(
     string Title,
     string? Description,
     string Priority,
-    DateTimeOffset? DueDate,
+    DateOnly? DueDate,
     IReadOnlyList<Guid>? LabelIds);
 
 public record MoveTaskRequest(Guid ColumnId, Guid? BeforeTaskId, Guid? AfterTaskId);

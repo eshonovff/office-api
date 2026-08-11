@@ -17,7 +17,7 @@ public class TaskItem
     public User? Assignee { get; set; }
 
     public TaskPriority Priority { get; set; } = TaskPriority.Medium;
-    public DateTimeOffset? DueDate { get; set; }
+    public DateOnly? DueDate { get; set; }
     public double Position { get; set; }
 
     public Guid CreatedBy { get; set; }
