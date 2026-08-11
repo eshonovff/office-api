@@ -101,10 +101,17 @@ builder.Services.AddHangfireServer(options =>
     options.WorkerCount = 2;
 });
 
+var corsAllowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>();
+if (corsAllowedOrigins is not { Length: > 0 })
+    throw new InvalidOperationException("Cors:AllowedOrigins танзим нашудааст.");
+
 builder.Services.AddCors(options =>
 {
+    // Ҳеҷ гоҳ AllowAnyOrigin — AllowCredentials фаъол аст, ва wildcard бо credentials
+    // сӯрохи амниятии воқеӣ мешавад. Origin-ҳо аз конфигуратсия (appsettings/env), на
+    // hardcode — то dev/tunnel/prod бе тағйири код кор кунанд.
     options.AddPolicy(FrontendCorsPolicy, policy => policy
-        .WithOrigins("http://localhost:3000", "https://office.nizom.tj")
+        .WithOrigins(corsAllowedOrigins)
         .AllowAnyHeader()
         .AllowAnyMethod()
         .AllowCredentials());
