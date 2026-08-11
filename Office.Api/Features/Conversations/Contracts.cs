@@ -53,12 +53,13 @@ public record MessageDto(
     int? VoiceDurationSeconds,
     string? ThumbnailUrl,
     DateTimeOffset? MediaDeletedAt,
-    string? MediaDownloadError)
+    string? MediaDownloadError,
+    IReadOnlyList<double>? WaveformPeaks)
 {
     /// <summary>
     /// Ягона роҳи табдили Message ба шакли берунӣ — ҳам REST (GET/POST-и Conversations),
-    /// ҳам realtime (WebhookProcessor, MediaDownloadJob) бояд ҳамин методро истифода
-    /// баранд, то ду шакли гуногун барои як паём ҳеҷ гоҳ дур нашаванд.
+    /// ҳам realtime (WebhookProcessor, MediaDownloadJob, MediaSendJob) бояд ҳамин методро
+    /// истифода баранд, то ду шакли гуногун барои як паём ҳеҷ гоҳ дур нашаванд.
     /// </summary>
     public static MessageDto FromEntity(Message m) => new(
         m.Id, m.ConversationId, m.Direction.ToString(), m.Type.ToString(), m.Body,
@@ -66,7 +67,9 @@ public record MessageDto(
         m.ExternalId, m.DeliveryStatus.ToString(), m.IsInternalNote, m.SentByUserId, m.SentByUser?.FullName,
         m.CreatedAt, m.MimeType, m.SizeBytes, m.OriginalFileName, m.VoiceDurationSeconds,
         m.ThumbnailUrl is not null ? $"/api/messages/{m.Id}/thumbnail" : null,
-        m.MediaDeletedAt, m.MediaDownloadError);
+        m.MediaDeletedAt, m.MediaDownloadError,
+        // 0-100 дар DB (smallint[], фишурда) → 0-1 дар DTO (тавре ки frontend интизор аст).
+        m.WaveformPeaks?.Select(p => p / 100.0).ToList());
 }
 
 public record PagedResult<T>(IReadOnlyList<T> Items, int TotalCount, int Page, int PageSize);

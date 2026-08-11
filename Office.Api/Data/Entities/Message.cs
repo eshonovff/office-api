@@ -20,6 +20,8 @@ public class Message
     public string? OriginalFileName { get; set; }
     public string? MediaExternalId { get; set; }
     public int? VoiceDurationSeconds { get; set; }
+    /// <summary>0-100 (на 0-1) — smallint[], то бе jsonb/floating-point барзиёд захира нашавад. DTO ба 0-1 табдил медиҳад.</summary>
+    public short[]? WaveformPeaks { get; set; }
     public string? ThumbnailUrl { get; set; }
     public DateTimeOffset? MediaDeletedAt { get; set; }
     public string? MediaDownloadError { get; set; }

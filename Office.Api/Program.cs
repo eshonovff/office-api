@@ -191,6 +191,7 @@ builder.Services.AddScoped<WhatsAppSendJob>();
 builder.Services.AddScoped<MediaDownloadJob>();
 builder.Services.AddScoped<MediaSendJob>();
 builder.Services.AddScoped<MediaRetentionCleanupJob>();
+builder.Services.AddScoped<WaveformBackfillJob>();
 
 builder.Services.AddHttpClient<ISmsSender, OsonSmsSender>();
 
@@ -259,6 +260,9 @@ RecurringJob.AddOrUpdate<WebhookLogCleanupJob>(
 
 RecurringJob.AddOrUpdate<MediaRetentionCleanupJob>(
     "media-retention-cleanup", job => job.RunAsync(CancellationToken.None), Cron.Daily);
+
+RecurringJob.AddOrUpdate<WaveformBackfillJob>(
+    "waveform-backfill", job => job.RunAsync(CancellationToken.None), Cron.Daily);
 
 // Development: ҳамеша иҷро шавад. Production: танҳо агар RUN_MIGRATIONS=true.
 var runMigrations = app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("RUN_MIGRATIONS");

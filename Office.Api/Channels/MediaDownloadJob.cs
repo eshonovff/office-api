@@ -69,7 +69,10 @@ public class MediaDownloadJob(
                 message.ThumbnailUrl = await TryGenerateThumbnailAsync(fullPath, mediaFolder, channel.Id, message.Id, ct);
 
             if (message.Type == MessageType.Audio)
+            {
                 message.VoiceDurationSeconds = await TryProbeDurationAsync(fullPath, message.Id, ct);
+                message.WaveformPeaks = await TryGenerateWaveformPeaksAsync(fullPath, message.Id, ct);
+            }
 
             await db.SaveChangesAsync(ct);
             await PublishAsync(message, ct);
@@ -125,4 +128,16 @@ public class MediaDownloadJob(
         }
     }
 
+    private async Task<short[]?> TryGenerateWaveformPeaksAsync(string fullPath, Guid messageId, CancellationToken ct)
+    {
+        try
+        {
+            return [.. await mediaProcessor.GenerateWaveformPeaksAsync(fullPath, WaveformPeakCalculator.DefaultPeakCount, ct)];
+        }
+        catch (MediaProcessingException ex)
+        {
+            logger.LogWarning(ex, "Сохтани пикҳои шакли мавҷ барои паёми {MessageId} ноком шуд", messageId);
+            return null;
+        }
+    }
 }
