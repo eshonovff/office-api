@@ -19,6 +19,9 @@ public class InboxHubTests
         public Task<IQueryable<Channel>> ApplyChannelAccessFilterAsync(
             IQueryable<Channel> query, ClaimsPrincipal principal, CancellationToken ct) => Task.FromResult(query);
 
+        public Task<bool> CanAccessChannelAsync(ClaimsPrincipal principal, Guid channelId, CancellationToken ct) =>
+            Task.FromResult(result);
+
         public Task<bool> HasAccessAsync(ClaimsPrincipal principal, Guid channelId, Guid? assignedTo, CancellationToken ct)
         {
             AssignedToWasCaptured = true;

@@ -16,6 +16,9 @@ public interface IChannelAccessGuard
 
     /// <summary>Барои GET /api/channels/mine — кадом каналҳо (на conversation-и мушаххас) корбар мебинад.</summary>
     Task<IQueryable<Channel>> ApplyChannelAccessFilterAsync(IQueryable<Channel> query, ClaimsPrincipal principal, CancellationToken ct);
+
+    /// <summary>Барои GET /{id}, /{id}/whatsapp-templates — санҷиши як канали мушаххас (на рӯйхат).</summary>
+    Task<bool> CanAccessChannelAsync(ClaimsPrincipal principal, Guid channelId, CancellationToken ct);
 }
 
 public class ChannelAccessGuard(AppDbContext db) : IChannelAccessGuard
@@ -61,6 +64,18 @@ public class ChannelAccessGuard(AppDbContext db) : IChannelAccessGuard
             ChannelListScope.MembersOnly => query.Where(c => c.Members.Any(m => m.UserId == userId)),
             _ => query.Where(c => false),
         };
+    }
+
+    public async Task<bool> CanAccessChannelAsync(ClaimsPrincipal principal, Guid channelId, CancellationToken ct)
+    {
+        var userId = principal.GetUserId();
+        var onlyAssigned = await GetOnlyAssignedAsync(userId, ct);
+        var scope = ChannelListAccessResolver.Resolve(CanSeeAllChannels(principal), onlyAssigned);
+
+        var isChannelMember = scope == ChannelListScope.MembersOnly &&
+            await db.ChannelMembers.AnyAsync(m => m.ChannelId == channelId && m.UserId == userId, ct);
+
+        return ChannelListAccessResolver.CanAccessChannel(scope, isChannelMember);
     }
 
     private Task<bool> GetOnlyAssignedAsync(Guid userId, CancellationToken ct) =>

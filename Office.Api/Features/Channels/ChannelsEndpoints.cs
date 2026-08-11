@@ -31,15 +31,15 @@ public static class ChannelsEndpoints
             .ProducesProblem(StatusCodes.Status403Forbidden);
 
         group.MapGet("/{id:guid}", GetAsync)
-            .RequirePermission(Permissions.Channels.Manage)
-            .WithSummary("Маълумоти пурраи канал бо аъзо (бе credentials)")
+            .RequirePermission(Permissions.Inbox.Assign)
+            .WithSummary("Маълумоти пурраи канал бо аъзо (бе credentials) — барои assign-by-drag дар /inbox")
             .Produces<ChannelDetail>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapGet("/{id:guid}/whatsapp-templates", GetWhatsAppTemplatesAsync)
-            .RequirePermission(Permissions.Channels.Manage)
+            .RequirePermission(Permissions.Inbox.Reply)
             .WithSummary("Рӯйхати шаблонҳои тасдиқшудаи WhatsApp аз Meta")
             .Produces<IEnumerable<WhatsAppTemplateInfo>>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
@@ -102,8 +102,12 @@ public static class ChannelsEndpoints
         return Results.Ok(channels.Select(ToSummary));
     }
 
-    private static async Task<IResult> GetAsync(Guid id, AppDbContext db, CancellationToken ct)
+    private static async Task<IResult> GetAsync(
+        Guid id, ClaimsPrincipal principal, AppDbContext db, IChannelAccessGuard access, CancellationToken ct)
     {
+        if (!await access.CanAccessChannelAsync(principal, id, ct))
+            return Results.NotFound();
+
         var channel = await db.Channels.AsNoTracking()
             .Include(c => c.Members).ThenInclude(m => m.User)
             .FirstOrDefaultAsync(c => c.Id == id, ct);
@@ -112,8 +116,11 @@ public static class ChannelsEndpoints
     }
 
     private static async Task<IResult> GetWhatsAppTemplatesAsync(
-        Guid id, AppDbContext db, IChannelProviderFactory factory, CancellationToken ct)
+        Guid id, ClaimsPrincipal principal, AppDbContext db, IChannelAccessGuard access, IChannelProviderFactory factory, CancellationToken ct)
     {
+        if (!await access.CanAccessChannelAsync(principal, id, ct))
+            return Results.NotFound();
+
         var channel = await db.Channels.AsNoTracking().FirstOrDefaultAsync(c => c.Id == id, ct);
         if (channel is null)
             return Results.NotFound();

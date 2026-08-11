@@ -20,4 +20,16 @@ public static class ChannelListAccessResolver
         canSeeAllChannels ? ChannelListScope.All
         : onlyAssigned ? ChannelListScope.None
         : ChannelListScope.MembersOnly;
+
+    /// <summary>
+    /// Оё дар доираи ин scope (натиҷаи Resolve) як каналаи мушаххас дастрас аст — барои
+    /// GET /channels/{id} ва /whatsapp-templates (санҷиши як канал, на филтри рӯйхат).
+    /// </summary>
+    public static bool CanAccessChannel(ChannelListScope scope, bool isChannelMember) =>
+        scope switch
+        {
+            ChannelListScope.All => true,
+            ChannelListScope.MembersOnly => isChannelMember,
+            _ => false,
+        };
 }
