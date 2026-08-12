@@ -23,6 +23,9 @@ public class InboxHubTests
         public Task<bool> CanAccessChannelAsync(ClaimsPrincipal principal, Guid channelId, CancellationToken ct) =>
             Task.FromResult(result);
 
+        public Task<bool> CanUserBeAssignedToChannelAsync(Guid userId, Guid channelId, CancellationToken ct) =>
+            Task.FromResult(result);
+
         public Task<bool> HasAccessAsync(ClaimsPrincipal principal, Guid channelId, Guid? assignedTo, CancellationToken ct)
         {
             AssignedToWasCaptured = true;

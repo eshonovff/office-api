@@ -55,4 +55,25 @@ public class ConversationAccessResolverTests
         Assert.True(ConversationAccessResolver.CanAccess(
             canSeeAllChannels: true, isChannelMember: false, onlyAssigned: true, isAssignedToUser: true));
     }
+
+    // ChannelAccessGuard.CanUserBeAssignedToChannelAsync доир ба ҳамин формула сохта шудааст
+    // (isAssignedToUser:true — "баъд аз таъин", canSeeAllChannels ҳамеша false дар ин ҷо, чун
+    // Owner/Admin аллакай ба isChannelMember дохил карда мешавад). Ду ҳолати зерин мустақиман
+    // рафтори PATCH /conversations/{id}-ро ҳангоми таъини корманди берун аз канал месанҷанд.
+
+    [Fact]
+    public void CanAccess_TargetNotChannelMember_AssignedToUser_ReturnsFalse()
+    {
+        // Bug: корманде, ки узви канали ин чат нест, таъин мешуд ва баъд аз login чатро
+        // намедид (таъиноти "орфан"). Ин ҳолат бояд PATCH-ро бо 409 рад кунад.
+        Assert.False(ConversationAccessResolver.CanAccess(
+            canSeeAllChannels: false, isChannelMember: false, onlyAssigned: false, isAssignedToUser: true));
+    }
+
+    [Fact]
+    public void CanAccess_TargetIsChannelMember_AssignedToUser_ReturnsTrue()
+    {
+        Assert.True(ConversationAccessResolver.CanAccess(
+            canSeeAllChannels: false, isChannelMember: true, onlyAssigned: false, isAssignedToUser: true));
+    }
 }

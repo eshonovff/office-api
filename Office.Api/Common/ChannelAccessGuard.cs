@@ -23,6 +23,14 @@ public interface IChannelAccessGuard
 
     /// <summary>Барои GET /{id}, /{id}/whatsapp-templates — санҷиши як канали мушаххас (на рӯйхат).</summary>
     Task<bool> CanAccessChannelAsync(ClaimsPrincipal principal, Guid channelId, CancellationToken ct);
+
+    /// <summary>
+    /// Барои PATCH /conversations/{id} бо assignedTo — оё корбари ҳадаф (на principal-и
+    /// дархосткунанда) баъд аз таъин ин чатро мебинад. Owner/Admin ҳамеша ҳа; дигарон бояд
+    /// узви канали ин чат бошанд — вагарна таъиноти "орфан" мешавад (ниг. bug: assignment
+    /// bypasses channel access).
+    /// </summary>
+    Task<bool> CanUserBeAssignedToChannelAsync(Guid userId, Guid channelId, CancellationToken ct);
 }
 
 public class ChannelAccessGuard(AppDbContext db) : IChannelAccessGuard
@@ -89,6 +97,21 @@ public class ChannelAccessGuard(AppDbContext db) : IChannelAccessGuard
         };
 
         return ChannelListAccessResolver.CanAccessChannel(policy.Scope, isInScope);
+    }
+
+    public async Task<bool> CanUserBeAssignedToChannelAsync(Guid userId, Guid channelId, CancellationToken ct)
+    {
+        var isOwnerOrAdmin = await db.UserRoles
+            .Where(ur => ur.UserId == userId)
+            .Select(ur => ur.Role.Key)
+            .AnyAsync(key => key == RoleKeys.Owner || key == RoleKeys.Admin, ct);
+
+        var isMember = isOwnerOrAdmin ||
+            await db.ChannelMembers.AnyAsync(m => m.ChannelId == channelId && m.UserId == userId, ct);
+
+        // isAssignedToUser: true — санҷиши "баъд аз таъин", на ҳолати ҷорӣ; only_assigned-и
+        // корбари ҳадаф барои ин чат аҳамият надорад, чун ин чат маҳз ба вай таъин мешавад.
+        return ConversationAccessResolver.CanAccess(canSeeAllChannels: false, isMember, onlyAssigned: false, isAssignedToUser: true);
     }
 
     private Task<bool> GetOnlyAssignedAsync(Guid userId, CancellationToken ct) =>

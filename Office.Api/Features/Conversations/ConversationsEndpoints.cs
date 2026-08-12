@@ -65,6 +65,15 @@ public static class ConversationsEndpoints
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
+
+        group.MapGet("/{id:guid}/assignable-users", ListAssignableUsersAsync)
+            .RequirePermission(Permissions.Inbox.Assign)
+            .WithSummary("Корбароне, ки метавонанд ба ин чат таъин шаванд — узви канали ин чат")
+            .Produces<IEnumerable<AssignableUserDto>>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapPost("/{id:guid}/media", UploadMediaAsync)
@@ -181,6 +190,14 @@ public static class ConversationsEndpoints
                     title: "Корбари нодуруст",
                     detail: "Корманди таъиншуда вуҷуд надорад.",
                     statusCode: StatusCodes.Status400BadRequest);
+            }
+
+            if (!await access.CanUserBeAssignedToChannelAsync(request.AssignedTo.Value, conversation.ChannelId, ct))
+            {
+                return Results.Problem(
+                    title: "Корманд ба канал дастрасӣ надорад",
+                    detail: "Корманди таъиншуда узви канали ин чат нест — баъд аз таъин чатро намебинад.",
+                    statusCode: StatusCodes.Status409Conflict);
             }
         }
 
@@ -394,6 +411,29 @@ public static class ConversationsEndpoints
         var dto = MessageDto.FromEntity(message) with { SentByUserName = sender.FullName };
 
         return Results.Accepted($"/api/conversations/{conversation.Id}/messages/{message.Id}", dto);
+    }
+
+    private static async Task<IResult> ListAssignableUsersAsync(
+        Guid id, ClaimsPrincipal principal, AppDbContext db, IChannelAccessGuard access, CancellationToken ct)
+    {
+        var conversation = await db.Conversations.AsNoTracking()
+            .Where(c => c.Id == id)
+            .Select(c => new { c.ChannelId, c.AssignedTo })
+            .FirstOrDefaultAsync(ct);
+
+        if (conversation is null)
+            return Results.NotFound();
+
+        if (!await access.HasAccessAsync(principal, conversation.ChannelId, conversation.AssignedTo, ct))
+            return Results.NotFound();
+
+        var users = await db.ChannelMembers.AsNoTracking()
+            .Where(m => m.ChannelId == conversation.ChannelId)
+            .OrderBy(m => m.User.FullName)
+            .Select(m => new AssignableUserDto(m.UserId, m.User.FullName, m.User.Username))
+            .ToListAsync(ct);
+
+        return Results.Ok(users);
     }
 
     private static async Task<IResult> ListMessagesAsync(
