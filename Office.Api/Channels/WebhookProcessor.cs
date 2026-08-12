@@ -111,9 +111,10 @@ public class WebhookProcessor(
             return;
 
         var externalIds = updates.Select(u => u.MessageExternalId).ToList();
+        // SentByUserName is a persisted snapshot on Message itself — no need to
+        // Include(SentByUser) just to resolve the display name for FromEntity below.
         var messages = await db.Messages
             .Include(m => m.Conversation)
-            .Include(m => m.SentByUser)
             .Where(m => m.ExternalId != null && externalIds.Contains(m.ExternalId))
             .ToDictionaryAsync(m => m.ExternalId!, ct);
 

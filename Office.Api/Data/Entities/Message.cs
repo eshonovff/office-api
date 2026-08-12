@@ -28,6 +28,13 @@ public class Message
 
     public Guid? SentByUserId { get; set; }
     public User? SentByUser { get; set; }
+    /// <summary>
+    /// Snapshot of the sender's display name at send time. SentByUserId is ON DELETE SET
+    /// NULL, so without this a deleted user's replies would lose their attribution — this
+    /// column is the source of truth for display, independent of whether the user still
+    /// exists or SentByUser was included in the query.
+    /// </summary>
+    public string? SentByUserName { get; set; }
 
     public DateTimeOffset CreatedAt { get; set; }
 }

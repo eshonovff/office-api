@@ -81,12 +81,12 @@ public class MessageDtoTests
     }
 
     [Fact]
-    public void FromEntity_SentByUserNotLoaded_SentByUserNameIsNullNotAnException()
+    public void FromEntity_InboundMessage_SentByUserNameIsNull()
     {
-        // Inbound-и вебҳук ва боркунии медиа SentByUser-ро Include намекунанд (доим null
-        // барои паёми воридотӣ) — FromEntity набояд аз ин афтад.
+        // Паёми воридотӣ (аз мижоз) ҳеҷ гоҳ SentByUserId/SentByUserName надорад.
         var message = CreateMessage(Guid.NewGuid());
         message.SentByUserId = null;
+        message.SentByUserName = null;
 
         var dto = MessageDto.FromEntity(message);
 
@@ -95,22 +95,36 @@ public class MessageDtoTests
     }
 
     [Fact]
-    public void FromEntity_SentByUserLoaded_CarriesTheFullName()
+    public void FromEntity_ReadsTheStoredSnapshotNotTheNavigation()
     {
+        // SentByUserName — snapshot дар лаҳзаи фиристодан, на SentByUser?.FullName.
+        // Санҷиш махсусан бе SentByUser (Include нашуда) — то тасдиқ кунад FromEntity
+        // ба navigation вобаста нест.
         var message = CreateMessage(Guid.NewGuid());
         message.Direction = MessageDirection.Outbound;
         message.SentByUserId = Guid.NewGuid();
-        message.SentByUser = new User
-        {
-            Id = message.SentByUserId.Value,
-            FullName = "Operator Name",
-            Username = "operator",
-            PasswordHash = "hash",
-        };
+        message.SentByUserName = "Operator Name";
+        message.SentByUser = null;
 
         var dto = MessageDto.FromEntity(message);
 
         Assert.Equal("Operator Name", dto.SentByUserName);
+    }
+
+    [Fact]
+    public void FromEntity_SentByUserDeleted_SnapshotSurvivesEvenThoughTheFkWentNull()
+    {
+        // SentByUserId → SET NULL ҳангоми нест кардани корбар, вале SentByUserName
+        // (snapshot-и мустақил) мемонад — ин тамоми сабаби вуҷуди ин колонка аст.
+        var message = CreateMessage(Guid.NewGuid());
+        message.Direction = MessageDirection.Outbound;
+        message.SentByUserId = null;
+        message.SentByUserName = "Former Operator";
+
+        var dto = MessageDto.FromEntity(message);
+
+        Assert.Null(dto.SentByUserId);
+        Assert.Equal("Former Operator", dto.SentByUserName);
     }
 
     [Fact]

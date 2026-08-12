@@ -14,10 +14,13 @@ public class ConversationConfiguration : IEntityTypeConfiguration<Conversation>
         builder.Property(c => c.ContactName).HasMaxLength(200);
         builder.Property(c => c.Status).HasConversion<string>().HasMaxLength(20);
 
+        // Restrict, na Cascade — нест кардани канал набояд таърихи чатро бо худ барад.
+        // Каналҳо soft-delete мешаванд (isActive=false), пас DELETE-и воқеӣ ба ин FK
+        // намерасад дар роҳи муқаррарӣ; Restrict танҳо садди охирин аст.
         builder.HasOne(c => c.Channel)
             .WithMany(ch => ch.Conversations)
             .HasForeignKey(c => c.ChannelId)
-            .OnDelete(DeleteBehavior.Cascade);
+            .OnDelete(DeleteBehavior.Restrict);
 
         builder.HasOne(c => c.Assignee)
             .WithMany()

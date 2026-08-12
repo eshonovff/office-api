@@ -244,6 +244,7 @@ public static class ConversationsEndpoints
 
         var isTemplate = !string.IsNullOrEmpty(request.TemplateName);
         var userId = principal.GetUserId();
+        var sender = await db.Users.AsNoTracking().FirstAsync(u => u.Id == userId, ct);
 
         var message = new Message
         {
@@ -254,6 +255,7 @@ public static class ConversationsEndpoints
             Body = isTemplate ? request.Body ?? $"[шаблон: {request.TemplateName}]" : request.Body,
             DeliveryStatus = MessageDeliveryStatus.Pending,
             SentByUserId = userId,
+            SentByUserName = sender.FullName,
             CreatedAt = DateTimeOffset.UtcNow,
         };
 
@@ -286,8 +288,7 @@ public static class ConversationsEndpoints
         conversation.LastMessageAt = message.CreatedAt;
         await db.SaveChangesAsync(ct);
 
-        var sender = await db.Users.AsNoTracking().FirstAsync(u => u.Id == userId, ct);
-        var dto = MessageDto.FromEntity(message) with { SentByUserName = sender.FullName };
+        var dto = MessageDto.FromEntity(message);
         await events.MessageSentAsync(conversation.ChannelId, conversation.AssignedTo, dto, ct);
 
         return Results.Created($"/api/conversations/{id}/messages/{message.Id}", dto);
@@ -377,6 +378,7 @@ public static class ConversationsEndpoints
         CancellationToken ct)
     {
         var userId = principal.GetUserId();
+        var sender = await db.Users.AsNoTracking().FirstAsync(u => u.Id == userId, ct);
         var rootPath = UploadsPathResolver.ResolveRootPath(configuration, env);
         var mediaFolder = Path.Combine(rootPath, "whatsapp-media", conversation.ChannelId.ToString());
         Directory.CreateDirectory(mediaFolder);
@@ -400,6 +402,7 @@ public static class ConversationsEndpoints
             OriginalFileName = file.FileName,
             DeliveryStatus = MessageDeliveryStatus.Pending,
             SentByUserId = userId,
+            SentByUserName = sender.FullName,
             CreatedAt = DateTimeOffset.UtcNow,
         };
 
@@ -408,8 +411,7 @@ public static class ConversationsEndpoints
 
         backgroundJobs.Enqueue<MediaSendJob>(j => j.SendAsync(message.Id, isVoiceNote, CancellationToken.None));
 
-        var sender = await db.Users.AsNoTracking().FirstAsync(u => u.Id == userId, ct);
-        var dto = MessageDto.FromEntity(message) with { SentByUserName = sender.FullName };
+        var dto = MessageDto.FromEntity(message);
 
         return Results.Accepted($"/api/conversations/{conversation.Id}/messages/{message.Id}", dto);
     }
@@ -452,9 +454,9 @@ public static class ConversationsEndpoints
 
         var (resolvedPage, resolvedPageSize) = ResolvePaging(page, pageSize);
 
-        var query = db.Messages.AsNoTracking()
-            .Include(m => m.SentByUser)
-            .Where(m => m.ConversationId == id);
+        // SentByUserName is a persisted snapshot on Message itself now — no need to
+        // Include(SentByUser) just to resolve the display name.
+        var query = db.Messages.AsNoTracking().Where(m => m.ConversationId == id);
 
         var totalCount = await query.CountAsync(ct);
         var messages = await query

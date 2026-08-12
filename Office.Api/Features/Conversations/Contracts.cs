@@ -64,7 +64,7 @@ public record MessageDto(
     public static MessageDto FromEntity(Message m) => new(
         m.Id, m.ConversationId, m.Direction.ToString(), m.Type.ToString(), m.Body,
         m.MediaUrl is not null ? $"/api/messages/{m.Id}/media" : null,
-        m.ExternalId, m.DeliveryStatus.ToString(), m.IsInternalNote, m.SentByUserId, m.SentByUser?.FullName,
+        m.ExternalId, m.DeliveryStatus.ToString(), m.IsInternalNote, m.SentByUserId, m.SentByUserName,
         m.CreatedAt, m.MimeType, m.SizeBytes, m.OriginalFileName, m.VoiceDurationSeconds,
         m.ThumbnailUrl is not null ? $"/api/messages/{m.Id}/thumbnail" : null,
         m.MediaDeletedAt, m.MediaDownloadError,

@@ -29,9 +29,10 @@ public class MediaSendJob(
 {
     public async Task SendAsync(Guid messageId, bool isVoiceNote, CancellationToken ct)
     {
+        // SentByUserName is a persisted snapshot on Message itself — no need to
+        // Include(SentByUser) just to resolve the display name for FromEntity below.
         var message = await db.Messages
             .Include(m => m.Conversation).ThenInclude(c => c.Channel)
-            .Include(m => m.SentByUser)
             .FirstOrDefaultAsync(m => m.Id == messageId, ct);
 
         if (message is null)
