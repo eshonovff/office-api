@@ -69,6 +69,14 @@ public static class ConversationsEndpoints
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict);
 
+        group.MapPost("/{id:guid}/takeover", TakeoverAsync)
+            .RequirePermission(Permissions.Inbox.Reply)
+            .WithSummary("Гирифтани чат аз таъиншудаи қаблӣ — қасдан бе 24-соата lock, вале таърих сабт мешавад")
+            .Produces<ConversationDetail>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
         group.MapGet("/{id:guid}/assignable-users", ListAssignableUsersAsync)
             .RequirePermission(Permissions.Inbox.Assign)
             .WithSummary("Корбароне, ки метавонанд ба ин чат таъин шаванд — узви канали ин чат + Owner/Admin")
@@ -182,10 +190,11 @@ public static class ConversationsEndpoints
             }
         }
 
+        User? newAssignee = null;
         if (request.AssignedTo is not null)
         {
-            var assigneeExists = await db.Users.AnyAsync(u => u.Id == request.AssignedTo, ct);
-            if (!assigneeExists)
+            newAssignee = await db.Users.FirstOrDefaultAsync(u => u.Id == request.AssignedTo, ct);
+            if (newAssignee is null)
             {
                 return Results.Problem(
                     title: "Корбари нодуруст",
@@ -204,15 +213,26 @@ public static class ConversationsEndpoints
 
         var statusChanged = newStatus is not null && newStatus != conversation.Status;
         var assignmentChanged = request.AssignedTo is not null && request.AssignedTo != conversation.AssignedTo;
+        var previousAssigneeId = conversation.AssignedTo;
+        var previousAssigneeName = conversation.Assignee?.FullName;
 
         if (newStatus is not null)
             conversation.Status = newStatus.Value;
 
         if (request.AssignedTo is not null)
+        {
             conversation.AssignedTo = request.AssignedTo;
+            conversation.Assignee = newAssignee;
+        }
+
+        if (assignmentChanged)
+        {
+            RecordAssignmentHistory(
+                db, conversation.Id, previousAssigneeId, previousAssigneeName,
+                request.AssignedTo, newAssignee!.FullName, ConversationAssignmentReason.Reassigned);
+        }
 
         await db.SaveChangesAsync(ct);
-        await db.Entry(conversation).Reference(c => c.Assignee).LoadAsync(ct);
 
         var dto = ToDetail(conversation);
 
@@ -221,6 +241,54 @@ public static class ConversationsEndpoints
 
         if (statusChanged)
             await events.ConversationStatusChangedAsync(conversation.ChannelId, conversation.AssignedTo, dto, ct);
+
+        return Results.Ok(dto);
+    }
+
+    /// <summary>
+    /// Гирифтани чат аз таъиншудаи қаблӣ (агар бошад). Қасдан бе 24-соата lock: агар
+    /// таъиншуда бемор шавад ё дастрас набошад, мижоз набояд бе ҷавоб монад — ҳама узви
+    /// канал (на танҳо Owner/Admin/Manager бо inbox.assign) метавонанд ин кор кунанд, пас
+    /// permission-и он ҳамон inbox.reply аст, на inbox.assign.
+    /// </summary>
+    private static async Task<IResult> TakeoverAsync(
+        Guid id,
+        ClaimsPrincipal principal,
+        AppDbContext db,
+        IChannelAccessGuard access,
+        IInboxEventPublisher events,
+        CancellationToken ct)
+    {
+        var conversation = await db.Conversations
+            .Include(c => c.Channel)
+            .Include(c => c.Assignee)
+            .FirstOrDefaultAsync(c => c.Id == id, ct);
+
+        if (conversation is null)
+            return Results.NotFound();
+
+        if (!await access.HasAccessAsync(principal, conversation.ChannelId, conversation.AssignedTo, ct))
+            return Results.NotFound();
+
+        var userId = principal.GetUserId();
+        if (conversation.AssignedTo == userId)
+            return Results.Ok(ToDetail(conversation));
+
+        var previousAssigneeId = conversation.AssignedTo;
+        var previousAssigneeName = conversation.Assignee?.FullName;
+
+        var caller = await db.Users.FirstAsync(u => u.Id == userId, ct);
+        conversation.AssignedTo = userId;
+        conversation.Assignee = caller;
+
+        RecordAssignmentHistory(
+            db, conversation.Id, previousAssigneeId, previousAssigneeName,
+            userId, caller.FullName, ConversationAssignmentReason.Takeover);
+
+        await db.SaveChangesAsync(ct);
+
+        var dto = ToDetail(conversation);
+        await events.ConversationAssignedAsync(conversation.ChannelId, conversation.AssignedTo, dto, ct);
 
         return Results.Ok(dto);
     }
@@ -242,8 +310,12 @@ public static class ConversationsEndpoints
         if (!await access.HasAccessAsync(principal, conversation.ChannelId, conversation.AssignedTo, ct))
             return Results.NotFound();
 
-        var isTemplate = !string.IsNullOrEmpty(request.TemplateName);
         var userId = principal.GetUserId();
+        var isOwnerOrAdmin = ChannelAccessGuard.CanSeeAllChannels(principal);
+        if (!ConversationAssignmentPolicy.CanSend(isOwnerOrAdmin, conversation.AssignedTo, userId))
+            return ReadOnlyProblem();
+
+        var isTemplate = !string.IsNullOrEmpty(request.TemplateName);
         // Tracked (not AsNoTracking) — assigned to conversation.Assignee below when claiming,
         // and EF needs it tracked to recognize that as the same entity rather than a new insert.
         var sender = await db.Users.FirstAsync(u => u.Id == userId, ct);
@@ -257,6 +329,9 @@ public static class ConversationsEndpoints
         {
             conversation.AssignedTo = userId;
             conversation.Assignee = sender;
+            RecordAssignmentHistory(
+                db, conversation.Id, fromUserId: null, fromUserName: null,
+                userId, sender.FullName, ConversationAssignmentReason.ClaimedOnReply);
         }
 
         var message = new Message
@@ -329,6 +404,9 @@ public static class ConversationsEndpoints
         if (!await access.HasAccessAsync(principal, conversation.ChannelId, conversation.AssignedTo, ct))
             return Results.NotFound();
 
+        if (!ConversationAssignmentPolicy.CanSend(ChannelAccessGuard.CanSeeAllChannels(principal), conversation.AssignedTo, principal.GetUserId()))
+            return ReadOnlyProblem();
+
         if (file.Length <= 0)
             return Results.BadRequest();
 
@@ -362,6 +440,9 @@ public static class ConversationsEndpoints
         if (!await access.HasAccessAsync(principal, conversation.ChannelId, conversation.AssignedTo, ct))
             return Results.NotFound();
 
+        if (!ConversationAssignmentPolicy.CanSend(ChannelAccessGuard.CanSeeAllChannels(principal), conversation.AssignedTo, principal.GetUserId()))
+            return ReadOnlyProblem();
+
         if (file.Length <= 0)
             return Results.BadRequest();
 
@@ -380,6 +461,11 @@ public static class ConversationsEndpoints
         title: "Файл калон аст",
         detail: $"Барои ин навъи файл ҳаҷми ҳадди аксар {maxSizeBytes / (1024 * 1024)} МБ аст.",
         statusCode: StatusCodes.Status400BadRequest);
+
+    private static IResult ReadOnlyProblem() => Results.Problem(
+        title: "Чат ба дигар корманд таъин шудааст",
+        detail: "Шумо метавонед ин чатро бинед, вале барои фиристодан бояд аввал онро «гирифтан» (takeover) кунед.",
+        statusCode: StatusCodes.Status403Forbidden);
 
     private static async Task<IResult> SaveAndEnqueueAsync(
         Conversation conversation,
@@ -416,6 +502,9 @@ public static class ConversationsEndpoints
         {
             conversation.AssignedTo = userId;
             conversation.Assignee = sender;
+            RecordAssignmentHistory(
+                db, conversation.Id, fromUserId: null, fromUserName: null,
+                userId, sender.FullName, ConversationAssignmentReason.ClaimedOnReply);
         }
 
         var message = new Message
@@ -590,4 +679,28 @@ public static class ConversationsEndpoints
         c.Id, c.ChannelId, c.Channel.Type.ToString(), c.Channel.Name, c.ExternalId,
         c.ContactName, c.ContactAvatarUrl, c.Status.ToString(), c.AssignedTo, c.Assignee?.FullName,
         c.LastMessageAt, c.UnreadCount, c.WindowExpiresAt, c.CreatedAt);
+
+    /// <summary>
+    /// Не save мекунад — дар SaveChangesAsync-и навбатии caller якҷоя мешавад. Номҳо
+    /// snapshot (на танҳо FK), ҳамон сабабе, ки Message.SentByUserName-ро водор кард.
+    /// </summary>
+    private static void RecordAssignmentHistory(
+        AppDbContext db,
+        Guid conversationId,
+        Guid? fromUserId,
+        string? fromUserName,
+        Guid? toUserId,
+        string? toUserName,
+        ConversationAssignmentReason reason) =>
+        db.ConversationAssignmentEvents.Add(new ConversationAssignmentEvent
+        {
+            Id = Guid.CreateVersion7(),
+            ConversationId = conversationId,
+            FromUserId = fromUserId,
+            FromUserName = fromUserName,
+            ToUserId = toUserId,
+            ToUserName = toUserName,
+            Reason = reason,
+            CreatedAt = DateTimeOffset.UtcNow,
+        });
 }
