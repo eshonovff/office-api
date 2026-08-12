@@ -74,9 +74,6 @@ public record MessageDto(
 
 public record PagedResult<T>(IReadOnlyList<T> Items, int TotalCount, int Page, int PageSize);
 
-/// <summary>GET /{id}/assignable-users — узви канали ин чат, барои dropdown-и таъин дар inbox.</summary>
-public record AssignableUserDto(Guid UserId, string FullName, string Username);
-
 public record SendMessageRequest(
     string? Body,
     string? TemplateName,

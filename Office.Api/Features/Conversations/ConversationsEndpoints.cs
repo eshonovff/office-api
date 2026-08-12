@@ -7,6 +7,7 @@ using Office.Api.Channels.WhatsApp;
 using Office.Api.Common;
 using Office.Api.Data;
 using Office.Api.Data.Entities;
+using Office.Api.Features.Channels;
 using Office.Api.Media;
 using Office.Api.Realtime;
 using Permissions = Office.Api.Auth.Permissions;
@@ -70,7 +71,7 @@ public static class ConversationsEndpoints
 
         group.MapGet("/{id:guid}/assignable-users", ListAssignableUsersAsync)
             .RequirePermission(Permissions.Inbox.Assign)
-            .WithSummary("Корбароне, ки метавонанд ба ин чат таъин шаванд — узви канали ин чат")
+            .WithSummary("Корбароне, ки метавонанд ба ин чат таъин шаванд — узви канали ин чат + Owner/Admin")
             .Produces<IEnumerable<AssignableUserDto>>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden)
@@ -427,10 +428,9 @@ public static class ConversationsEndpoints
         if (!await access.HasAccessAsync(principal, conversation.ChannelId, conversation.AssignedTo, ct))
             return Results.NotFound();
 
-        var users = await db.ChannelMembers.AsNoTracking()
-            .Where(m => m.ChannelId == conversation.ChannelId)
-            .OrderBy(m => m.User.FullName)
-            .Select(m => new AssignableUserDto(m.UserId, m.User.FullName, m.User.Username))
+        var users = await access.ApplyAssignableUsersFilter(db.Users.AsNoTracking(), conversation.ChannelId)
+            .OrderBy(u => u.FullName)
+            .Select(u => new AssignableUserDto(u.Id, u.FullName, u.Username))
             .ToListAsync(ct);
 
         return Results.Ok(users);

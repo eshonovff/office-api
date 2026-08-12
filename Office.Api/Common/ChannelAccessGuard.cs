@@ -28,9 +28,16 @@ public interface IChannelAccessGuard
     /// Барои PATCH /conversations/{id} бо assignedTo — оё корбари ҳадаф (на principal-и
     /// дархосткунанда) баъд аз таъин ин чатро мебинад. Owner/Admin ҳамеша ҳа; дигарон бояд
     /// узви канали ин чат бошанд — вагарна таъиноти "орфан" мешавад (ниг. bug: assignment
-    /// bypasses channel access).
+    /// bypasses channel access). Ҳамон маҷмӯъ бо ApplyAssignableUsersFilter (як ҷои ягона).
     /// </summary>
     Task<bool> CanUserBeAssignedToChannelAsync(Guid userId, Guid channelId, CancellationToken ct);
+
+    /// <summary>
+    /// Барои GET /channels/{id}/assignable-users, /conversations/{id}/assignable-users —
+    /// маҷмӯи пурраи корбароне, ки ба ин канал таъиншаванда ҳастанд (узв + Owner/Admin).
+    /// Ҳамон формула бо CanUserBeAssignedToChannelAsync — то рӯйхат ва санҷиш ҳеҷ гоҳ дур нашаванд.
+    /// </summary>
+    IQueryable<User> ApplyAssignableUsersFilter(IQueryable<User> query, Guid channelId);
 }
 
 public class ChannelAccessGuard(AppDbContext db) : IChannelAccessGuard
@@ -99,20 +106,13 @@ public class ChannelAccessGuard(AppDbContext db) : IChannelAccessGuard
         return ChannelListAccessResolver.CanAccessChannel(policy.Scope, isInScope);
     }
 
-    public async Task<bool> CanUserBeAssignedToChannelAsync(Guid userId, Guid channelId, CancellationToken ct)
-    {
-        var isOwnerOrAdmin = await db.UserRoles
-            .Where(ur => ur.UserId == userId)
-            .Select(ur => ur.Role.Key)
-            .AnyAsync(key => key == RoleKeys.Owner || key == RoleKeys.Admin, ct);
+    public Task<bool> CanUserBeAssignedToChannelAsync(Guid userId, Guid channelId, CancellationToken ct) =>
+        ApplyAssignableUsersFilter(db.Users.AsNoTracking(), channelId).AnyAsync(u => u.Id == userId, ct);
 
-        var isMember = isOwnerOrAdmin ||
-            await db.ChannelMembers.AnyAsync(m => m.ChannelId == channelId && m.UserId == userId, ct);
-
-        // isAssignedToUser: true — санҷиши "баъд аз таъин", на ҳолати ҷорӣ; only_assigned-и
-        // корбари ҳадаф барои ин чат аҳамият надорад, чун ин чат маҳз ба вай таъин мешавад.
-        return ConversationAccessResolver.CanAccess(canSeeAllChannels: false, isMember, onlyAssigned: false, isAssignedToUser: true);
-    }
+    public IQueryable<User> ApplyAssignableUsersFilter(IQueryable<User> query, Guid channelId) =>
+        query.Where(u =>
+            u.UserRoles.Any(ur => ur.Role.Key == RoleKeys.Owner || ur.Role.Key == RoleKeys.Admin) ||
+            db.ChannelMembers.Any(m => m.ChannelId == channelId && m.UserId == u.Id));
 
     private Task<bool> GetOnlyAssignedAsync(Guid userId, CancellationToken ct) =>
         db.Users.Where(u => u.Id == userId).Select(u => u.OnlyAssigned).FirstAsync(ct);

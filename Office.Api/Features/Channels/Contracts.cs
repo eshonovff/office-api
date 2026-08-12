@@ -25,3 +25,10 @@ public record CreateChannelRequest(string Type, string Name, string ExternalId, 
 public record UpdateChannelRequest(string Name, string? Credentials, bool IsActive);
 
 public record SetChannelMembersRequest(IReadOnlyList<Guid> UserIds);
+
+/// <summary>
+/// GET /{id}/assignable-users, /conversations/{id}/assignable-users — на танҳо channel_members:
+/// Owner/Admin низ дохил мешаванд (онҳо бе узвияти расмӣ ҳам ба ҳар сӯҳбат дастрасӣ доранд,
+/// пас IChannelAccessGuard.CanUserBeAssignedToChannelAsync онҳоро таъин иҷозат медиҳад).
+/// </summary>
+public record AssignableUserDto(Guid UserId, string FullName, string Username);

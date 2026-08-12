@@ -56,10 +56,11 @@ public class ConversationAccessResolverTests
             canSeeAllChannels: true, isChannelMember: false, onlyAssigned: true, isAssignedToUser: true));
     }
 
-    // ChannelAccessGuard.CanUserBeAssignedToChannelAsync доир ба ҳамин формула сохта шудааст
-    // (isAssignedToUser:true — "баъд аз таъин", canSeeAllChannels ҳамеша false дар ин ҷо, чун
-    // Owner/Admin аллакай ба isChannelMember дохил карда мешавад). Ду ҳолати зерин мустақиман
-    // рафтори PATCH /conversations/{id}-ро ҳангоми таъини корманди берун аз канал месанҷанд.
+    // ChannelAccessGuard.ApplyAssignableUsersFilter/CanUserBeAssignedToChannelAsync ҳамин
+    // формуларо татбиқ мекунанд (isAssignedToUser:true — "баъд аз таъин"; canSeeAllChannels
+    // ҳамеша false дар ин ҷо, чун Owner/Admin аллакай ба isChannelMember дохил карда мешавад).
+    // Ду ҳолати зерин мустақиман рафтори PATCH /conversations/{id}-ро ҳангоми таъини корманди
+    // берун аз канал месанҷанд.
 
     [Fact]
     public void CanAccess_TargetNotChannelMember_AssignedToUser_ReturnsFalse()

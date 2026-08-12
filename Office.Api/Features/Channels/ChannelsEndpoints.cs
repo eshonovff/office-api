@@ -46,6 +46,14 @@ public static class ChannelsEndpoints
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
+        group.MapGet("/{id:guid}/assignable-users", ListAssignableUsersAsync)
+            .RequirePermission(Permissions.Inbox.Assign)
+            .WithSummary("Корбароне, ки метавонанд ба сӯҳбатҳои ин канал таъин шаванд (узв + Owner/Admin) — барои филтри «Ответственный»-и inbox")
+            .Produces<IEnumerable<AssignableUserDto>>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
         group.MapPost("/", CreateAsync)
             .WithValidation<CreateChannelRequest>()
             .RequirePermission(Permissions.Channels.Manage)
@@ -128,6 +136,20 @@ public static class ChannelsEndpoints
         var provider = factory.GetProvider(channel.Type);
         var templates = await provider.GetApprovedTemplatesAsync(channel, ct);
         return Results.Ok(templates);
+    }
+
+    private static async Task<IResult> ListAssignableUsersAsync(
+        Guid id, ClaimsPrincipal principal, AppDbContext db, IChannelAccessGuard access, CancellationToken ct)
+    {
+        if (!await access.CanAccessChannelAsync(principal, id, ct))
+            return Results.NotFound();
+
+        var users = await access.ApplyAssignableUsersFilter(db.Users.AsNoTracking(), id)
+            .OrderBy(u => u.FullName)
+            .Select(u => new AssignableUserDto(u.Id, u.FullName, u.Username))
+            .ToListAsync(ct);
+
+        return Results.Ok(users);
     }
 
     private static async Task<IResult> CreateAsync(

@@ -26,6 +26,8 @@ public class InboxHubTests
         public Task<bool> CanUserBeAssignedToChannelAsync(Guid userId, Guid channelId, CancellationToken ct) =>
             Task.FromResult(result);
 
+        public IQueryable<User> ApplyAssignableUsersFilter(IQueryable<User> query, Guid channelId) => query;
+
         public Task<bool> HasAccessAsync(ClaimsPrincipal principal, Guid channelId, Guid? assignedTo, CancellationToken ct)
         {
             AssignedToWasCaptured = true;
