@@ -244,7 +244,20 @@ public static class ConversationsEndpoints
 
         var isTemplate = !string.IsNullOrEmpty(request.TemplateName);
         var userId = principal.GetUserId();
-        var sender = await db.Users.AsNoTracking().FirstAsync(u => u.Id == userId, ct);
+        // Tracked (not AsNoTracking) — assigned to conversation.Assignee below when claiming,
+        // and EF needs it tracked to recognize that as the same entity rather than a new insert.
+        var sender = await db.Users.FirstAsync(u => u.Id == userId, ct);
+
+        // Claim on first reply — even if the send itself fails below (e.g. the 24h window
+        // is closed), the operator has already started handling this customer, so the
+        // claim still sticks. Saved together with the message below, published before the
+        // provider call so other clients see the assignment regardless of send outcome.
+        var claimed = ConversationAssignmentPolicy.ShouldClaimOnReply(conversation.AssignedTo);
+        if (claimed)
+        {
+            conversation.AssignedTo = userId;
+            conversation.Assignee = sender;
+        }
 
         var message = new Message
         {
@@ -261,6 +274,9 @@ public static class ConversationsEndpoints
 
         db.Messages.Add(message);
         await db.SaveChangesAsync(ct);
+
+        if (claimed)
+            await events.ConversationAssignedAsync(conversation.ChannelId, conversation.AssignedTo, ToDetail(conversation), ct);
 
         var provider = factory.GetProvider(conversation.Channel.Type);
 
@@ -303,6 +319,7 @@ public static class ConversationsEndpoints
         IBackgroundJobClient backgroundJobs,
         IConfiguration configuration,
         IWebHostEnvironment env,
+        IInboxEventPublisher events,
         CancellationToken ct)
     {
         var conversation = await db.Conversations.Include(c => c.Channel).FirstOrDefaultAsync(c => c.Id == id, ct);
@@ -323,7 +340,7 @@ public static class ConversationsEndpoints
 
         return await SaveAndEnqueueAsync(
             conversation, file, messageType, mimeType, isVoiceNote: false, forcedExtension: null,
-            principal, db, backgroundJobs, configuration, env, ct);
+            principal, db, backgroundJobs, configuration, env, events, ct);
     }
 
     private static async Task<IResult> UploadVoiceNoteAsync(
@@ -335,6 +352,7 @@ public static class ConversationsEndpoints
         IBackgroundJobClient backgroundJobs,
         IConfiguration configuration,
         IWebHostEnvironment env,
+        IInboxEventPublisher events,
         CancellationToken ct)
     {
         var conversation = await db.Conversations.Include(c => c.Channel).FirstOrDefaultAsync(c => c.Id == id, ct);
@@ -355,7 +373,7 @@ public static class ConversationsEndpoints
 
         return await SaveAndEnqueueAsync(
             conversation, file, MessageType.Audio, mimeType, isVoiceNote: true, forcedExtension: ".webm",
-            principal, db, backgroundJobs, configuration, env, ct);
+            principal, db, backgroundJobs, configuration, env, events, ct);
     }
 
     private static IResult SizeLimitProblem(long maxSizeBytes) => Results.Problem(
@@ -375,10 +393,12 @@ public static class ConversationsEndpoints
         IBackgroundJobClient backgroundJobs,
         IConfiguration configuration,
         IWebHostEnvironment env,
+        IInboxEventPublisher events,
         CancellationToken ct)
     {
         var userId = principal.GetUserId();
-        var sender = await db.Users.AsNoTracking().FirstAsync(u => u.Id == userId, ct);
+        // Tracked (not AsNoTracking) — assigned to conversation.Assignee below when claiming.
+        var sender = await db.Users.FirstAsync(u => u.Id == userId, ct);
         var rootPath = UploadsPathResolver.ResolveRootPath(configuration, env);
         var mediaFolder = Path.Combine(rootPath, "whatsapp-media", conversation.ChannelId.ToString());
         Directory.CreateDirectory(mediaFolder);
@@ -389,6 +409,14 @@ public static class ConversationsEndpoints
 
         await using (var stream = File.Create(fullPath))
             await file.CopyToAsync(stream, ct);
+
+        // Claim on first reply — same rule as the text-send path.
+        var claimed = ConversationAssignmentPolicy.ShouldClaimOnReply(conversation.AssignedTo);
+        if (claimed)
+        {
+            conversation.AssignedTo = userId;
+            conversation.Assignee = sender;
+        }
 
         var message = new Message
         {
@@ -408,6 +436,9 @@ public static class ConversationsEndpoints
 
         db.Messages.Add(message);
         await db.SaveChangesAsync(ct);
+
+        if (claimed)
+            await events.ConversationAssignedAsync(conversation.ChannelId, conversation.AssignedTo, ToDetail(conversation), ct);
 
         backgroundJobs.Enqueue<MediaSendJob>(j => j.SendAsync(message.Id, isVoiceNote, CancellationToken.None));
 
