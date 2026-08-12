@@ -675,7 +675,11 @@ public static class ConversationsEndpoints
         c.ContactName, c.ContactAvatarUrl, c.Status.ToString(), c.AssignedTo, c.Assignee?.FullName,
         c.LastMessageAt, c.UnreadCount, c.WindowExpiresAt, c.CreatedAt);
 
-    private static ConversationDetail ToDetail(Conversation c) => new(
+    /// <summary>
+    /// Internal, на private — ConversationAutoReleaseJob ҳам ҳамин mapping-ро истифода
+    /// мебарад, то REST ва он чи job публикатсия мекунад ҳеҷ гоҳ дур нашаванд.
+    /// </summary>
+    internal static ConversationDetail ToDetail(Conversation c) => new(
         c.Id, c.ChannelId, c.Channel.Type.ToString(), c.Channel.Name, c.ExternalId,
         c.ContactName, c.ContactAvatarUrl, c.Status.ToString(), c.AssignedTo, c.Assignee?.FullName,
         c.LastMessageAt, c.UnreadCount, c.WindowExpiresAt, c.CreatedAt);

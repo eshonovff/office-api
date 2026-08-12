@@ -200,6 +200,7 @@ builder.Services.AddScoped<MediaDownloadJob>();
 builder.Services.AddScoped<MediaSendJob>();
 builder.Services.AddScoped<MediaRetentionCleanupJob>();
 builder.Services.AddScoped<WaveformBackfillJob>();
+builder.Services.AddScoped<ConversationAutoReleaseJob>();
 
 builder.Services.AddHttpClient<ISmsSender, OsonSmsSender>();
 
@@ -285,6 +286,9 @@ RecurringJob.AddOrUpdate<MediaRetentionCleanupJob>(
 
 RecurringJob.AddOrUpdate<WaveformBackfillJob>(
     "waveform-backfill", job => job.RunAsync(CancellationToken.None), Cron.Daily);
+
+RecurringJob.AddOrUpdate<ConversationAutoReleaseJob>(
+    "conversation-auto-release", job => job.RunAsync(CancellationToken.None), Cron.MinuteInterval(15));
 
 // Development: ҳамеша иҷро шавад. Production: танҳо агар RUN_MIGRATIONS=true.
 var runMigrations = app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("RUN_MIGRATIONS");
