@@ -66,4 +66,39 @@ public class ConversationWindowCalculatorTests
 
         Assert.Equal(laterInbound.AddHours(24), result);
     }
+
+    private static readonly DateTimeOffset Now = new(2026, 8, 12, 12, 0, 0, TimeSpan.Zero);
+
+    [Fact]
+    public void IsWindowClosed_NoExpiryEverSet_TextMessage_ReturnsFalse()
+    {
+        // Ҳеҷ гоҳ паёми воридотӣ наомадааст — ин ба провайдер меафтад, ки худаш хатои
+        // воқеиро медиҳад (реактивӣ), на ба ин санҷиши пешакӣ.
+        Assert.False(ConversationWindowCalculator.IsWindowClosed(isTemplate: false, windowExpiresAt: null, Now));
+    }
+
+    [Fact]
+    public void IsWindowClosed_StillOpen_ReturnsFalse()
+    {
+        Assert.False(ConversationWindowCalculator.IsWindowClosed(isTemplate: false, windowExpiresAt: Now.AddHours(1), Now));
+    }
+
+    [Fact]
+    public void IsWindowClosed_AlreadyExpired_TextMessage_ReturnsTrue()
+    {
+        Assert.True(ConversationWindowCalculator.IsWindowClosed(isTemplate: false, windowExpiresAt: Now.AddHours(-1), Now));
+    }
+
+    [Fact]
+    public void IsWindowClosed_ExactlyAtExpiry_ReturnsTrue()
+    {
+        Assert.True(ConversationWindowCalculator.IsWindowClosed(isTemplate: false, windowExpiresAt: Now, Now));
+    }
+
+    [Fact]
+    public void IsWindowClosed_Template_IgnoresExpiredWindow_ReturnsFalse()
+    {
+        // Шаблон новобаста аз тиреза кор мекунад — маҳз барои ҳамин мавҷуд аст.
+        Assert.False(ConversationWindowCalculator.IsWindowClosed(isTemplate: true, windowExpiresAt: Now.AddHours(-1), Now));
+    }
 }

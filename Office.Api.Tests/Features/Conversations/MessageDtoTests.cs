@@ -178,4 +178,38 @@ public class MessageDtoTests
         Assert.NotNull(dto.WaveformPeaks);
         Assert.Equal(3, dto.WaveformPeaks.Count);
     }
+
+    [Fact]
+    public void FromEntity_NoFailure_FailureReasonIsNull()
+    {
+        var message = CreateMessage(Guid.NewGuid());
+
+        var dto = MessageDto.FromEntity(message);
+
+        Assert.Null(dto.FailureReason);
+    }
+
+    [Fact]
+    public void FromEntity_Failed_CarriesTheFailureReason()
+    {
+        var message = CreateMessage(Guid.NewGuid());
+        message.DeliveryStatus = MessageDeliveryStatus.Failed;
+        message.FailureReason = "Тирезаи 24-соата дар давоми таъхир баста шуд.";
+
+        var dto = MessageDto.FromEntity(message);
+
+        Assert.Equal("Failed", dto.DeliveryStatus);
+        Assert.Equal("Тирезаи 24-соата дар давоми таъхир баста шуд.", dto.FailureReason);
+    }
+
+    [Fact]
+    public void FromEntity_Cancelled_MapsDeliveryStatusAsCancelled()
+    {
+        var message = CreateMessage(Guid.NewGuid());
+        message.DeliveryStatus = MessageDeliveryStatus.Cancelled;
+
+        var dto = MessageDto.FromEntity(message);
+
+        Assert.Equal("Cancelled", dto.DeliveryStatus);
+    }
 }

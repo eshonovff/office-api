@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Text.Json;
 using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using Office.Api.Auth;
@@ -49,9 +50,19 @@ public static class ConversationsEndpoints
         group.MapPost("/{id:guid}/messages", SendMessageAsync)
             .WithValidation<SendMessageRequest>()
             .RequirePermission(Permissions.Inbox.Reply)
-            .WithSummary("Ҷавоб фиристодан — матни озод (тиреза кушода) ё шаблон (тиреза баста)")
+            .WithSummary(
+                "Ҷавоб фиристодан — паём фавран Pending сабт мешавад ва бо таъхир (пешфарз 45с, " +
+                "Inbox:DelayedSendSeconds) ба провайдер ирсол мешавад, то вақти бекор кардан бошад")
             .Produces<MessageDto>(StatusCodes.Status201Created)
             .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        group.MapPost("/{id:guid}/messages/{messageId:guid}/cancel", CancelMessageAsync)
+            .RequirePermission(Permissions.Inbox.Reply)
+            .WithSummary("Бекор кардани паёми Pending — пеш аз итмоми тирезаи таъхир. Баъд аз ирсол 409.")
+            .Produces<MessageDto>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound)
@@ -293,13 +304,20 @@ public static class ConversationsEndpoints
         return Results.Ok(dto);
     }
 
+    /// <summary>
+    /// Паём фавран Pending сабт мешавад, баъд бо таъхир (пешфарз 45с, Inbox:DelayedSendSeconds)
+    /// тавассути WhatsAppSendJob ирсол мешавад — на дигар синхронӣ дар дохили ин handler.
+    /// Ин ба operator фурсат медиҳад, ки хатогиро пеш аз расидан ба Meta бекор кунад (item 5) —
+    /// WhatsApp на edit дорад, на delete баъд аз он ки паём ба Meta расид.
+    /// </summary>
     private static async Task<IResult> SendMessageAsync(
         Guid id,
         SendMessageRequest request,
         ClaimsPrincipal principal,
         AppDbContext db,
         IChannelAccessGuard access,
-        IChannelProviderFactory factory,
+        IBackgroundJobClient backgroundJobs,
+        IConfiguration configuration,
         IInboxEventPublisher events,
         CancellationToken ct)
     {
@@ -320,10 +338,10 @@ public static class ConversationsEndpoints
         // and EF needs it tracked to recognize that as the same entity rather than a new insert.
         var sender = await db.Users.FirstAsync(u => u.Id == userId, ct);
 
-        // Claim on first reply — even if the send itself fails below (e.g. the 24h window
-        // is closed), the operator has already started handling this customer, so the
-        // claim still sticks. Saved together with the message below, published before the
-        // provider call so other clients see the assignment regardless of send outcome.
+        // Claim on first reply — even if the send itself later fails (e.g. the 24h window
+        // closes during the delay), the operator has already started handling this customer,
+        // so the claim still sticks. Published before scheduling the dispatch, not after, so
+        // other clients see the assignment immediately rather than 45s later.
         var claimed = ConversationAssignmentPolicy.ShouldClaimOnReply(conversation.AssignedTo);
         if (claimed)
         {
@@ -344,6 +362,11 @@ public static class ConversationsEndpoints
             DeliveryStatus = MessageDeliveryStatus.Pending,
             SentByUserId = userId,
             SentByUserName = sender.FullName,
+            TemplateName = isTemplate ? request.TemplateName : null,
+            TemplateLanguage = isTemplate ? request.TemplateLanguage ?? "en_US" : null,
+            TemplateParametersJson = isTemplate && request.TemplateParameters is { Count: > 0 }
+                ? JsonSerializer.Serialize(request.TemplateParameters)
+                : null,
             CreatedAt = DateTimeOffset.UtcNow,
         };
 
@@ -353,36 +376,63 @@ public static class ConversationsEndpoints
         if (claimed)
             await events.ConversationAssignedAsync(conversation.ChannelId, conversation.AssignedTo, ToDetail(conversation), ct);
 
-        var provider = factory.GetProvider(conversation.Channel.Type);
-
-        try
-        {
-            message.ExternalId = isTemplate
-                ? await provider.SendTemplateAsync(
-                    conversation.Channel, conversation.ExternalId, request.TemplateName!,
-                    request.TemplateLanguage ?? "en_US", request.TemplateParameters ?? [], ct)
-                : await provider.SendMessageAsync(conversation.Channel, conversation.ExternalId, request.Body!, ct);
-
-            message.DeliveryStatus = MessageDeliveryStatus.Sent;
-        }
-        catch (WhatsAppWindowClosedException ex)
-        {
-            message.DeliveryStatus = MessageDeliveryStatus.Failed;
-            await db.SaveChangesAsync(ct);
-
-            return Results.Problem(
-                title: "Тирезаи 24-соата баста аст",
-                detail: ex.Message,
-                statusCode: StatusCodes.Status409Conflict);
-        }
-
-        conversation.LastMessageAt = message.CreatedAt;
-        await db.SaveChangesAsync(ct);
+        var delaySeconds = configuration.GetValue("Inbox:DelayedSendSeconds", 45);
+        backgroundJobs.Schedule<WhatsAppSendJob>(
+            j => j.SendAsync(message.Id, CancellationToken.None), TimeSpan.FromSeconds(delaySeconds));
 
         var dto = MessageDto.FromEntity(message);
         await events.MessageSentAsync(conversation.ChannelId, conversation.AssignedTo, dto, ct);
 
         return Results.Created($"/api/conversations/{id}/messages/{message.Id}", dto);
+    }
+
+    /// <summary>
+    /// Атомӣ: танҳо агар паём то ҳол Pending бошад бекор мешавад. Race бо WhatsAppSendJob
+    /// (агар таъхир аллакай гузашта бошад) бо ҳамин ExecuteUpdateAsync-и шартӣ ҳал мешавад —
+    /// ҳарду тараф (ин ва job) ҳамин шарти "то ҳол Pending" - ро санҷанд, пас баробар
+    /// расиданашон мумкин нест ки ҳарду муваффақ шаванд.
+    /// </summary>
+    private static async Task<IResult> CancelMessageAsync(
+        Guid id,
+        Guid messageId,
+        ClaimsPrincipal principal,
+        AppDbContext db,
+        IChannelAccessGuard access,
+        IInboxEventPublisher events,
+        CancellationToken ct)
+    {
+        var conversation = await db.Conversations.FirstOrDefaultAsync(c => c.Id == id, ct);
+        if (conversation is null)
+            return Results.NotFound();
+
+        if (!await access.HasAccessAsync(principal, conversation.ChannelId, conversation.AssignedTo, ct))
+            return Results.NotFound();
+
+        var userId = principal.GetUserId();
+        var isOwnerOrAdmin = ChannelAccessGuard.CanSeeAllChannels(principal);
+        if (!ConversationAssignmentPolicy.CanSend(isOwnerOrAdmin, conversation.AssignedTo, userId))
+            return ReadOnlyProblem();
+
+        var message = await db.Messages.FirstOrDefaultAsync(m => m.Id == messageId && m.ConversationId == id, ct);
+        if (message is null)
+            return Results.NotFound();
+
+        var cancelledCount = await db.Messages
+            .Where(m => m.Id == messageId && m.DeliveryStatus == MessageDeliveryStatus.Pending)
+            .ExecuteUpdateAsync(s => s.SetProperty(m => m.DeliveryStatus, MessageDeliveryStatus.Cancelled), ct);
+
+        if (cancelledCount == 0)
+        {
+            return Results.Problem(
+                title: "Бекор карда нашуд",
+                detail: "Паём аллакай ба провайдер фиристода шудааст (ё аллакай бекор шудааст) — дигар бекор кардан имконнопазир аст.",
+                statusCode: StatusCodes.Status409Conflict);
+        }
+
+        var dto = MessageDto.FromEntity(message) with { DeliveryStatus = MessageDeliveryStatus.Cancelled.ToString() };
+        await events.MessageSentAsync(conversation.ChannelId, conversation.AssignedTo, dto, ct);
+
+        return Results.Ok(dto);
     }
 
     private static async Task<IResult> UploadMediaAsync(

@@ -36,5 +36,15 @@ public class Message
     /// </summary>
     public string? SentByUserName { get; set; }
 
+    // Template sends need this at dispatch time, but dispatch now happens in a delayed
+    // background job — long after the original HTTP request (and its SendMessageRequest)
+    // is gone. Persisted here instead of re-derived, same reasoning as SentByUserName.
+    public string? TemplateName { get; set; }
+    public string? TemplateLanguage { get; set; }
+    public string? TemplateParametersJson { get; set; }
+
+    /// <summary>Пур мешавад ҳар вақте DeliveryStatus ба Failed мегузарад — "чаро" на танҳо "нашуд".</summary>
+    public string? FailureReason { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; }
 }

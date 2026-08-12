@@ -23,6 +23,10 @@ public class MessageConfiguration : IEntityTypeConfiguration<Message>
         // ин шакл нисбат ба jsonb хеле фишурдатар аст. DTO ба 0-1 табдил медиҳад.
         builder.Property(m => m.WaveformPeaks).HasColumnType("smallint[]");
         builder.Property(m => m.MediaDownloadError).HasMaxLength(1000);
+        builder.Property(m => m.TemplateName).HasMaxLength(200);
+        builder.Property(m => m.TemplateLanguage).HasMaxLength(20);
+        builder.Property(m => m.TemplateParametersJson).HasColumnType("jsonb");
+        builder.Property(m => m.FailureReason).HasMaxLength(500);
 
         builder.HasOne(m => m.Conversation)
             .WithMany(c => c.Messages)
