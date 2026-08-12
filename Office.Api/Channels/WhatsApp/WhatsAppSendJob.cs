@@ -34,6 +34,17 @@ public class WhatsAppSendJob(
             return;
         }
 
+        // Садди охирин: ёддошти дохилӣ ҳеҷ гоҳ набояд ин ҷо расад (SendMessageAsync ҳеҷ гоҳ
+        // барои он ин job-ро enqueue намекунад), вале агар бо роҳи дигар/хатогӣ расид ҳам,
+        // ин ҷо — воқеан ҷои даъвати провайдер — қатъиян манъ мекунад, на танҳо дар endpoint.
+        if (!InternalNoteGuard.CanDispatchToProvider(message.IsInternalNote))
+        {
+            logger.LogError(
+                "WhatsAppSendJob: паёми {MessageId} ёддошти дохилӣ аст — набояд ин ҷо мерасид. Ба провайдер намерасонам.",
+                messageId);
+            return;
+        }
+
         // CancelMessageAsync метавонад дар ҳамин лаҳза (race) паёмро Cancelled карда бошад —
         // танҳо агар то ҳол Pending бошад давом медиҳем. Ин ҳамон "cancel баъд аз dispatch
         // бояд самимона ноком шавад" - ро аз тарафи дигар таъмин мекунад: агар мо аллакай

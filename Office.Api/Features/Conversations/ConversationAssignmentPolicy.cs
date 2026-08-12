@@ -7,9 +7,11 @@ public static class ConversationAssignmentPolicy
 {
     /// <summary>
     /// Аввалин ҷавоб дар чати таъиннашуда онро ба фиристанда claim мекунад — таъиноти
-    /// мавҷуда ҳеҷ гоҳ бо ин иваз намешавад, танҳо ҳолати null.
+    /// мавҷуда ҳеҷ гоҳ бо ин иваз намешавад, танҳо ҳолати null. Ёддошти дохилӣ (item 6)
+    /// claim намекунад — он ба мижоз намерасад, пас "аввалин ҷавоб" нест, танҳо қайд аст.
     /// </summary>
-    public static bool ShouldClaimOnReply(Guid? currentAssignedTo) => currentAssignedTo is null;
+    public static bool ShouldClaimOnReply(Guid? currentAssignedTo, bool isInternalNote) =>
+        currentAssignedTo is null && !isInternalNote;
 
     /// <summary>
     /// Хонда мешавад — гарчанде бо кӣ таъин шудааст: ҳама узви канал метавонанд бинанд.

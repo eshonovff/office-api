@@ -8,14 +8,21 @@ public class ConversationAssignmentPolicyTests
     [Fact]
     public void ShouldClaimOnReply_Unassigned_ReturnsTrue()
     {
-        Assert.True(ConversationAssignmentPolicy.ShouldClaimOnReply(currentAssignedTo: null));
+        Assert.True(ConversationAssignmentPolicy.ShouldClaimOnReply(currentAssignedTo: null, isInternalNote: false));
     }
 
     [Fact]
     public void ShouldClaimOnReply_AlreadyAssigned_ReturnsFalse()
     {
         // Ҷавоби дуюм ба чати аллакай таъиншуда набояд таъинотро иваз кунад.
-        Assert.False(ConversationAssignmentPolicy.ShouldClaimOnReply(currentAssignedTo: Guid.NewGuid()));
+        Assert.False(ConversationAssignmentPolicy.ShouldClaimOnReply(currentAssignedTo: Guid.NewGuid(), isInternalNote: false));
+    }
+
+    [Fact]
+    public void ShouldClaimOnReply_UnassignedButInternalNote_ReturnsFalse()
+    {
+        // Ёддошт ба мижоз намерасад — "аввалин ҷавоб" нест, claim намекунад.
+        Assert.False(ConversationAssignmentPolicy.ShouldClaimOnReply(currentAssignedTo: null, isInternalNote: true));
     }
 
     [Fact]

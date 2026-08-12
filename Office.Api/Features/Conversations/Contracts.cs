@@ -80,6 +80,7 @@ public record SendMessageRequest(
     string? Body,
     string? TemplateName,
     string? TemplateLanguage,
-    IReadOnlyList<string>? TemplateParameters);
+    IReadOnlyList<string>? TemplateParameters,
+    bool IsInternalNote = false);
 
 public record UpdateConversationRequest(string? Status, Guid? AssignedTo);

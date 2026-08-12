@@ -333,7 +333,8 @@ public static class ConversationsEndpoints
         if (!ConversationAssignmentPolicy.CanSend(isOwnerOrAdmin, conversation.AssignedTo, userId))
             return ReadOnlyProblem();
 
-        var isTemplate = !string.IsNullOrEmpty(request.TemplateName);
+        var isInternalNote = request.IsInternalNote;
+        var isTemplate = !isInternalNote && !string.IsNullOrEmpty(request.TemplateName);
         // Tracked (not AsNoTracking) — assigned to conversation.Assignee below when claiming,
         // and EF needs it tracked to recognize that as the same entity rather than a new insert.
         var sender = await db.Users.FirstAsync(u => u.Id == userId, ct);
@@ -341,8 +342,10 @@ public static class ConversationsEndpoints
         // Claim on first reply — even if the send itself later fails (e.g. the 24h window
         // closes during the delay), the operator has already started handling this customer,
         // so the claim still sticks. Published before scheduling the dispatch, not after, so
-        // other clients see the assignment immediately rather than 45s later.
-        var claimed = ConversationAssignmentPolicy.ShouldClaimOnReply(conversation.AssignedTo);
+        // other clients see the assignment immediately rather than 45s later. A note never
+        // claims (ShouldClaimOnReply returns false for it) — it doesn't reach the customer,
+        // so it isn't a "reply".
+        var claimed = ConversationAssignmentPolicy.ShouldClaimOnReply(conversation.AssignedTo, isInternalNote);
         if (claimed)
         {
             conversation.AssignedTo = userId;
@@ -359,7 +362,11 @@ public static class ConversationsEndpoints
             Direction = MessageDirection.Outbound,
             Type = MessageType.Text,
             Body = isTemplate ? request.Body ?? $"[шаблон: {request.TemplateName}]" : request.Body,
-            DeliveryStatus = MessageDeliveryStatus.Pending,
+            // Note: never Pending — it never gets scheduled for dispatch (see below), so
+            // there's nothing pending about it. Sent from the moment it's stored; the thread
+            // is its only real destination.
+            DeliveryStatus = isInternalNote ? MessageDeliveryStatus.Sent : MessageDeliveryStatus.Pending,
+            IsInternalNote = isInternalNote,
             SentByUserId = userId,
             SentByUserName = sender.FullName,
             TemplateName = isTemplate ? request.TemplateName : null,
@@ -376,9 +383,15 @@ public static class ConversationsEndpoints
         if (claimed)
             await events.ConversationAssignedAsync(conversation.ChannelId, conversation.AssignedTo, ToDetail(conversation), ct);
 
-        var delaySeconds = configuration.GetValue("Inbox:DelayedSendSeconds", 45);
-        backgroundJobs.Schedule<WhatsAppSendJob>(
-            j => j.SendAsync(message.Id, CancellationToken.None), TimeSpan.FromSeconds(delaySeconds));
+        // A note is never enqueued for dispatch — this, together with InternalNoteGuard's
+        // hard check inside WhatsAppSendJob itself, is what makes it impossible for a note
+        // to reach the provider: it's not just skipped here, it's refused there too.
+        if (!isInternalNote)
+        {
+            var delaySeconds = configuration.GetValue("Inbox:DelayedSendSeconds", 45);
+            backgroundJobs.Schedule<WhatsAppSendJob>(
+                j => j.SendAsync(message.Id, CancellationToken.None), TimeSpan.FromSeconds(delaySeconds));
+        }
 
         var dto = MessageDto.FromEntity(message);
         await events.MessageSentAsync(conversation.ChannelId, conversation.AssignedTo, dto, ct);
@@ -546,8 +559,9 @@ public static class ConversationsEndpoints
         await using (var stream = File.Create(fullPath))
             await file.CopyToAsync(stream, ct);
 
-        // Claim on first reply — same rule as the text-send path.
-        var claimed = ConversationAssignmentPolicy.ShouldClaimOnReply(conversation.AssignedTo);
+        // Claim on first reply — same rule as the text-send path. Media/voice-note sends are
+        // never internal notes (that's text-only, see SendMessageAsync).
+        var claimed = ConversationAssignmentPolicy.ShouldClaimOnReply(conversation.AssignedTo, isInternalNote: false);
         if (claimed)
         {
             conversation.AssignedTo = userId;
