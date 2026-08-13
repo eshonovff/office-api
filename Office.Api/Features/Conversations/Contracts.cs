@@ -74,6 +74,24 @@ public record MessageDto(
         m.FailureReason);
 }
 
+public record ConversationAssignmentEventDto(
+    Guid Id,
+    Guid? FromUserId,
+    string? FromUserName,
+    Guid? ToUserId,
+    string? ToUserName,
+    string Reason,
+    DateTimeOffset CreatedAt)
+{
+    /// <summary>
+    /// FromUserName/ToUserName — snapshot дар лаҳзаи таъин (на FromUser?.FullName /
+    /// ToUser?.FullName), ҳамон сабабе, ки MessageDto.SentByUserName-ро водор кард: нест
+    /// кардани корбар (FK → SET NULL) набояд таърихи таъинотро вайрон кунад.
+    /// </summary>
+    public static ConversationAssignmentEventDto FromEntity(ConversationAssignmentEvent e) => new(
+        e.Id, e.FromUserId, e.FromUserName, e.ToUserId, e.ToUserName, e.Reason.ToString(), e.CreatedAt);
+}
+
 public record PagedResult<T>(IReadOnlyList<T> Items, int TotalCount, int Page, int PageSize);
 
 public record SendMessageRequest(

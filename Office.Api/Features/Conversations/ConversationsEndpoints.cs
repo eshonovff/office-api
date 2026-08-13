@@ -96,6 +96,14 @@ public static class ConversationsEndpoints
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
+        group.MapGet("/{id:guid}/assignment-history", ListAssignmentHistoryAsync)
+            .RequirePermission(Permissions.Inbox.View)
+            .WithSummary("Таърихи таъинот — аз нав ба кӯҳна, саҳифабандӣшуда (claim/takeover/reassign/auto-release)")
+            .Produces<PagedResult<ConversationAssignmentEventDto>>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
         group.MapPost("/{id:guid}/media", UploadMediaAsync)
             .DisableAntiforgery()
             .RequirePermission(Permissions.Inbox.Reply)
@@ -620,6 +628,36 @@ public static class ConversationsEndpoints
             .ToListAsync(ct);
 
         return Results.Ok(users);
+    }
+
+    private static async Task<IResult> ListAssignmentHistoryAsync(
+        Guid id, int? page, int? pageSize, ClaimsPrincipal principal, AppDbContext db, IChannelAccessGuard access, CancellationToken ct)
+    {
+        var conversation = await db.Conversations.AsNoTracking()
+            .Where(c => c.Id == id)
+            .Select(c => new { c.ChannelId, c.AssignedTo })
+            .FirstOrDefaultAsync(ct);
+
+        if (conversation is null)
+            return Results.NotFound();
+
+        if (!await access.HasAccessAsync(principal, conversation.ChannelId, conversation.AssignedTo, ct))
+            return Results.NotFound();
+
+        var (resolvedPage, resolvedPageSize) = ResolvePaging(page, pageSize);
+
+        // FromUserName/ToUserName snapshot дар худи ҷадвал — Include(FromUser/ToUser) лозим нест.
+        var query = db.ConversationAssignmentEvents.AsNoTracking().Where(e => e.ConversationId == id);
+
+        var totalCount = await query.CountAsync(ct);
+        var events = await query
+            .OrderByDescending(e => e.CreatedAt)
+            .Skip((resolvedPage - 1) * resolvedPageSize)
+            .Take(resolvedPageSize)
+            .ToListAsync(ct);
+
+        var items = events.Select(ConversationAssignmentEventDto.FromEntity).ToList();
+        return Results.Ok(new PagedResult<ConversationAssignmentEventDto>(items, totalCount, resolvedPage, resolvedPageSize));
     }
 
     private static async Task<IResult> ListMessagesAsync(
