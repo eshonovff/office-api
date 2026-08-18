@@ -28,6 +28,7 @@ services:
       Sms__ServerUrl: "${SMS_SERVER_URL}"
       Webhooks__AppSecret: "${WEBHOOKS_APP_SECRET}"
       Webhooks__VerifyToken: "${WEBHOOKS_VERIFY_TOKEN}"
+      Meta__AppId: "${META_APP_ID}"
     ports:
       - "127.0.0.1:${API_PORT}:8080"
     volumes:
