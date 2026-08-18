@@ -243,7 +243,7 @@ public static class ChannelsEndpoints
     private static ChannelSummary ToSummary(Channel channel, bool joinable) => new(
         channel.Id, channel.Type.ToString(), channel.Name, channel.IsActive, joinable);
 
-    private static ChannelDetail ToDetail(Channel channel) => new(
+    internal static ChannelDetail ToDetail(Channel channel) => new(
         channel.Id,
         channel.Type.ToString(),
         channel.Name,

@@ -66,6 +66,16 @@ public class FacebookOAuthConnector(HttpClient httpClient, IConfiguration config
         return accounts;
     }
 
+    /// <summary>Обуна кардани Page ба webhook-и messages/messaging_postbacks — қисми /connect, на /callback.</summary>
+    public async Task SubscribePageAsync(string pageId, string pageAccessToken, CancellationToken ct)
+    {
+        var response = await httpClient.PostAsync(
+            $"{GraphApiBaseUrl}/{GraphApiVersion}/{pageId}/subscribed_apps" +
+            $"?subscribed_fields=messages,messaging_postbacks&access_token={Uri.EscapeDataString(pageAccessToken)}",
+            content: null, ct);
+        await EnsureSuccessAsync(response, "Facebook subscribed_apps", ct);
+    }
+
     private async Task<string> GetTokenFieldAsync(string url, string context, CancellationToken ct)
     {
         var response = await httpClient.GetAsync(url, ct);

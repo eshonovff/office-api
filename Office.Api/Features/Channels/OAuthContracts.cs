@@ -6,3 +6,5 @@ public record OAuthStartResponse(string Url);
 public record OAuthAccountOption(string ExternalId, string Name);
 
 public record OAuthCallbackResponse(Guid ConnectionId, IReadOnlyList<OAuthAccountOption> Accounts);
+
+public record ConnectChannelRequest(Guid ConnectionId, string ExternalId, string Name);

@@ -1,9 +1,13 @@
 using System.Security.Claims;
 using System.Security.Cryptography;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Office.Api.Auth;
+using Office.Api.Channels;
+using Office.Api.Channels.Facebook;
 using Office.Api.Channels.Meta;
 using Office.Api.Common;
+using Office.Api.Data;
 using Office.Api.Data.Entities;
 using Permissions = Office.Api.Auth.Permissions;
 
@@ -36,6 +40,18 @@ public static class ChannelOAuthEndpoints
             .WithSummary("Callback-и Meta: state-ро месанҷад, code-ро ба token табдил медиҳад, рӯйхати account бармегардонад")
             .Produces<OAuthCallbackResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status502BadGateway);
+
+        group.MapPost("/{provider}/connect", ConnectAsync)
+            .WithValidation<ConnectChannelRequest>()
+            .RequirePermission(Permissions.Channels.Manage)
+            .WithSummary("Сохтани/навсозии канал аз account-и интихобшудаи /callback — credentials аз OAuth, на дастӣ")
+            .Produces<ChannelDetail>(StatusCodes.Status201Created)
+            .Produces<ChannelDetail>(StatusCodes.Status200OK)
+            .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status502BadGateway);
 
         return app;
@@ -127,6 +143,85 @@ public static class ChannelOAuthEndpoints
 
         return Results.Ok(new OAuthCallbackResponse(connectionId, options));
     }
+
+    private static async Task<IResult> ConnectAsync(
+        string provider,
+        ConnectChannelRequest request,
+        ClaimsPrincipal principal,
+        IOAuthConnectionStore connectionStore,
+        FacebookOAuthConnector facebookConnector,
+        AppDbContext db,
+        IChannelCredentialsProtector protector,
+        CancellationToken ct)
+    {
+        if (!TryParseOAuthProvider(provider, out var type))
+            return ProviderNotSupportedProblem(provider);
+
+        var session = connectionStore.TryGet(request.ConnectionId, DateTimeOffset.UtcNow);
+        if (session is null)
+            return ConnectionExpiredProblem();
+
+        var account = OAuthConnectPolicy.ResolveAccount(session, type, principal.GetUserId(), request.ExternalId);
+        if (account is null)
+            return ConnectionExpiredProblem();
+
+        var existing = await db.Channels
+            .Include(c => c.Members).ThenInclude(m => m.User)
+            .FirstOrDefaultAsync(c => c.Type == type && c.ExternalId == account.ExternalId, ct);
+
+        var credentialsEncrypted = protector.Protect(account.CredentialsJson);
+
+        Channel channel;
+        if (existing is null)
+        {
+            channel = new Channel
+            {
+                Id = Guid.CreateVersion7(),
+                Type = type,
+                Name = request.Name,
+                ExternalId = account.ExternalId,
+                CredentialsEncrypted = credentialsEncrypted,
+                IsActive = true,
+                CreatedAt = DateTimeOffset.UtcNow,
+            };
+            db.Channels.Add(channel);
+        }
+        else
+        {
+            existing.Name = request.Name;
+            existing.CredentialsEncrypted = credentialsEncrypted;
+            existing.IsActive = true;
+            channel = existing;
+        }
+
+        await db.SaveChangesAsync(ct);
+
+        if (type == ChannelType.Facebook)
+        {
+            var facebookCredentials = FacebookCredentials.Parse(account.CredentialsJson);
+            try
+            {
+                await facebookConnector.SubscribePageAsync(facebookCredentials.PageId, facebookCredentials.PageAccessToken, ct);
+            }
+            catch (InvalidOperationException)
+            {
+                return Results.Problem(
+                    title: "Канал сохта шуд, вале обуна ба webhook нашуд",
+                    detail: "Канал дар база сабт шуд, аммо обунаи Page ба webhook-и messages муваффақ нашуд. " +
+                            "Дубора 'Пайваст' пахш кунед — канал аллакай мавҷуд аст, connect такрор пайваст мекунад.",
+                    statusCode: StatusCodes.Status502BadGateway);
+            }
+        }
+
+        return existing is null
+            ? Results.Created($"/api/channels/{channel.Id}", ChannelsEndpoints.ToDetail(channel))
+            : Results.Ok(ChannelsEndpoints.ToDetail(channel));
+    }
+
+    private static IResult ConnectionExpiredProblem() => Results.Problem(
+        title: "Connection эътибор надорад",
+        detail: "connectionId кӯҳна шудааст, ба шумо тааллуқ надорад ё account-и хостаро надорад — аз OAuth аз нав сар кунед.",
+        statusCode: StatusCodes.Status400BadRequest);
 
     private static IResult InvalidStateProblem() => Results.Problem(
         title: "State-и нодуруст",
