@@ -10,6 +10,9 @@ internal static class MetaOAuthConfig
     public static string GetAppId(IConfiguration configuration) =>
         configuration["Meta:AppId"] ?? throw new InvalidOperationException("Meta:AppId танзим нашудааст.");
 
+    public static string GetAppSecret(IConfiguration configuration) =>
+        configuration["Meta:AppSecret"] ?? throw new InvalidOperationException("Meta:AppSecret танзим нашудааст.");
+
     public static string GetRedirectBaseUrl(IConfiguration configuration) =>
         configuration["Meta:RedirectBaseUrl"]?.TrimEnd('/')
         ?? throw new InvalidOperationException("Meta:RedirectBaseUrl танзим нашудааст.");

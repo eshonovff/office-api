@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Security.Cryptography;
+using Microsoft.AspNetCore.Mvc;
 using Office.Api.Auth;
 using Office.Api.Channels.Meta;
 using Office.Api.Common;
@@ -28,6 +29,15 @@ public static class ChannelOAuthEndpoints
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden);
 
+        // Meta browser-ро мустақим ба ин ҷо redirect мекунад — бе Authorization header.
+        // Ҳимоя аз state-и имзошуда меояд, на аз bearer-и муқаррарӣ.
+        group.MapGet("/{provider}/callback", CallbackAsync)
+            .AllowAnonymous()
+            .WithSummary("Callback-и Meta: state-ро месанҷад, code-ро ба token табдил медиҳад, рӯйхати account бармегардонад")
+            .Produces<OAuthCallbackResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status502BadGateway);
+
         return app;
     }
 
@@ -48,6 +58,80 @@ public static class ChannelOAuthEndpoints
         var url = connector.BuildAuthorizationUrl(redirectUri, state);
         return Results.Ok(new OAuthStartResponse(url));
     }
+
+    private static async Task<IResult> CallbackAsync(
+        string provider,
+        string? code,
+        string? state,
+        string? error,
+        [FromQuery(Name = "error_description")] string? errorDescription,
+        IConfiguration configuration,
+        IChannelOAuthConnectorFactory connectorFactory,
+        IOAuthNonceTracker nonceTracker,
+        IOAuthConnectionStore connectionStore,
+        CancellationToken ct)
+    {
+        if (!TryParseOAuthProvider(provider, out var type))
+            return ProviderNotSupportedProblem(provider);
+
+        if (!string.IsNullOrEmpty(error))
+        {
+            return Results.Problem(
+                title: "Корбар авторизатсияро рад кард",
+                detail: errorDescription ?? error,
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        if (string.IsNullOrEmpty(code) || string.IsNullOrEmpty(state))
+            return InvalidStateProblem();
+
+        var signingKey = GetStateSigningKey(configuration);
+        var now = DateTimeOffset.UtcNow;
+
+        if (!OAuthStateCodec.TryDecode(state, signingKey, now, out var statePayload) || statePayload is null)
+            return InvalidStateProblem();
+
+        if (!string.Equals(statePayload.Provider, provider, StringComparison.OrdinalIgnoreCase))
+            return InvalidStateProblem();
+
+        var stateExpiresAt = DateTimeOffset.FromUnixTimeSeconds(statePayload.ExpiresAtUnix);
+        if (!nonceTracker.TryConsume(statePayload.Nonce, stateExpiresAt, now))
+            return InvalidStateProblem();
+
+        var connector = connectorFactory.GetConnector(type);
+        var redirectUri = BuildRedirectUri(configuration, provider);
+
+        IReadOnlyList<ConnectableAccount> accounts;
+        try
+        {
+            accounts = await connector.ExchangeCodeAsync(code, redirectUri, ct);
+        }
+        catch (InvalidOperationException)
+        {
+            return Results.Problem(
+                title: "Хатогии Meta",
+                detail: "Табдили code ба token муваффақ нашуд. Дубора аз аввал кӯшиш кунед.",
+                statusCode: StatusCodes.Status502BadGateway);
+        }
+
+        if (accounts.Count == 0)
+        {
+            return Results.Problem(
+                title: "Account ёфт нашуд",
+                detail: "Ба ин корбар ҳеҷ Page/account-и қобили пайваст тобеъ нест.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        var connectionId = connectionStore.Create(new OAuthConnectionSession(type, statePayload.UserId, stateExpiresAt, accounts));
+        var options = accounts.Select(a => new OAuthAccountOption(a.ExternalId, a.Name)).ToList();
+
+        return Results.Ok(new OAuthCallbackResponse(connectionId, options));
+    }
+
+    private static IResult InvalidStateProblem() => Results.Problem(
+        title: "State-и нодуруст",
+        detail: "State эътибор надорад, кӯҳна шудааст ё аллакай истифода шудааст. Аз аввал сар кунед.",
+        statusCode: StatusCodes.Status400BadRequest);
 
     private static bool TryParseOAuthProvider(string provider, out ChannelType type)
     {

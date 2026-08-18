@@ -194,9 +194,13 @@ builder.Services.AddSingleton<IMediaProcessor, FfmpegMediaProcessor>();
 builder.Services.AddScoped<PlaceholderChannelProvider>();
 builder.Services.AddHttpClient<WhatsAppProvider>();
 builder.Services.AddScoped<IChannelProviderFactory, ChannelProviderFactory>();
-builder.Services.AddScoped<FacebookOAuthConnector>();
-builder.Services.AddScoped<InstagramOAuthConnector>();
+// RemoveAllLoggers(): URL-и дархостҳо ба Meta code/token-ро дар query string доранд —
+// logging handler-и пешфарзи HttpClientFactory набояд онҳоро ба log бароварад.
+builder.Services.AddHttpClient<FacebookOAuthConnector>().RemoveAllLoggers();
+builder.Services.AddHttpClient<InstagramOAuthConnector>().RemoveAllLoggers();
 builder.Services.AddScoped<IChannelOAuthConnectorFactory, ChannelOAuthConnectorFactory>();
+builder.Services.AddSingleton<IOAuthNonceTracker, OAuthNonceTracker>();
+builder.Services.AddSingleton<IOAuthConnectionStore, OAuthConnectionStore>();
 builder.Services.AddScoped<WebhookProcessor>();
 builder.Services.AddScoped<WebhookLogCleanupJob>();
 builder.Services.AddScoped<WhatsAppSendJob>();
