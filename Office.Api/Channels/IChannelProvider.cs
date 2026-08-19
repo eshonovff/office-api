@@ -52,4 +52,23 @@ public interface IChannelProvider
 
     /// <summary>Рӯйхати шаблонҳои тасдиқшудаи Meta барои ин канал.</summary>
     Task<IReadOnlyList<WhatsAppTemplateInfo>> GetApprovedTemplatesAsync(Channel channel, CancellationToken ct);
+
+    /// <summary>
+    /// Ном/username ва URL-и расми профили мижоз — WhatsApp инро дар худи webhook медиҳад
+    /// (<see cref="ParsedWebhookMessage.ContactName"/>), пас WhatsAppProvider ҳамеша (null, null)
+    /// бармегардонад (дархости иловагӣ лозим нест). Facebook/Instagram чунин майдонро дар
+    /// webhook намефиристанд — дархости алоҳида (танҳо як маротиба, ҳангоми сохтани conversation-и
+    /// нав, на барои ҳар паём) лозим аст.
+    /// </summary>
+    Task<ContactProfile> GetContactProfileAsync(Channel channel, string contactExternalId, CancellationToken ct);
+}
+
+/// <summary>
+/// AvatarUrl метавонад мӯҳлатнок бошад (URL-и CDN-и Meta) — ҳоло бе зеркашӣ/навсозии даврӣ
+/// захира мешавад (танҳо як маротиба, ҳангоми сохтани conversation); баъд аз мӯҳлат вайрон
+/// шуданаш маълум аст ва қасдан ҳал нашудааст (ниг. эзоҳи commit).
+/// </summary>
+public record ContactProfile(string? Name, string? AvatarUrl)
+{
+    public static readonly ContactProfile Empty = new(null, null);
 }

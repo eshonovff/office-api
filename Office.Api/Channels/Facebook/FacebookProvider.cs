@@ -142,6 +142,38 @@ public class FacebookProvider(
     public Task<IReadOnlyList<WhatsAppTemplateInfo>> GetApprovedTemplatesAsync(Channel channel, CancellationToken ct) =>
         throw new NotSupportedException("Facebook шаблон надорад.");
 
+    /// <summary>
+    /// НАЗАРАСОН: ин User Profile API дар солҳои охир аз ҷониби Meta маҳдуд шудааст (баъзе
+    /// пермишни иловагӣ метавонад лозим ояд) — санҷиши зинда лозим аст. Хатогӣ ба ин ҷо
+    /// (масалан 403/permission) ҳеҷ гоҳ намепартояд — танҳо log ва ContactProfile.Empty:
+    /// коркарди webhook (сабти худи паём) набояд аз номи мижоз вобаста бошад.
+    /// </summary>
+    public async Task<ContactProfile> GetContactProfileAsync(Channel channel, string contactExternalId, CancellationToken ct)
+    {
+        var credentials = GetCredentials(channel);
+        var url = $"{GraphApiBaseUrl}/{GraphApiVersion}/{contactExternalId}?fields=first_name,last_name,profile_pic";
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credentials.PageAccessToken);
+        var response = await httpClient.SendAsync(request, ct);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync(ct);
+            logger.LogWarning(
+                "Facebook контакт {ContactExternalId} гирифта нашуд: {StatusCode} {Body}", contactExternalId, (int)response.StatusCode, body);
+            return ContactProfile.Empty;
+        }
+
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStreamAsync(ct));
+        var firstName = doc.RootElement.TryGetProperty("first_name", out var firstEl) ? firstEl.GetString() : null;
+        var lastName = doc.RootElement.TryGetProperty("last_name", out var lastEl) ? lastEl.GetString() : null;
+        var name = string.Join(' ', new[] { firstName, lastName }.Where(n => !string.IsNullOrEmpty(n)));
+        var avatarUrl = doc.RootElement.TryGetProperty("profile_pic", out var picEl) ? picEl.GetString() : null;
+
+        return new ContactProfile(string.IsNullOrEmpty(name) ? null : name, avatarUrl);
+    }
+
     private static object BuildMessagePayload(string conversationExternalId, object message, string? messageTag) =>
         messageTag is null
             ? new { recipient = new { id = conversationExternalId }, messaging_type = "RESPONSE", message }

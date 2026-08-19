@@ -142,6 +142,31 @@ public class InstagramProvider(
     public Task<IReadOnlyList<WhatsAppTemplateInfo>> GetApprovedTemplatesAsync(Channel channel, CancellationToken ct) =>
         throw new NotSupportedException("Instagram шаблон надорад.");
 
+    public async Task<ContactProfile> GetContactProfileAsync(Channel channel, string contactExternalId, CancellationToken ct)
+    {
+        var credentials = GetCredentials(channel);
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            $"{GraphApiBaseUrl}/{GraphApiVersion}/{contactExternalId}?fields=name,username,profile_pic");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credentials.AccessToken);
+
+        var response = await httpClient.SendAsync(request, ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync(ct);
+            logger.LogWarning(
+                "Instagram контакт {ContactExternalId} гирифта нашуд: {StatusCode} {Body}", contactExternalId, (int)response.StatusCode, body);
+            return ContactProfile.Empty;
+        }
+
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStreamAsync(ct));
+        var name = doc.RootElement.TryGetProperty("name", out var nameEl) ? nameEl.GetString()
+            : doc.RootElement.TryGetProperty("username", out var usernameEl) ? usernameEl.GetString() : null;
+        var avatarUrl = doc.RootElement.TryGetProperty("profile_pic", out var picEl) ? picEl.GetString() : null;
+
+        return new ContactProfile(name, avatarUrl);
+    }
+
     private static object BuildMessagePayload(string conversationExternalId, object message, string? messageTag) =>
         messageTag is null
             ? new { recipient = new { id = conversationExternalId }, messaging_type = "RESPONSE", message }

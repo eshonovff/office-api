@@ -91,7 +91,7 @@ public class WebhookProcessor(
 
         var savedMessages = new List<(Message Message, Conversation Conversation, string? MediaExternalId)>();
         foreach (var group in newMessages.GroupBy(m => m.ConversationExternalId))
-            savedMessages.AddRange(await UpsertConversationWithMessagesAsync(channel, group.Key, group.ToList(), ct));
+            savedMessages.AddRange(await UpsertConversationWithMessagesAsync(channel, provider, group.Key, group.ToList(), ct));
 
         await db.SaveChangesAsync(ct);
 
@@ -143,7 +143,7 @@ public class WebhookProcessor(
     }
 
     private async Task<List<(Message Message, Conversation Conversation, string? MediaExternalId)>> UpsertConversationWithMessagesAsync(
-        Channel channel, string conversationExternalId, List<ParsedWebhookMessage> messages, CancellationToken ct)
+        Channel channel, IChannelProvider provider, string conversationExternalId, List<ParsedWebhookMessage> messages, CancellationToken ct)
     {
         var savedMessages = new List<(Message, Conversation, string?)>();
 
@@ -152,13 +152,21 @@ public class WebhookProcessor(
 
         if (conversation is null)
         {
+            // WhatsApp номро дар худи webhook медиҳад (ParsedWebhookMessage.ContactName) — ин ҷо
+            // ҳатто дархост намезанад (GetContactProfileAsync-и он ҳамеша Empty). Facebook/Instagram
+            // намедиҳанд — як дархости алоҳида, танҳо як маротиба барои ҳамин мижоз (на барои
+            // ҳар паём), ҳангоми сохтани conversation.
+            var profile = messages[0].ContactName is null
+                ? await provider.GetContactProfileAsync(channel, conversationExternalId, ct)
+                : ContactProfile.Empty;
+
             conversation = new Conversation
             {
                 Id = Guid.CreateVersion7(),
                 ChannelId = channel.Id,
                 ExternalId = conversationExternalId,
-                ContactName = messages[0].ContactName,
-                ContactAvatarUrl = messages[0].ContactAvatarUrl,
+                ContactName = messages[0].ContactName ?? profile.Name,
+                ContactAvatarUrl = messages[0].ContactAvatarUrl ?? profile.AvatarUrl,
                 Status = ConversationStatus.New,
                 CreatedAt = DateTimeOffset.UtcNow,
             };

@@ -215,6 +215,11 @@ public class WhatsAppProvider(
         return result;
     }
 
+    // WhatsApp номи мижозро дар худи webhook медиҳад (contacts[].profile.name) — дархости
+    // иловагӣ ҳеҷ гоҳ лозим нест.
+    public Task<ContactProfile> GetContactProfileAsync(Channel channel, string contactExternalId, CancellationToken ct) =>
+        Task.FromResult(ContactProfile.Empty);
+
     private WhatsAppCredentials GetCredentials(Channel channel)
     {
         if (string.IsNullOrEmpty(channel.CredentialsEncrypted))
