@@ -50,9 +50,13 @@ public class InstagramOAuthConnector(HttpClient httpClient, IConfiguration confi
         using var tokenDoc = JsonDocument.Parse(await tokenResponse.Content.ReadAsStreamAsync(ct));
         var shortLivedToken = tokenDoc.RootElement.GetProperty("access_token").GetString()!;
 
-        var exchangeResponse = await httpClient.GetAsync(
+        // Ин endpoint (бар хилофи ҳуҷҷати эълоншудаи Meta, ки GET-ро тасвир мекунад) дар амал
+        // GET-ро рад мекунад: {"error":{"message":"Unsupported request - method type: get",...}}.
+        // Санҷиши зинда тасдиқ кард — POST лозим аст (параметрҳо ҳамон дар query string мемонанд).
+        var exchangeResponse = await httpClient.PostAsync(
             "https://graph.instagram.com/access_token?grant_type=ig_exchange_token" +
-            $"&client_secret={Uri.EscapeDataString(appSecret)}&access_token={Uri.EscapeDataString(shortLivedToken)}", ct);
+            $"&client_secret={Uri.EscapeDataString(appSecret)}&access_token={Uri.EscapeDataString(shortLivedToken)}",
+            content: null, ct);
         await EnsureSuccessAsync(exchangeResponse, "Instagram ig_exchange_token", ct);
         using var exchangeDoc = JsonDocument.Parse(await exchangeResponse.Content.ReadAsStreamAsync(ct));
         var longLivedToken = exchangeDoc.RootElement.GetProperty("access_token").GetString()!;
