@@ -144,6 +144,140 @@ public class FacebookPayloadParserTests
         }
         """;
 
+    private const string VideoAttachmentPayload = """
+        {
+          "object": "page",
+          "entry": [
+            {
+              "id": "1234567890",
+              "messaging": [
+                {
+                  "sender": { "id": "1000000000000001" },
+                  "recipient": { "id": "1234567890" },
+                  "timestamp": 1458692752478,
+                  "message": {
+                    "mid": "mid.VIDEO",
+                    "attachments": [
+                      { "type": "video", "payload": { "url": "https://scontent.xx.fbcdn.net/v/clip.mp4?expires=123" } }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+        """;
+
+    private const string AudioAttachmentPayload = """
+        {
+          "object": "page",
+          "entry": [
+            {
+              "id": "1234567890",
+              "messaging": [
+                {
+                  "sender": { "id": "1000000000000001" },
+                  "recipient": { "id": "1234567890" },
+                  "timestamp": 1458692752478,
+                  "message": {
+                    "mid": "mid.AUDIO",
+                    "attachments": [
+                      { "type": "audio", "payload": { "url": "https://scontent.xx.fbcdn.net/v/voice.aac?expires=123" } }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+        """;
+
+    private const string FileAttachmentPayload = """
+        {
+          "object": "page",
+          "entry": [
+            {
+              "id": "1234567890",
+              "messaging": [
+                {
+                  "sender": { "id": "1000000000000001" },
+                  "recipient": { "id": "1234567890" },
+                  "timestamp": 1458692752478,
+                  "message": {
+                    "mid": "mid.FILE",
+                    "attachments": [
+                      { "type": "file", "payload": { "url": "https://scontent.xx.fbcdn.net/v/doc.pdf?expires=123" } }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+        """;
+
+    private const string UnknownAttachmentTypePayload = """
+        {
+          "object": "page",
+          "entry": [
+            {
+              "id": "1234567890",
+              "messaging": [
+                {
+                  "sender": { "id": "1000000000000001" },
+                  "recipient": { "id": "1234567890" },
+                  "timestamp": 1458692752478,
+                  "message": {
+                    "mid": "mid.WEIRD",
+                    "attachments": [
+                      { "type": "some_future_type", "payload": { "url": "https://scontent.xx.fbcdn.net/v/x?expires=123" } }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+        """;
+
+    private const string ReactionPayload = """
+        {
+          "object": "page",
+          "entry": [
+            {
+              "id": "1234567890",
+              "messaging": [
+                {
+                  "sender": { "id": "1000000000000001" },
+                  "recipient": { "id": "1234567890" },
+                  "timestamp": 1458692752478,
+                  "reaction": { "mid": "mid.ORIGINAL", "action": "react", "reaction": "love", "emoji": "❤" }
+                }
+              ]
+            }
+          ]
+        }
+        """;
+
+    private const string UnreactPayload = """
+        {
+          "object": "page",
+          "entry": [
+            {
+              "id": "1234567890",
+              "messaging": [
+                {
+                  "sender": { "id": "1000000000000001" },
+                  "recipient": { "id": "1234567890" },
+                  "timestamp": 1458692752600,
+                  "reaction": { "mid": "mid.ORIGINAL", "action": "unreact" }
+                }
+              ]
+            }
+          ]
+        }
+        """;
+
     private const string DeliveryPayload = """
         {
           "object": "page",
@@ -266,6 +400,68 @@ public class FacebookPayloadParserTests
         Assert.Equal(MessageType.Text, message.Type);
         Assert.NotNull(message.Body);
         Assert.Null(message.MediaExternalId);
+    }
+
+    [Fact]
+    public void ParseMessages_VideoAttachment_MapsToVideo()
+    {
+        var messages = FacebookPayloadParser.ParseMessages(Parse(VideoAttachmentPayload));
+
+        var message = Assert.Single(messages);
+        Assert.Equal(MessageType.Video, message.Type);
+        Assert.Equal("https://scontent.xx.fbcdn.net/v/clip.mp4?expires=123", message.MediaExternalId);
+    }
+
+    [Fact]
+    public void ParseMessages_AudioAttachment_MapsToAudio()
+    {
+        var messages = FacebookPayloadParser.ParseMessages(Parse(AudioAttachmentPayload));
+
+        var message = Assert.Single(messages);
+        Assert.Equal(MessageType.Audio, message.Type);
+        Assert.Equal("https://scontent.xx.fbcdn.net/v/voice.aac?expires=123", message.MediaExternalId);
+    }
+
+    [Fact]
+    public void ParseMessages_FileAttachment_MapsToFile()
+    {
+        var messages = FacebookPayloadParser.ParseMessages(Parse(FileAttachmentPayload));
+
+        var message = Assert.Single(messages);
+        Assert.Equal(MessageType.File, message.Type);
+        Assert.Equal("https://scontent.xx.fbcdn.net/v/doc.pdf?expires=123", message.MediaExternalId);
+    }
+
+    [Fact]
+    public void ParseMessages_UnknownAttachmentType_RecordsMarkerInsteadOfDroppingSilently()
+    {
+        var messages = FacebookPayloadParser.ParseMessages(Parse(UnknownAttachmentTypePayload));
+
+        var message = Assert.Single(messages);
+        Assert.Equal(MessageType.Text, message.Type);
+        Assert.StartsWith(FacebookPayloadParser.UnsupportedTypeBodyPrefix, message.Body);
+        Assert.Contains("some_future_type", message.Body);
+    }
+
+    [Fact]
+    public void ParseMessages_Reaction_RecordsAsTextWithEmojiAndSyntheticId()
+    {
+        var messages = FacebookPayloadParser.ParseMessages(Parse(ReactionPayload));
+
+        var message = Assert.Single(messages);
+        Assert.Equal(MessageType.Text, message.Type);
+        Assert.Contains("❤", message.Body);
+        Assert.Equal("reaction:1000000000000001:1458692752478", message.MessageExternalId);
+    }
+
+    [Fact]
+    public void ParseMessages_Unreact_RecordsDistinctlyFromReact()
+    {
+        var messages = FacebookPayloadParser.ParseMessages(Parse(UnreactPayload));
+
+        var message = Assert.Single(messages);
+        Assert.Equal(MessageType.Text, message.Type);
+        Assert.DoesNotContain("❤", message.Body);
     }
 
     [Fact]

@@ -35,8 +35,21 @@ public class FacebookProvider(
 
     public string? ExtractChannelExternalId(JsonElement payload) => FacebookPayloadParser.ExtractChannelExternalId(payload);
 
-    public Task<IReadOnlyList<ParsedWebhookMessage>> ParseWebhookAsync(Channel channel, JsonElement payload, CancellationToken ct) =>
-        Task.FromResult(FacebookPayloadParser.ParseMessages(payload));
+    public Task<IReadOnlyList<ParsedWebhookMessage>> ParseWebhookAsync(Channel channel, JsonElement payload, CancellationToken ct)
+    {
+        var messages = FacebookPayloadParser.ParseMessages(payload);
+
+        // Парсер pure аст (бе logger) — ин ҷо, дар қабати провайдер, натиҷаро месанҷем: агар
+        // навъе дастгирӣ нашуда бошад, паём боз ҳам сабт мешавад (хомӯшона гум намешавад),
+        // вале ҳамзамон ин ҷо ҳам log мешавад — то бидонем, кадом навъи нав аз Meta омад.
+        foreach (var message in messages)
+        {
+            if (message.Body?.StartsWith(FacebookPayloadParser.UnsupportedTypeBodyPrefix, StringComparison.Ordinal) == true)
+                logger.LogWarning("Facebook: паёми навъи дастгирӣнашуда сабт шуд: {Body}", message.Body);
+        }
+
+        return Task.FromResult(messages);
+    }
 
     public Task<IReadOnlyList<ParsedStatusUpdate>> ParseStatusUpdatesAsync(Channel channel, JsonElement payload, CancellationToken ct) =>
         Task.FromResult(FacebookPayloadParser.ParseStatusUpdates(payload));

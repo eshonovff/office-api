@@ -8,9 +8,15 @@ namespace Office.Api.Channels.Facebook;
 /// бе DB/HTTP. Шакли payload: <c>{"object":"page","entry":[{"id":"&lt;PAGE_ID&gt;",
 /// "messaging":[{"sender":{"id":...},"message":{"mid":...,"text":...}}]}]}</c> — на
 /// <c>entry[].changes[]</c>-и WhatsApp/Instagram, балки <c>entry[].messaging[]</c>.
+///
+/// Ҳеҷ навъи паём хомӯшона партофта намешавад: attachment-и ношинос → MessageType.Text бо
+/// матни <see cref="UnsupportedTypeBodyPrefix"/> (FacebookProvider ин ҳолатро log мекунад).
 /// </summary>
 public static class FacebookPayloadParser
 {
+    /// <summary>Пешвои санадест, ки ин рекорд аз навъи "unsupported"-и ин парсер аст — FacebookProvider инро log мекунад.</summary>
+    public const string UnsupportedTypeBodyPrefix = "[навъи дастгирӣнашуда: ";
+
     public static string? ExtractChannelExternalId(JsonElement payload) =>
         payload.TryGetProperty("entry", out var entryEl) && entryEl.ValueKind == JsonValueKind.Array && entryEl.GetArrayLength() > 0 &&
         entryEl[0].TryGetProperty("id", out var idEl)
@@ -62,10 +68,41 @@ public static class FacebookPayloadParser
             }
 
             if (messagingEvent.TryGetProperty("postback", out var postbackEl))
+            {
                 result.Add(ParsePostback(senderId, timestampMs, sentAt, postbackEl));
+                continue;
+            }
+
+            if (messagingEvent.TryGetProperty("reaction", out var reactionEl))
+                result.Add(ParseReaction(senderId, timestampMs, sentAt, reactionEl));
         }
 
         return result;
+    }
+
+    private static ParsedWebhookMessage ParseReaction(string senderId, long timestampMs, DateTimeOffset sentAt, JsonElement reactionEl)
+    {
+        // Реаксия (emoji ба паёми қаблӣ) — на паёми нав дар маънои муқаррарӣ, вале ҳеҷ гоҳ
+        // набояд хомӯшона гум шавад. reaction.mid ба паёми РЕАКСИЯШУДА ишора мекунад (на ин
+        // рӯйдод), пас ба он алоқаманд намекунем — синтетикӣ id месозем (ниг. postback боло).
+        var action = reactionEl.TryGetProperty("action", out var actionEl) ? actionEl.GetString() : "react";
+        var emoji = reactionEl.TryGetProperty("emoji", out var emojiEl) ? emojiEl.GetString()
+            : reactionEl.TryGetProperty("reaction", out var reactionNameEl) ? reactionNameEl.GetString() : null;
+
+        var body = action == "unreact"
+            ? "[реаксия бардошта шуд]"
+            : $"[реаксия: {emoji ?? "?"}]";
+
+        return new ParsedWebhookMessage(
+            ConversationExternalId: senderId,
+            ContactName: null,
+            ContactAvatarUrl: null,
+            MessageExternalId: $"reaction:{senderId}:{timestampMs}",
+            Direction: MessageDirection.Inbound,
+            Type: MessageType.Text,
+            Body: body,
+            MediaUrl: null,
+            SentAt: sentAt);
     }
 
     public static IReadOnlyList<ParsedStatusUpdate> ParseStatusUpdates(JsonElement payload)
@@ -170,8 +207,10 @@ public static class FacebookPayloadParser
             case "like_heart":
                 return (MessageType.Text, "❤️ (стикер)", null);
 
+            // Ҳеҷ навъ хомӯшона партофта намешавад — FacebookProvider.ParseWebhookAsync ин
+            // ҳолатро log мекунад (UnsupportedTypeBodyPrefix-ро санҷида).
             default:
-                return (MessageType.Text, text, url);
+                return (MessageType.Text, $"{UnsupportedTypeBodyPrefix}{attachmentType ?? "(бе навъ)"}]", url);
         }
     }
 }
