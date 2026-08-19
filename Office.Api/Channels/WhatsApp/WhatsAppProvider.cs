@@ -39,7 +39,8 @@ public class WhatsAppProvider(
     public Task<IReadOnlyList<ParsedStatusUpdate>> ParseStatusUpdatesAsync(Channel channel, JsonElement payload, CancellationToken ct) =>
         Task.FromResult(WhatsAppPayloadParser.ParseStatusUpdates(payload));
 
-    public async Task<string?> SendMessageAsync(Channel channel, string conversationExternalId, string body, CancellationToken ct)
+    // messageTag: WhatsApp мафҳуми тег надорад (шаблон дорад) — ҳамеша null, нодида гирифта мешавад.
+    public async Task<string?> SendMessageAsync(Channel channel, string conversationExternalId, string body, string? messageTag, CancellationToken ct)
     {
         var credentials = GetCredentials(channel);
         var payload = new
@@ -146,7 +147,7 @@ public class WhatsAppProvider(
 
     public async Task<string?> SendMediaMessageAsync(
         Channel channel, string conversationExternalId, string mediaExternalId, MessageType type,
-        string? caption, bool isVoiceNote, CancellationToken ct)
+        string? caption, bool isVoiceNote, string? messageTag, CancellationToken ct)
     {
         var credentials = GetCredentials(channel);
         var waType = ToWhatsAppMediaType(type);

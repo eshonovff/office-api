@@ -13,6 +13,7 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.OpenApi;
 using Office.Api.Auth;
 using Office.Api.Channels;
+using Office.Api.Channels.Facebook;
 using Office.Api.Channels.Meta;
 using Office.Api.Channels.WhatsApp;
 using Office.Api.Common;
@@ -193,6 +194,7 @@ builder.Services.AddSingleton<IChannelCredentialsProtector, ChannelCredentialsPr
 builder.Services.AddSingleton<IMediaProcessor, FfmpegMediaProcessor>();
 builder.Services.AddScoped<PlaceholderChannelProvider>();
 builder.Services.AddHttpClient<WhatsAppProvider>();
+builder.Services.AddHttpClient<FacebookProvider>();
 builder.Services.AddScoped<IChannelProviderFactory, ChannelProviderFactory>();
 // RemoveAllLoggers(): URL-и дархостҳо ба Meta code/token-ро дар query string доранд —
 // logging handler-и пешфарзи HttpClientFactory набояд онҳоро ба log бароварад.

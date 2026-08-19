@@ -1,5 +1,6 @@
 using Hangfire;
 using Microsoft.EntityFrameworkCore;
+using Office.Api.Channels.Messenger;
 using Office.Api.Channels.WhatsApp;
 using Office.Api.Common;
 using Office.Api.Data;
@@ -46,6 +47,25 @@ public class MediaSendJob(
         var provider = factory.GetProvider(channel.Type);
         var rootPath = UploadsPathResolver.ResolveRootPath(configuration, env);
 
+        // Facebook/Instagram: тиреза/тег пеш аз боркунӣ санҷида мешавад — агар Reject (7 рӯз
+        // гузаштааст), боркунии бефоида намешавад. WhatsApp (поён) ин санҷишро надорад — он ба
+        // хатои реактивии WhatsAppWindowClosedException-и провайдер такя мекунад (тағйирнаёфта).
+        string? messageTag = null;
+        if (channel.Type is ChannelType.Facebook or ChannelType.Instagram)
+        {
+            var mode = MessengerSendModePlanner.Plan(conversation.WindowExpiresAt, DateTimeOffset.UtcNow);
+            if (mode == MessengerSendMode.Reject)
+            {
+                message.DeliveryStatus = MessageDeliveryStatus.Failed;
+                message.FailureReason = "Тирезаи 24-соат ва дарозкунии 7-рӯзаи тег (HUMAN_AGENT) ҳарду гузаштаанд.";
+                await db.SaveChangesAsync(ct);
+                await PublishAsync(channel.Id, conversation.AssignedTo, message, ct);
+                return;
+            }
+
+            messageTag = mode == MessengerSendMode.Tag ? MessengerTags.HumanAgent : null;
+        }
+
         try
         {
             if (isVoiceNote)
@@ -62,7 +82,7 @@ public class MediaSendJob(
 
             var wamid = await provider.SendMediaMessageAsync(
                 channel, conversation.ExternalId, mediaExternalId, message.Type, message.Body,
-                isVoiceNote, ct);
+                isVoiceNote, messageTag, ct);
 
             message.MediaExternalId = mediaExternalId;
             message.ExternalId = wamid;

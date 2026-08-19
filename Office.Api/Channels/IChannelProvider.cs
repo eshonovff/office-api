@@ -22,8 +22,13 @@ public interface IChannelProvider
     /// <summary>Табдили JSON-и хоми webhook ба навсозиҳои статуси расониш (sent/delivered/read/failed).</summary>
     Task<IReadOnlyList<ParsedStatusUpdate>> ParseStatusUpdatesAsync(Channel channel, JsonElement payload, CancellationToken ct);
 
-    /// <summary>Wamid-ро бармегардонад (агар дастрас бошад), то навсозиҳои статус (delivered/read) ба паём мувофиқ оянд.</summary>
-    Task<string?> SendMessageAsync(Channel channel, string conversationExternalId, string body, CancellationToken ct);
+    /// <summary>
+    /// Wamid-ро бармегардонад (агар дастрас бошад), то навсозиҳои статус (delivered/read) ба паём мувофиқ оянд.
+    /// <paramref name="messageTag"/> — Facebook/Instagram-хос (масалан <c>MessengerTags.HumanAgent</c>): берун
+    /// аз тирезаи муқаррарӣ, вале дар доираи дарозкунии тег иҷозатдодашуда мефиристад. WhatsApp мафҳуми
+    /// тег надорад — ҳамеша null мегузарад ва амалисозии он инро нодида мегирад.
+    /// </summary>
+    Task<string?> SendMessageAsync(Channel channel, string conversationExternalId, string body, string? messageTag, CancellationToken ct);
 
     /// <summary>Фиристодани шаблони тасдиқшуда (берун аз тирезаи 24-соата кор мекунад). Wamid-ро бармегардонад.</summary>
     Task<string?> SendTemplateAsync(
@@ -37,10 +42,13 @@ public interface IChannelProvider
     /// <summary>Бор кардани медиа ба провайдер, барои дертар фиристодан. Media id-ро бармегардонад.</summary>
     Task<string> UploadMediaAsync(Channel channel, Stream content, string mimeType, string fileName, CancellationToken ct);
 
-    /// <summary>Фиристодани паёми медиа (расм/видео/овоз/ҳуҷҷат) бо media id-и аллакай боркардашуда. Wamid-ро бармегардонад (агар дастрас бошад).</summary>
+    /// <summary>
+    /// Фиристодани паёми медиа (расм/видео/овоз/ҳуҷҷат) бо media id-и аллакай боркардашуда. Wamid-ро
+    /// бармегардонад (агар дастрас бошад). <paramref name="messageTag"/> — ниг. <see cref="SendMessageAsync"/>.
+    /// </summary>
     Task<string?> SendMediaMessageAsync(
         Channel channel, string conversationExternalId, string mediaExternalId, MessageType type,
-        string? caption, bool isVoiceNote, CancellationToken ct);
+        string? caption, bool isVoiceNote, string? messageTag, CancellationToken ct);
 
     /// <summary>Рӯйхати шаблонҳои тасдиқшудаи Meta барои ин канал.</summary>
     Task<IReadOnlyList<WhatsAppTemplateInfo>> GetApprovedTemplatesAsync(Channel channel, CancellationToken ct);

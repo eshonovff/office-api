@@ -2,6 +2,7 @@ using System.Text.Json;
 using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using Office.Api.Channels;
+using Office.Api.Channels.Messenger;
 using Office.Api.Data;
 using Office.Api.Data.Entities;
 using Office.Api.Features.Conversations;
@@ -59,6 +60,18 @@ public class WhatsAppSendJob(
 
         var conversation = message.Conversation;
         var channel = conversation.Channel;
+        var provider = factory.GetProvider(channel.Type);
+
+        // Facebook/Instagram надоранд шаблон — HUMAN_AGENT-и тег ба ҷои он тирезаро то 7 рӯз
+        // дароз мекунад (ниг. MessengerSendModePlanner). Ин навбати WhatsApp-ро (поён, тағйирнаёфта)
+        // такрор намекунад, чунки IsWindowClosed(isTemplate,...) барои "тег" бетаваҷҷуҳ аст —
+        // ҳамеша татбиқ мешавад, ҳеҷ гоҳ рад намекунад (Reject танҳо баъд аз 7 рӯз).
+        if (channel.Type is ChannelType.Facebook or ChannelType.Instagram)
+        {
+            await SendMessengerAsync(provider, channel, conversation, message, ct);
+            return;
+        }
+
         var isTemplate = message.TemplateName is not null;
 
         if (ConversationWindowCalculator.IsWindowClosed(isTemplate, conversation.WindowExpiresAt, DateTimeOffset.UtcNow))
@@ -70,15 +83,13 @@ public class WhatsAppSendJob(
             return;
         }
 
-        var provider = factory.GetProvider(channel.Type);
-
         try
         {
             message.ExternalId = isTemplate
                 ? await provider.SendTemplateAsync(
                     channel, conversation.ExternalId, message.TemplateName!,
                     message.TemplateLanguage ?? "en_US", DeserializeParameters(message.TemplateParametersJson), ct)
-                : await provider.SendMessageAsync(channel, conversation.ExternalId, message.Body ?? string.Empty, ct);
+                : await provider.SendMessageAsync(channel, conversation.ExternalId, message.Body ?? string.Empty, messageTag: null, ct);
 
             message.DeliveryStatus = MessageDeliveryStatus.Sent;
             conversation.LastMessageAt = message.CreatedAt;
@@ -89,6 +100,28 @@ public class WhatsAppSendJob(
             message.FailureReason = ex.Message;
             logger.LogWarning(ex, "WhatsAppSendJob: тирезаи 24-соата баста барои паёми {MessageId}.", messageId);
         }
+
+        await db.SaveChangesAsync(ct);
+        await PublishAsync(channel.Id, conversation.AssignedTo, message, ct);
+    }
+
+    private async Task SendMessengerAsync(IChannelProvider provider, Channel channel, Conversation conversation, Message message, CancellationToken ct)
+    {
+        var mode = MessengerSendModePlanner.Plan(conversation.WindowExpiresAt, DateTimeOffset.UtcNow);
+
+        if (mode == MessengerSendMode.Reject)
+        {
+            message.DeliveryStatus = MessageDeliveryStatus.Failed;
+            message.FailureReason = "Тирезаи 24-соат ва дарозкунии 7-рӯзаи тег (HUMAN_AGENT) ҳарду гузаштаанд.";
+            await db.SaveChangesAsync(ct);
+            await PublishAsync(channel.Id, conversation.AssignedTo, message, ct);
+            return;
+        }
+
+        var messageTag = mode == MessengerSendMode.Tag ? MessengerTags.HumanAgent : null;
+        message.ExternalId = await provider.SendMessageAsync(channel, conversation.ExternalId, message.Body ?? string.Empty, messageTag, ct);
+        message.DeliveryStatus = MessageDeliveryStatus.Sent;
+        conversation.LastMessageAt = message.CreatedAt;
 
         await db.SaveChangesAsync(ct);
         await PublishAsync(channel.Id, conversation.AssignedTo, message, ct);
