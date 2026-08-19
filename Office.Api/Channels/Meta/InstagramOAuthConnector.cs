@@ -52,11 +52,11 @@ public class InstagramOAuthConnector(HttpClient httpClient, IConfiguration confi
         using var tokenDoc = JsonDocument.Parse(await tokenResponse.Content.ReadAsStreamAsync(ct));
         var shortLivedToken = ExtractShortLivedToken(tokenDoc.RootElement);
 
-        // Ҳуҷҷати ҳозираи Meta барои Business Login (Instagram API with Instagram Login) шакли
-        // "data":[{"access_token":...}]-ро тасвир мекунад — вале ин лог тасдиқ мекунад воқеан
-        // кадом шакл омад ва токен воқеан холӣ нест (на танҳо "REDACTED" дар URL, ки ҳатто барои
-        // сатри холӣ ҳам намоён мешавад).
-        logger.LogInformation("Instagram step 1: shortLivedToken дарозӣ={Length}", shortLivedToken.Length);
+        // МУВАҚҚАТӢ — ТАШХИС: дарозӣ=211 тасдиқ кард токен холӣ нест, вале ин арзиши ПУРРАИ
+        // токенро дар лог менависад, то бо curl мустақим ба Meta санҷида шавад. Токени
+        // кӯтоҳмуддат аст (~1 соат эътибор дорад) — вале ин сатрро БОЯД баъди ташхис нест кард,
+        // ин ҷо намемонад (TODO: пас аз санҷиши curl бардоред).
+        logger.LogInformation("Instagram step 1 (МУВАҚҚАТӢ, барои санҷиши curl): shortLivedToken={Token}", shortLivedToken);
 
         // ҚАДАМИ 2: short-lived → long-lived. URL-и ҷудогона, host-и ҷудогона (graph.instagram.com,
         // на api.instagram.com), параметрҳо дар QUERY STRING — ин ва ФАҚАТ ин дархост
