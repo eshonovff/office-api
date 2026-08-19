@@ -34,6 +34,8 @@ public class InstagramOAuthConnector(HttpClient httpClient, IConfiguration confi
         var appId = MetaOAuthConfig.GetAppId(configuration, ChannelType.Instagram);
         var appSecret = MetaOAuthConfig.GetAppSecret(configuration, ChannelType.Instagram);
 
+        // ҚАДАМИ 1: code → short-lived token. Ин ва ФАҚАТ ин дархост "Instagram oauth/access_token"
+        // ном дорад дар лог — параметрҳо дар БАДАН (form-urlencoded), на дар URL.
         using var tokenRequest = new HttpRequestMessage(HttpMethod.Post, "https://api.instagram.com/oauth/access_token")
         {
             Content = new FormUrlEncodedContent(new Dictionary<string, string>
@@ -46,25 +48,29 @@ public class InstagramOAuthConnector(HttpClient httpClient, IConfiguration confi
             }),
         };
         var tokenResponse = await httpClient.SendAsync(tokenRequest, ct);
-        await EnsureSuccessAsync(tokenResponse, "Instagram oauth/access_token", ct);
+        await EnsureSuccessAsync(tokenRequest, tokenResponse, "Instagram oauth/access_token (step 1: code → short-lived)", ct);
         using var tokenDoc = JsonDocument.Parse(await tokenResponse.Content.ReadAsStreamAsync(ct));
         var shortLivedToken = tokenDoc.RootElement.GetProperty("access_token").GetString()!;
 
-        // Ин endpoint (бар хилофи ҳуҷҷати эълоншудаи Meta, ки GET-ро тасвир мекунад) дар амал
-        // GET-ро рад мекунад: {"error":{"message":"Unsupported request - method type: get",...}}.
-        // Санҷиши зинда тасдиқ кард — POST лозим аст (параметрҳо ҳамон дар query string мемонанд).
-        var exchangeResponse = await httpClient.PostAsync(
+        // ҚАДАМИ 2: short-lived → long-lived. URL-и ҷудогона, host-и ҷудогона (graph.instagram.com,
+        // на api.instagram.com), параметрҳо дар QUERY STRING — ин ва ФАҚАТ ин дархост
+        // "Instagram ig_exchange_token" ном дорад. Ду қадам ҳеҷ гоҳ як HttpRequestMessage-ро
+        // мубодила намекунанд — ҳар кадом объекти худро дорад, то лог ҳеҷ гоҳ омехта нашавад.
+        using var exchangeRequest = new HttpRequestMessage(
+            HttpMethod.Post,
             "https://graph.instagram.com/access_token?grant_type=ig_exchange_token" +
-            $"&client_secret={Uri.EscapeDataString(appSecret)}&access_token={Uri.EscapeDataString(shortLivedToken)}",
-            content: null, ct);
-        await EnsureSuccessAsync(exchangeResponse, "Instagram ig_exchange_token", ct);
+            $"&client_secret={Uri.EscapeDataString(appSecret)}&access_token={Uri.EscapeDataString(shortLivedToken)}");
+        var exchangeResponse = await httpClient.SendAsync(exchangeRequest, ct);
+        await EnsureSuccessAsync(exchangeRequest, exchangeResponse, "Instagram ig_exchange_token (step 2: short-lived → long-lived)", ct);
         using var exchangeDoc = JsonDocument.Parse(await exchangeResponse.Content.ReadAsStreamAsync(ct));
         var longLivedToken = exchangeDoc.RootElement.GetProperty("access_token").GetString()!;
 
-        var meResponse = await httpClient.GetAsync(
-            $"https://graph.instagram.com/{GraphApiVersion}/me?fields=id,username" +
-            $"&access_token={Uri.EscapeDataString(longLivedToken)}", ct);
-        await EnsureSuccessAsync(meResponse, "Instagram /me", ct);
+        // ҚАДАМИ 3: маълумоти account бо токени дарозмуддат.
+        using var meRequest = new HttpRequestMessage(
+            HttpMethod.Get,
+            $"https://graph.instagram.com/{GraphApiVersion}/me?fields=id,username&access_token={Uri.EscapeDataString(longLivedToken)}");
+        var meResponse = await httpClient.SendAsync(meRequest, ct);
+        await EnsureSuccessAsync(meRequest, meResponse, "Instagram /me (step 3: маълумоти account)", ct);
         using var meDoc = JsonDocument.Parse(await meResponse.Content.ReadAsStreamAsync(ct));
         var accountId = meDoc.RootElement.GetProperty("id").GetString()!;
         var username = meDoc.RootElement.GetProperty("username").GetString()!;
@@ -76,13 +82,21 @@ public class InstagramOAuthConnector(HttpClient httpClient, IConfiguration confi
         return [new ConnectableAccount(accountId, username, credentialsJson)];
     }
 
-    private async Task EnsureSuccessAsync(HttpResponseMessage response, string context, CancellationToken ct)
+    /// <summary>
+    /// URL-и ПУРРА (бо client_secret/access_token/code пинҳонкарда — ниг. SensitiveUrlRedactor)
+    /// дар лог мемонад, то оянда ягон ислоҳ тахмин набошад: маҳз кадом host, кадом path, кадом
+    /// query, кадом усул фиристода шуд — ҳамааш дар як сатр.
+    /// </summary>
+    private async Task EnsureSuccessAsync(HttpRequestMessage request, HttpResponseMessage response, string context, CancellationToken ct)
     {
         if (response.IsSuccessStatusCode)
             return;
 
         var body = await response.Content.ReadAsStringAsync(ct);
-        logger.LogError("{Context} хатогӣ: {StatusCode} {Body}", context, (int)response.StatusCode, body);
+        var redactedUrl = SensitiveUrlRedactor.Redact(request.RequestUri!.ToString());
+        logger.LogError(
+            "{Context} хатогӣ: {Method} {Url} -> {StatusCode} {Body}",
+            context, request.Method, redactedUrl, (int)response.StatusCode, body);
         throw new MetaOAuthException(context, (int)response.StatusCode, body);
     }
 }

@@ -34,7 +34,7 @@ public class FacebookOAuthConnector(HttpClient httpClient, IConfiguration config
             $"{GraphApiBaseUrl}/{GraphApiVersion}/oauth/access_token" +
             $"?client_id={Uri.EscapeDataString(appId)}&client_secret={Uri.EscapeDataString(appSecret)}" +
             $"&redirect_uri={Uri.EscapeDataString(redirectUri)}&code={Uri.EscapeDataString(code)}",
-            "Facebook oauth/access_token", ct);
+            "Facebook oauth/access_token (step 1: code → short-lived)", ct);
 
         // Page access token-ҳои /me/accounts аллакай дарозмуддатанд, вақте ки бо
         // user token-и дарозмуддат дархост мешаванд — ниёз ба мубодилаи алоҳида нест.
@@ -42,12 +42,12 @@ public class FacebookOAuthConnector(HttpClient httpClient, IConfiguration config
             $"{GraphApiBaseUrl}/{GraphApiVersion}/oauth/access_token?grant_type=fb_exchange_token" +
             $"&client_id={Uri.EscapeDataString(appId)}&client_secret={Uri.EscapeDataString(appSecret)}" +
             $"&fb_exchange_token={Uri.EscapeDataString(shortLivedToken)}",
-            "Facebook fb_exchange_token", ct);
+            "Facebook fb_exchange_token (step 2: short-lived → long-lived)", ct);
 
-        var response = await httpClient.GetAsync(
-            $"{GraphApiBaseUrl}/{GraphApiVersion}/me/accounts?fields=id,name,access_token" +
-            $"&access_token={Uri.EscapeDataString(longLivedUserToken)}", ct);
-        await EnsureSuccessAsync(response, "Facebook /me/accounts", ct);
+        var accountsUrl = $"{GraphApiBaseUrl}/{GraphApiVersion}/me/accounts?fields=id,name,access_token" +
+                           $"&access_token={Uri.EscapeDataString(longLivedUserToken)}";
+        var response = await httpClient.GetAsync(accountsUrl, ct);
+        await EnsureSuccessAsync(HttpMethod.Get, accountsUrl, response, "Facebook /me/accounts (step 3: рӯйхати Page)", ct);
 
         using var doc = JsonDocument.Parse(await response.Content.ReadAsStreamAsync(ct));
         var accounts = new List<ConnectableAccount>();
@@ -70,31 +70,33 @@ public class FacebookOAuthConnector(HttpClient httpClient, IConfiguration config
     /// <summary>Обуна кардани Page ба webhook-и messages/messaging_postbacks — қисми /connect, на /callback.</summary>
     public async Task SubscribePageAsync(string pageId, string pageAccessToken, CancellationToken ct)
     {
-        var response = await httpClient.PostAsync(
-            $"{GraphApiBaseUrl}/{GraphApiVersion}/{pageId}/subscribed_apps" +
-            $"?subscribed_fields=messages,messaging_postbacks&access_token={Uri.EscapeDataString(pageAccessToken)}",
-            content: null, ct);
-        await EnsureSuccessAsync(response, "Facebook subscribed_apps", ct);
+        var url = $"{GraphApiBaseUrl}/{GraphApiVersion}/{pageId}/subscribed_apps" +
+                  $"?subscribed_fields=messages,messaging_postbacks&access_token={Uri.EscapeDataString(pageAccessToken)}";
+        var response = await httpClient.PostAsync(url, content: null, ct);
+        await EnsureSuccessAsync(HttpMethod.Post, url, response, "Facebook subscribed_apps", ct);
     }
 
     private async Task<string> GetTokenFieldAsync(string url, string context, CancellationToken ct)
     {
         var response = await httpClient.GetAsync(url, ct);
-        await EnsureSuccessAsync(response, context, ct);
+        await EnsureSuccessAsync(HttpMethod.Get, url, response, context, ct);
 
         using var doc = JsonDocument.Parse(await response.Content.ReadAsStreamAsync(ct));
         return doc.RootElement.GetProperty("access_token").GetString()!;
     }
 
-    private async Task EnsureSuccessAsync(HttpResponseMessage response, string context, CancellationToken ct)
+    /// <summary>
+    /// URL-и ПУРРА (бо client_secret/access_token/code пинҳонкарда) дар лог мемонад — то ҳар
+    /// хатогии оянда бо host/path/query-и аниқ санҷида шавад, на бо тахмин.
+    /// </summary>
+    private async Task EnsureSuccessAsync(HttpMethod method, string url, HttpResponseMessage response, string context, CancellationToken ct)
     {
         if (response.IsSuccessStatusCode)
             return;
 
-        // Танҳо статус ва матни хатогии Meta ба log мераванд (token дар response-и хатогӣ нест —
-        // худи URL-и дархост, ки token дорад, тавассути RemoveAllLoggers() аз log хориҷ шудааст).
         var body = await response.Content.ReadAsStringAsync(ct);
-        logger.LogError("{Context} хатогӣ: {StatusCode} {Body}", context, (int)response.StatusCode, body);
+        var redactedUrl = SensitiveUrlRedactor.Redact(url);
+        logger.LogError("{Context} хатогӣ: {Method} {Url} -> {StatusCode} {Body}", context, method, redactedUrl, (int)response.StatusCode, body);
         throw new MetaOAuthException(context, (int)response.StatusCode, body);
     }
 }
