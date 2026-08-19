@@ -50,7 +50,13 @@ public class InstagramOAuthConnector(HttpClient httpClient, IConfiguration confi
         var tokenResponse = await httpClient.SendAsync(tokenRequest, ct);
         await EnsureSuccessAsync(tokenRequest, tokenResponse, "Instagram oauth/access_token (step 1: code → short-lived)", ct);
         using var tokenDoc = JsonDocument.Parse(await tokenResponse.Content.ReadAsStreamAsync(ct));
-        var shortLivedToken = tokenDoc.RootElement.GetProperty("access_token").GetString()!;
+        var shortLivedToken = ExtractShortLivedToken(tokenDoc.RootElement);
+
+        // Ҳуҷҷати ҳозираи Meta барои Business Login (Instagram API with Instagram Login) шакли
+        // "data":[{"access_token":...}]-ро тасвир мекунад — вале ин лог тасдиқ мекунад воқеан
+        // кадом шакл омад ва токен воқеан холӣ нест (на танҳо "REDACTED" дар URL, ки ҳатто барои
+        // сатри холӣ ҳам намоён мешавад).
+        logger.LogInformation("Instagram step 1: shortLivedToken дарозӣ={Length}", shortLivedToken.Length);
 
         // ҚАДАМИ 2: short-lived → long-lived. URL-и ҷудогона, host-и ҷудогона (graph.instagram.com,
         // на api.instagram.com), параметрҳо дар QUERY STRING — ин ва ФАҚАТ ин дархост
@@ -82,6 +88,23 @@ public class InstagramOAuthConnector(HttpClient httpClient, IConfiguration confi
         // бе мантиқи алоҳида кор кунад), боз ҳам ҳамчун рӯйхати як-узвӣ бармегардонем.
         var credentialsJson = JsonSerializer.Serialize(new InstagramCredentials(accountId, longLivedToken));
         return [new ConnectableAccount(accountId, username, credentialsJson)];
+    }
+
+    /// <summary>
+    /// Response-и step 1 ду шакл дошта метавонад: ҳуҷҷати ҳозираи Meta (Business Login)
+    /// <c>{"data":[{"access_token":...}]}</c> тасвир мекунад, вале баъзе интеграцияҳо (ва
+    /// эҳтимол endpoint-и худи Meta низ ҳанӯз) шакли кӯҳнаи flat <c>{"access_token":...}</c>-ро
+    /// мегардонанд. Ҳарду кӯшиш мешаванд, то фарзи хато дар шакл боиси токени вайрон нашавад.
+    /// </summary>
+    private static string ExtractShortLivedToken(JsonElement root)
+    {
+        if (root.TryGetProperty("data", out var dataEl) && dataEl.ValueKind == JsonValueKind.Array && dataEl.GetArrayLength() > 0 &&
+            dataEl[0].TryGetProperty("access_token", out var nestedTokenEl))
+        {
+            return nestedTokenEl.GetString()!;
+        }
+
+        return root.GetProperty("access_token").GetString()!;
     }
 
     /// <summary>
