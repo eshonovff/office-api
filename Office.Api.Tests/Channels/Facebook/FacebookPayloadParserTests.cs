@@ -96,6 +96,30 @@ public class FacebookPayloadParserTests
         }
         """;
 
+    private const string ReelAttachmentPayload = """
+        {
+          "object": "page",
+          "entry": [
+            {
+              "id": "1234567890",
+              "messaging": [
+                {
+                  "sender": { "id": "1000000000000001" },
+                  "recipient": { "id": "1234567890" },
+                  "timestamp": 1458692752478,
+                  "message": {
+                    "mid": "mid.REEL",
+                    "attachments": [
+                      { "type": "reel", "payload": { "url": "https://scontent.xx.fbcdn.net/v/reel.mp4?expires=123", "title": "funny cat" } }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+        """;
+
     private const string DeliveryPayload = """
         {
           "object": "page",
@@ -196,6 +220,17 @@ public class FacebookPayloadParserTests
         // Такрори як webhook (redelivery) — ҳамон id, пас MessageIdempotencyPlanner дубора сабт намекунад.
         var repeated = FacebookPayloadParser.ParseMessages(Parse(PostbackPayload));
         Assert.Equal(message.MessageExternalId, Assert.Single(repeated).MessageExternalId);
+    }
+
+    [Fact]
+    public void ParseMessages_Reel_MapsToVideoWithReelMarkerAndTitle()
+    {
+        var messages = FacebookPayloadParser.ParseMessages(Parse(ReelAttachmentPayload));
+
+        var message = Assert.Single(messages);
+        Assert.Equal(MessageType.Video, message.Type);
+        Assert.Equal("[Reel] funny cat", message.Body);
+        Assert.Equal("https://scontent.xx.fbcdn.net/v/reel.mp4?expires=123", message.MediaExternalId);
     }
 
     [Fact]

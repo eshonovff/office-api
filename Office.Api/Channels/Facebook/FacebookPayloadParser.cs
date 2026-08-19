@@ -140,19 +140,34 @@ public static class FacebookPayloadParser
 
         var attachment = attachmentsEl[0];
         var attachmentType = attachment.TryGetProperty("type", out var typeEl) ? typeEl.GetString() : null;
-        var url = attachment.TryGetProperty("payload", out var payloadEl) && payloadEl.TryGetProperty("url", out var urlEl)
-            ? urlEl.GetString()
-            : null;
+        var payloadEl = attachment.TryGetProperty("payload", out var pEl) ? pEl : default;
+        var url = payloadEl.ValueKind == JsonValueKind.Object && payloadEl.TryGetProperty("url", out var urlEl) ? urlEl.GetString() : null;
 
-        var type = attachmentType switch
+        switch (attachmentType)
         {
-            "image" => MessageType.Image,
-            "video" => MessageType.Video,
-            "audio" => MessageType.Audio,
-            "file" => MessageType.File,
-            _ => MessageType.Text,
-        };
+            case "image":
+                return (MessageType.Image, text, url);
+            case "video":
+                return (MessageType.Video, text, url);
+            case "audio":
+                return (MessageType.Audio, text, url);
+            case "file":
+                return (MessageType.File, text, url);
 
-        return (type, text, url);
+            // Reel/пости мубодилашуда (на ig_reel-и Instagram — Facebook навъи худро дорад,
+            // "reel"). MessageType-и ҷудогона надорем — video бо нишонаи "[Reel]" дар матн,
+            // ҳамон алгуи Instagram (ниг. InstagramPayloadParser барои сабаб).
+            case "reel":
+            {
+                var title = payloadEl.ValueKind == JsonValueKind.Object && payloadEl.TryGetProperty("title", out var titleEl)
+                    ? titleEl.GetString()
+                    : null;
+                var reelBody = string.IsNullOrEmpty(title) ? "[Reel]" : $"[Reel] {title}";
+                return (MessageType.Video, reelBody, url);
+            }
+
+            default:
+                return (MessageType.Text, text, url);
+        }
     }
 }
