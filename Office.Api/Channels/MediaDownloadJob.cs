@@ -79,7 +79,11 @@ public class MediaDownloadJob(
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Нусхабардории media {MediaExternalId} барои паёми {MessageId} ноком шуд", mediaExternalId, message.Id);
+            // Facebook/Instagram дар mediaExternalId URL-и пурраи CDN (бо токени дастрасӣ дар
+            // query) мегузоранд, на ID-и мубҳами WhatsApp — MediaLogRedactor query-ро мебурад.
+            logger.LogError(
+                ex, "Нусхабардории media {MediaExternalId} барои паёми {MessageId} ноком шуд",
+                MediaLogRedactor.Redact(mediaExternalId), message.Id);
 
             message.MediaDownloadError = ex.Message.Length > 1000 ? ex.Message[..1000] : ex.Message;
             await db.SaveChangesAsync(ct);
