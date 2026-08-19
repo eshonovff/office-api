@@ -125,23 +125,40 @@ public static class InstagramPayloadParser
 
         var attachment = attachmentsEl[0];
         var attachmentType = attachment.TryGetProperty("type", out var typeEl) ? typeEl.GetString() : null;
-        var url = attachment.TryGetProperty("payload", out var payloadEl) && payloadEl.TryGetProperty("url", out var urlEl)
-            ? urlEl.GetString()
-            : null;
+        var payloadEl = attachment.TryGetProperty("payload", out var pEl) ? pEl : default;
+        var url = payloadEl.ValueKind == JsonValueKind.Object && payloadEl.TryGetProperty("url", out var urlEl) ? urlEl.GetString() : null;
 
-        // story_mention: корбар account-ро дар сторисаш зикр кард (на "reply" — attachment-и
-        // алоҳида, бе reply_to). MessageType-и ҷудогона надорем — StoryReply қасдан такрор
-        // истифода мешавад (на партофта мешавад), ниг. report барои сабаб.
-        var type = attachmentType switch
+        switch (attachmentType)
         {
-            "image" => MessageType.Image,
-            "video" => MessageType.Video,
-            "audio" => MessageType.Audio,
-            "file" => MessageType.File,
-            "story_mention" => MessageType.StoryReply,
-            _ => MessageType.Text,
-        };
+            case "image":
+                return (MessageType.Image, text, url);
+            case "video":
+                return (MessageType.Video, text, url);
+            case "audio":
+                return (MessageType.Audio, text, url);
+            case "file":
+                return (MessageType.File, text, url);
 
-        return (type, text, url);
+            // story_mention: корбар account-ро дар сторисаш зикр кард (на "reply" — attachment-и
+            // алоҳида, бе reply_to). MessageType-и ҷудогона надорем — StoryReply қасдан такрор
+            // истифода мешавад (на партофта мешавад), ниг. report барои сабаб.
+            case "story_mention":
+                return (MessageType.StoryReply, text, url);
+
+            // Reel/пости мубодилашуда: MessageType-и ҷудогона надорем — video бо нишонаи "[Reel]"
+            // дар матн (frontend то ҳол бе тағйир видеои муқаррариро нишон медиҳад бо ин матн
+            // дар зер — на badge-и воқеӣ, ин маҳдудияти қасдӣ аст, ниг. report).
+            case "ig_reel":
+            {
+                var title = payloadEl.ValueKind == JsonValueKind.Object && payloadEl.TryGetProperty("title", out var titleEl)
+                    ? titleEl.GetString()
+                    : null;
+                var reelBody = string.IsNullOrEmpty(title) ? "[Reel]" : $"[Reel] {title}";
+                return (MessageType.Video, reelBody, url);
+            }
+
+            default:
+                return (MessageType.Text, text, url);
+        }
     }
 }

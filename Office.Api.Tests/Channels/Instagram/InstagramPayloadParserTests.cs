@@ -117,6 +117,57 @@ public class InstagramPayloadParserTests
         }
         """;
 
+    private const string ReelAttachmentPayload = """
+        {
+          "object": "instagram",
+          "entry": [
+            {
+              "id": "17841400000000000",
+              "messaging": [
+                {
+                  "sender": { "id": "1254001234567890" },
+                  "recipient": { "id": "17841400000000000" },
+                  "timestamp": 1569262486134,
+                  "message": {
+                    "mid": "aWdfZAG1fREEL",
+                    "attachments": [
+                      {
+                        "type": "ig_reel",
+                        "payload": { "url": "https://scontent.cdninstagram.com/v/reel.mp4?expires=123", "title": "funny cat" }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+        """;
+
+    private const string ReelAttachmentNoTitlePayload = """
+        {
+          "object": "instagram",
+          "entry": [
+            {
+              "id": "17841400000000000",
+              "messaging": [
+                {
+                  "sender": { "id": "1254001234567890" },
+                  "recipient": { "id": "17841400000000000" },
+                  "timestamp": 1569262486134,
+                  "message": {
+                    "mid": "aWdfZAG1fREEL2",
+                    "attachments": [
+                      { "type": "ig_reel", "payload": { "url": "https://scontent.cdninstagram.com/v/reel2.mp4?expires=123" } }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+        """;
+
     private const string DeliveryPayload = """
         {
           "object": "instagram",
@@ -220,6 +271,27 @@ public class InstagramPayloadParserTests
         Assert.Equal(MessageType.StoryReply, message.Type);
         Assert.Null(message.Body);
         Assert.Equal("https://scontent.cdninstagram.com/v/mention.jpg?expires=789", message.MediaExternalId);
+    }
+
+    [Fact]
+    public void ParseMessages_Reel_MapsToVideoWithReelMarkerAndTitle()
+    {
+        var messages = InstagramPayloadParser.ParseMessages(Parse(ReelAttachmentPayload));
+
+        var message = Assert.Single(messages);
+        Assert.Equal(MessageType.Video, message.Type);
+        Assert.Equal("[Reel] funny cat", message.Body);
+        Assert.Equal("https://scontent.cdninstagram.com/v/reel.mp4?expires=123", message.MediaExternalId);
+    }
+
+    [Fact]
+    public void ParseMessages_ReelWithoutTitle_MapsToVideoWithBareMarker()
+    {
+        var messages = InstagramPayloadParser.ParseMessages(Parse(ReelAttachmentNoTitlePayload));
+
+        var message = Assert.Single(messages);
+        Assert.Equal(MessageType.Video, message.Type);
+        Assert.Equal("[Reel]", message.Body);
     }
 
     [Fact]
