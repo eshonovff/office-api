@@ -192,6 +192,44 @@ public class InstagramPayloadParserTests
         }
         """;
 
+    private const string ReactionPayload = """
+        {
+          "object": "instagram",
+          "entry": [
+            {
+              "id": "17841400000000000",
+              "messaging": [
+                {
+                  "sender": { "id": "1254001234567890" },
+                  "recipient": { "id": "17841400000000000" },
+                  "timestamp": 1569262486134,
+                  "reaction": { "mid": "aWdfZAG1fORIGINAL", "action": "react", "reaction": "love", "emoji": "❤" }
+                }
+              ]
+            }
+          ]
+        }
+        """;
+
+    private const string UnreactPayload = """
+        {
+          "object": "instagram",
+          "entry": [
+            {
+              "id": "17841400000000000",
+              "messaging": [
+                {
+                  "sender": { "id": "1254001234567890" },
+                  "recipient": { "id": "17841400000000000" },
+                  "timestamp": 1569262486200,
+                  "reaction": { "mid": "aWdfZAG1fORIGINAL", "action": "unreact" }
+                }
+              ]
+            }
+          ]
+        }
+        """;
+
     private const string DeliveryPayload = """
         {
           "object": "instagram",
@@ -327,6 +365,27 @@ public class InstagramPayloadParserTests
         Assert.Equal(MessageType.Text, message.Type);
         Assert.NotNull(message.Body);
         Assert.Null(message.MediaExternalId);
+    }
+
+    [Fact]
+    public void ParseMessages_Reaction_RecordsAsTextWithEmojiAndSyntheticId()
+    {
+        var messages = InstagramPayloadParser.ParseMessages(Parse(ReactionPayload));
+
+        var message = Assert.Single(messages);
+        Assert.Equal(MessageType.Text, message.Type);
+        Assert.Contains("❤", message.Body);
+        Assert.Equal("reaction:1254001234567890:1569262486134", message.MessageExternalId);
+    }
+
+    [Fact]
+    public void ParseMessages_Unreact_RecordsDistinctlyFromReact()
+    {
+        var messages = InstagramPayloadParser.ParseMessages(Parse(UnreactPayload));
+
+        var message = Assert.Single(messages);
+        Assert.Equal(MessageType.Text, message.Type);
+        Assert.DoesNotContain("❤", message.Body);
     }
 
     [Fact]

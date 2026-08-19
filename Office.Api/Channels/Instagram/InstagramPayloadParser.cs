@@ -31,34 +31,66 @@ public static class InstagramPayloadParser
 
         foreach (var messagingEvent in EnumerateMessagingEvents(payload))
         {
-            if (!messagingEvent.TryGetProperty("message", out var messageEl))
-                continue;
-
-            // Эхои паёми худи мо — набояд ҳамчун паёми воридотии мижоз сабт шавад.
-            if (messageEl.TryGetProperty("is_echo", out var echoEl) && echoEl.ValueKind == JsonValueKind.True)
-                continue;
-
             var senderId = messagingEvent.GetProperty("sender").GetProperty("id").GetString()!;
             var timestampMs = messagingEvent.GetProperty("timestamp").GetInt64();
-            var mid = messageEl.GetProperty("mid").GetString()!;
-            var (type, body, mediaUrl) = MapMessageContent(messageEl);
+            var sentAt = DateTimeOffset.FromUnixTimeMilliseconds(timestampMs);
 
-            result.Add(new ParsedWebhookMessage(
-                ConversationExternalId: senderId,
-                ContactName: null,
-                ContactAvatarUrl: null,
-                MessageExternalId: mid,
-                Direction: MessageDirection.Inbound,
-                Type: type,
-                Body: body,
-                MediaUrl: null,
-                SentAt: DateTimeOffset.FromUnixTimeMilliseconds(timestampMs),
-                // Ҳамон алгуи Facebook: URL-и CDN бо мӯҳлат, на media id — InstagramProvider.
-                // DownloadMediaAsync онро мустақим GET мекунад.
-                MediaExternalId: mediaUrl));
+            if (messagingEvent.TryGetProperty("message", out var messageEl))
+            {
+                // Эхои паёми худи мо — набояд ҳамчун паёми воридотии мижоз сабт шавад.
+                if (messageEl.TryGetProperty("is_echo", out var echoEl) && echoEl.ValueKind == JsonValueKind.True)
+                    continue;
+
+                var mid = messageEl.GetProperty("mid").GetString()!;
+                var (type, body, mediaUrl) = MapMessageContent(messageEl);
+
+                result.Add(new ParsedWebhookMessage(
+                    ConversationExternalId: senderId,
+                    ContactName: null,
+                    ContactAvatarUrl: null,
+                    MessageExternalId: mid,
+                    Direction: MessageDirection.Inbound,
+                    Type: type,
+                    Body: body,
+                    MediaUrl: null,
+                    SentAt: sentAt,
+                    // Ҳамон алгуи Facebook: URL-и CDN бо мӯҳлат, на media id — InstagramProvider.
+                    // DownloadMediaAsync онро мустақим GET мекунад.
+                    MediaExternalId: mediaUrl));
+
+                continue;
+            }
+
+            if (messagingEvent.TryGetProperty("reaction", out var reactionEl))
+                result.Add(ParseReaction(senderId, timestampMs, sentAt, reactionEl));
         }
 
         return result;
+    }
+
+    private static ParsedWebhookMessage ParseReaction(string senderId, long timestampMs, DateTimeOffset sentAt, JsonElement reactionEl)
+    {
+        // Реаксия (double-tap/emoji ба паёми қаблӣ) — на паёми нав дар маънои муқаррарӣ, вале
+        // ҳеҷ гоҳ набояд хомӯшона гум шавад. reaction.mid ба паёми РЕАКСИЯШУДА ишора мекунад
+        // (на ин рӯйдод), пас ба он алоқаманд намекунем — синтетикӣ id месозем (ниг. postback-и Facebook).
+        var action = reactionEl.TryGetProperty("action", out var actionEl) ? actionEl.GetString() : "react";
+        var emoji = reactionEl.TryGetProperty("emoji", out var emojiEl) ? emojiEl.GetString()
+            : reactionEl.TryGetProperty("reaction", out var reactionNameEl) ? reactionNameEl.GetString() : null;
+
+        var body = action == "unreact"
+            ? "[реаксия бардошта шуд]"
+            : $"[реаксия: {emoji ?? "?"}]";
+
+        return new ParsedWebhookMessage(
+            ConversationExternalId: senderId,
+            ContactName: null,
+            ContactAvatarUrl: null,
+            MessageExternalId: $"reaction:{senderId}:{timestampMs}",
+            Direction: MessageDirection.Inbound,
+            Type: MessageType.Text,
+            Body: body,
+            MediaUrl: null,
+            SentAt: sentAt);
     }
 
     /// <summary>
