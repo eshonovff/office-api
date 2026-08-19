@@ -9,9 +9,15 @@ namespace Office.Api.Channels.Instagram;
 /// "messaging":[{"sender":{"id":...},"message":{"mid":...,"text":...}}]}]}</c> — ҳамон
 /// <c>entry[].messaging[]</c>-и Facebook (на <c>entry[].changes[]</c>-и WhatsApp), чунки
 /// Instagram Messaging ба ҳамон Messenger Platform асос ёфтааст.
+///
+/// Ҳеҷ навъи паём хомӯшона партофта намешавад: attachment-и ношинос → MessageType.Text бо
+/// матни <see cref="UnsupportedTypeBodyPrefix"/> (InstagramProvider ин ҳолатро log мекунад).
 /// </summary>
 public static class InstagramPayloadParser
 {
+    /// <summary>Пешвои санадест, ки ин рекорд аз навъи "unsupported"-и ин парсер аст — InstagramProvider инро log мекунад.</summary>
+    public const string UnsupportedTypeBodyPrefix = "[навъи дастгирӣнашуда: ";
+
     public static string? ExtractChannelExternalId(JsonElement payload) =>
         payload.TryGetProperty("entry", out var entryEl) && entryEl.ValueKind == JsonValueKind.Array && entryEl.GetArrayLength() > 0 &&
         entryEl[0].TryGetProperty("id", out var idEl)
@@ -194,8 +200,10 @@ public static class InstagramPayloadParser
             case "like_heart":
                 return (MessageType.Text, "❤️ (стикер)", null);
 
+            // Ҳеҷ навъ хомӯшона партофта намешавад — InstagramProvider.ParseWebhookAsync ин
+            // ҳолатро log мекунад (UnsupportedTypeBodyPrefix-ро санҷида).
             default:
-                return (MessageType.Text, text, url);
+                return (MessageType.Text, $"{UnsupportedTypeBodyPrefix}{attachmentType ?? "(бе навъ)"}]", url);
         }
     }
 }

@@ -230,6 +230,102 @@ public class InstagramPayloadParserTests
         }
         """;
 
+    private const string VideoAttachmentPayload = """
+        {
+          "object": "instagram",
+          "entry": [
+            {
+              "id": "17841400000000000",
+              "messaging": [
+                {
+                  "sender": { "id": "1254001234567890" },
+                  "recipient": { "id": "17841400000000000" },
+                  "timestamp": 1569262486134,
+                  "message": {
+                    "mid": "aWdfZAG1fVIDEO",
+                    "attachments": [
+                      { "type": "video", "payload": { "url": "https://scontent.cdninstagram.com/v/clip.mp4?expires=123" } }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+        """;
+
+    private const string AudioAttachmentPayload = """
+        {
+          "object": "instagram",
+          "entry": [
+            {
+              "id": "17841400000000000",
+              "messaging": [
+                {
+                  "sender": { "id": "1254001234567890" },
+                  "recipient": { "id": "17841400000000000" },
+                  "timestamp": 1569262486134,
+                  "message": {
+                    "mid": "aWdfZAG1fAUDIO",
+                    "attachments": [
+                      { "type": "audio", "payload": { "url": "https://scontent.cdninstagram.com/v/voice.aac?expires=123" } }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+        """;
+
+    private const string FileAttachmentPayload = """
+        {
+          "object": "instagram",
+          "entry": [
+            {
+              "id": "17841400000000000",
+              "messaging": [
+                {
+                  "sender": { "id": "1254001234567890" },
+                  "recipient": { "id": "17841400000000000" },
+                  "timestamp": 1569262486134,
+                  "message": {
+                    "mid": "aWdfZAG1fFILE",
+                    "attachments": [
+                      { "type": "file", "payload": { "url": "https://scontent.cdninstagram.com/v/doc.pdf?expires=123" } }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+        """;
+
+    private const string UnknownAttachmentTypePayload = """
+        {
+          "object": "instagram",
+          "entry": [
+            {
+              "id": "17841400000000000",
+              "messaging": [
+                {
+                  "sender": { "id": "1254001234567890" },
+                  "recipient": { "id": "17841400000000000" },
+                  "timestamp": 1569262486134,
+                  "message": {
+                    "mid": "aWdfZAG1fWEIRD",
+                    "attachments": [
+                      { "type": "some_future_type", "payload": { "url": "https://scontent.cdninstagram.com/v/x?expires=123" } }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+        """;
+
     private const string DeliveryPayload = """
         {
           "object": "instagram",
@@ -386,6 +482,47 @@ public class InstagramPayloadParserTests
         var message = Assert.Single(messages);
         Assert.Equal(MessageType.Text, message.Type);
         Assert.DoesNotContain("❤", message.Body);
+    }
+
+    [Fact]
+    public void ParseMessages_VideoAttachment_MapsToVideo()
+    {
+        var messages = InstagramPayloadParser.ParseMessages(Parse(VideoAttachmentPayload));
+
+        var message = Assert.Single(messages);
+        Assert.Equal(MessageType.Video, message.Type);
+        Assert.Equal("https://scontent.cdninstagram.com/v/clip.mp4?expires=123", message.MediaExternalId);
+    }
+
+    [Fact]
+    public void ParseMessages_AudioAttachment_MapsToAudio()
+    {
+        var messages = InstagramPayloadParser.ParseMessages(Parse(AudioAttachmentPayload));
+
+        var message = Assert.Single(messages);
+        Assert.Equal(MessageType.Audio, message.Type);
+        Assert.Equal("https://scontent.cdninstagram.com/v/voice.aac?expires=123", message.MediaExternalId);
+    }
+
+    [Fact]
+    public void ParseMessages_FileAttachment_MapsToFile()
+    {
+        var messages = InstagramPayloadParser.ParseMessages(Parse(FileAttachmentPayload));
+
+        var message = Assert.Single(messages);
+        Assert.Equal(MessageType.File, message.Type);
+        Assert.Equal("https://scontent.cdninstagram.com/v/doc.pdf?expires=123", message.MediaExternalId);
+    }
+
+    [Fact]
+    public void ParseMessages_UnknownAttachmentType_RecordsMarkerInsteadOfDroppingSilently()
+    {
+        var messages = InstagramPayloadParser.ParseMessages(Parse(UnknownAttachmentTypePayload));
+
+        var message = Assert.Single(messages);
+        Assert.Equal(MessageType.Text, message.Type);
+        Assert.StartsWith(InstagramPayloadParser.UnsupportedTypeBodyPrefix, message.Body);
+        Assert.Contains("some_future_type", message.Body);
     }
 
     [Fact]

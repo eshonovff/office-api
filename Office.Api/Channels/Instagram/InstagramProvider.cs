@@ -38,8 +38,21 @@ public class InstagramProvider(
 
     public string? ExtractChannelExternalId(JsonElement payload) => InstagramPayloadParser.ExtractChannelExternalId(payload);
 
-    public Task<IReadOnlyList<ParsedWebhookMessage>> ParseWebhookAsync(Channel channel, JsonElement payload, CancellationToken ct) =>
-        Task.FromResult(InstagramPayloadParser.ParseMessages(payload));
+    public Task<IReadOnlyList<ParsedWebhookMessage>> ParseWebhookAsync(Channel channel, JsonElement payload, CancellationToken ct)
+    {
+        var messages = InstagramPayloadParser.ParseMessages(payload);
+
+        // Парсер pure аст (бе logger) — ин ҷо, дар қабати провайдер, натиҷаро месанҷем: агар
+        // навъе дастгирӣ нашуда бошад, паём боз ҳам сабт мешавад (хомӯшона гум намешавад),
+        // вале ҳамзамон ин ҷо ҳам log мешавад — то бидонем, кадом навъи нав аз Meta омад.
+        foreach (var message in messages)
+        {
+            if (message.Body?.StartsWith(InstagramPayloadParser.UnsupportedTypeBodyPrefix, StringComparison.Ordinal) == true)
+                logger.LogWarning("Instagram: паёми навъи дастгирӣнашуда сабт шуд: {Body}", message.Body);
+        }
+
+        return Task.FromResult(messages);
+    }
 
     public Task<IReadOnlyList<ParsedStatusUpdate>> ParseStatusUpdatesAsync(Channel channel, JsonElement payload, CancellationToken ct) =>
         Task.FromResult(InstagramPayloadParser.ParseStatusUpdates(payload));
