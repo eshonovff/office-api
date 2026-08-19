@@ -168,6 +168,30 @@ public class InstagramPayloadParserTests
         }
         """;
 
+    private const string LikeHeartPayload = """
+        {
+          "object": "instagram",
+          "entry": [
+            {
+              "id": "17841400000000000",
+              "messaging": [
+                {
+                  "sender": { "id": "1254001234567890" },
+                  "recipient": { "id": "17841400000000000" },
+                  "timestamp": 1569262486134,
+                  "message": {
+                    "mid": "aWdfZAG1fHEART",
+                    "attachments": [
+                      { "type": "like_heart", "payload": {} }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+        """;
+
     private const string DeliveryPayload = """
         {
           "object": "instagram",
@@ -292,6 +316,17 @@ public class InstagramPayloadParserTests
         var message = Assert.Single(messages);
         Assert.Equal(MessageType.Video, message.Type);
         Assert.Equal("[Reel]", message.Body);
+    }
+
+    [Fact]
+    public void ParseMessages_LikeHeart_MapsToTextWithStickerMarker()
+    {
+        var messages = InstagramPayloadParser.ParseMessages(Parse(LikeHeartPayload));
+
+        var message = Assert.Single(messages);
+        Assert.Equal(MessageType.Text, message.Type);
+        Assert.NotNull(message.Body);
+        Assert.Null(message.MediaExternalId);
     }
 
     [Fact]

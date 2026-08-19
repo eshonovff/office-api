@@ -157,6 +157,11 @@ public static class InstagramPayloadParser
                 return (MessageType.Video, reelBody, url);
             }
 
+            // Стикери дил (double-tap/heart sticker) — расм/видео надорад, барои сабти "навъи
+            // маълум" (на паёми холӣ) матни собит истифода мешавад.
+            case "like_heart":
+                return (MessageType.Text, "❤️ (стикер)", null);
+
             default:
                 return (MessageType.Text, text, url);
         }
