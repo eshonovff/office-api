@@ -50,11 +50,13 @@ public class InstagramOAuthConnector(HttpClient httpClient, IConfiguration confi
         var tokenResponse = await httpClient.SendAsync(tokenRequest, ct);
         await EnsureSuccessAsync(tokenRequest, tokenResponse, "Instagram oauth/access_token (step 1: code → short-lived)", ct);
         using var tokenDoc = JsonDocument.Parse(await tokenResponse.Content.ReadAsStreamAsync(ct));
-        var shortLivedToken = ExtractShortLivedToken(tokenDoc.RootElement);
+        var (shortLivedToken, userIdFromStep1) = ExtractTokenAndUserId(tokenDoc.RootElement);
 
         // Токен воқеӣ будани он аллакай тасдиқ шуд (дарозӣ=211, як бор бо curl санҷида шуд) —
-        // арзиши пурра дигар ба лог намеравад.
-        logger.LogInformation("Instagram step 1: shortLivedToken дарозӣ={Length}", shortLivedToken.Length);
+        // арзиши пурра дигар ба лог намеравад. userId ин ҷо log мешавад, то бо id-и /me
+        // (қадами 3, поён) муқоиса карда шавад — бо webhook кадомаш мувофиқ меояд.
+        logger.LogInformation(
+            "Instagram step 1: shortLivedToken дарозӣ={Length}, user_id={UserId}", shortLivedToken.Length, userIdFromStep1);
 
         // ҚАДАМИ 2: short-lived → long-lived. URL-и ҷудогона, host-и ҷудогона (graph.instagram.com,
         // на api.instagram.com), параметрҳо дар QUERY STRING — ин ва ФАҚАТ ин дархост
@@ -78,8 +80,20 @@ public class InstagramOAuthConnector(HttpClient httpClient, IConfiguration confi
         var meResponse = await httpClient.SendAsync(meRequest, ct);
         await EnsureSuccessAsync(meRequest, meResponse, "Instagram /me (step 3: маълумоти account)", ct);
         using var meDoc = JsonDocument.Parse(await meResponse.Content.ReadAsStreamAsync(ct));
-        var accountId = meDoc.RootElement.GetProperty("id").GetString()!;
+        var meId = meDoc.RootElement.GetProperty("id").GetString()!;
         var username = meDoc.RootElement.GetProperty("username").GetString()!;
+
+        // БОГ (2026-08-19): /me-и қадами 3 id-и app-scoped бармегардонад (масалан 28625914253673240) —
+        // на ID-е, ки webhook чун entry[].id мефиристад (17841438754823969, Instagram Business
+        // Account ID). Санҷиши зинда инро тасдиқ кард: канали бо id-и /me сохташуда ҳеҷ webhook
+        // намеёфт ("Канал ёфт нашуд"). Ҳуҷҷати расмии Meta барои step 1 (Business Login) майдони
+        // user_id-ро дар паҳлӯи access_token медиҳад — маҳз барои ҳамин мақсад номгузорӣ шудааст.
+        // Онро истифода мебарем; агар набошад (шакли flat-и кӯҳна), ба id-и /me бармегардем —
+        // беҳтар аз партофтани канал, вале log возеҳ мегӯяд кадомаш истифода шуд.
+        var accountId = userIdFromStep1 ?? meId;
+        logger.LogInformation(
+            "Instagram step 3: /me id={MeId}, ExternalId-и интихобшуда={ChosenId} (сарчашма={Source})",
+            meId, accountId, userIdFromStep1 is not null ? "step1.user_id" : "step3./me.id (захира)");
 
         // Instagram Login (бар хилофи Facebook Pages) як account-и бизнеси якрангаро иҷозат
         // медиҳад — на рӯйхати чандто барои интихоб. Барои шакли якхела бо Facebook (то /connect
@@ -90,19 +104,22 @@ public class InstagramOAuthConnector(HttpClient httpClient, IConfiguration confi
 
     /// <summary>
     /// Response-и step 1 ду шакл дошта метавонад: ҳуҷҷати ҳозираи Meta (Business Login)
-    /// <c>{"data":[{"access_token":...}]}</c> тасвир мекунад, вале баъзе интеграцияҳо (ва
-    /// эҳтимол endpoint-и худи Meta низ ҳанӯз) шакли кӯҳнаи flat <c>{"access_token":...}</c>-ро
-    /// мегардонанд. Ҳарду кӯшиш мешаванд, то фарзи хато дар шакл боиси токени вайрон нашавад.
+    /// <c>{"data":[{"access_token":...,"user_id":...}]}</c> тасвир мекунад, вале баъзе
+    /// интеграцияҳо (ва эҳтимол endpoint-и худи Meta низ ҳанӯз) шакли кӯҳнаи flat
+    /// <c>{"access_token":...,"user_id":...}</c>-ро мегардонанд. Ҳарду кӯшиш мешаванд.
     /// </summary>
-    private static string ExtractShortLivedToken(JsonElement root)
+    private static (string Token, string? UserId) ExtractTokenAndUserId(JsonElement root)
     {
         if (root.TryGetProperty("data", out var dataEl) && dataEl.ValueKind == JsonValueKind.Array && dataEl.GetArrayLength() > 0 &&
             dataEl[0].TryGetProperty("access_token", out var nestedTokenEl))
         {
-            return nestedTokenEl.GetString()!;
+            var nestedUserId = dataEl[0].TryGetProperty("user_id", out var nestedUserIdEl) ? nestedUserIdEl.GetString() : null;
+            return (nestedTokenEl.GetString()!, nestedUserId);
         }
 
-        return root.GetProperty("access_token").GetString()!;
+        var token = root.GetProperty("access_token").GetString()!;
+        var userId = root.TryGetProperty("user_id", out var userIdEl) ? userIdEl.GetString() : null;
+        return (token, userId);
     }
 
     /// <summary>
