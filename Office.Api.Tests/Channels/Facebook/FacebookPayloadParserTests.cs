@@ -120,6 +120,30 @@ public class FacebookPayloadParserTests
         }
         """;
 
+    private const string LikeHeartPayload = """
+        {
+          "object": "page",
+          "entry": [
+            {
+              "id": "1234567890",
+              "messaging": [
+                {
+                  "sender": { "id": "1000000000000001" },
+                  "recipient": { "id": "1234567890" },
+                  "timestamp": 1458692752478,
+                  "message": {
+                    "mid": "mid.HEART",
+                    "attachments": [
+                      { "type": "like_heart", "payload": {} }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+        """;
+
     private const string DeliveryPayload = """
         {
           "object": "page",
@@ -231,6 +255,17 @@ public class FacebookPayloadParserTests
         Assert.Equal(MessageType.Video, message.Type);
         Assert.Equal("[Reel] funny cat", message.Body);
         Assert.Equal("https://scontent.xx.fbcdn.net/v/reel.mp4?expires=123", message.MediaExternalId);
+    }
+
+    [Fact]
+    public void ParseMessages_LikeHeart_MapsToTextWithStickerMarker()
+    {
+        var messages = FacebookPayloadParser.ParseMessages(Parse(LikeHeartPayload));
+
+        var message = Assert.Single(messages);
+        Assert.Equal(MessageType.Text, message.Type);
+        Assert.NotNull(message.Body);
+        Assert.Null(message.MediaExternalId);
     }
 
     [Fact]

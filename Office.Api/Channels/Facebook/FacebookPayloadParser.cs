@@ -166,6 +166,10 @@ public static class FacebookPayloadParser
                 return (MessageType.Video, reelBody, url);
             }
 
+            // Стикери дил (double-tap/heart sticker) — расм/видео надорад, ҳамон алгуи Instagram.
+            case "like_heart":
+                return (MessageType.Text, "❤️ (стикер)", null);
+
             default:
                 return (MessageType.Text, text, url);
         }
