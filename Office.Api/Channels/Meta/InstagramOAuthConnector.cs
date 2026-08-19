@@ -56,8 +56,10 @@ public class InstagramOAuthConnector(HttpClient httpClient, IConfiguration confi
         // на api.instagram.com), параметрҳо дар QUERY STRING — ин ва ФАҚАТ ин дархост
         // "Instagram ig_exchange_token" ном дорад. Ду қадам ҳеҷ гоҳ як HttpRequestMessage-ро
         // мубодила намекунанд — ҳар кадом объекти худро дорад, то лог ҳеҷ гоҳ омехта нашавад.
+        // GET (на POST) — санҷиши зинда бо URL-и пурраи log-шуда тасдиқ кард: ин endpoint
+        // танҳо GET қабул мекунад (POST-и қаблӣ ҳамин ҷо, бо ҳамин URL, 400 дод).
         using var exchangeRequest = new HttpRequestMessage(
-            HttpMethod.Post,
+            HttpMethod.Get,
             "https://graph.instagram.com/access_token?grant_type=ig_exchange_token" +
             $"&client_secret={Uri.EscapeDataString(appSecret)}&access_token={Uri.EscapeDataString(shortLivedToken)}");
         var exchangeResponse = await httpClient.SendAsync(exchangeRequest, ct);
