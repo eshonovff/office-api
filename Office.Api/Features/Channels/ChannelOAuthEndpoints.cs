@@ -35,12 +35,16 @@ public static class ChannelOAuthEndpoints
 
         // Meta browser-ро мустақим ба ин ҷо redirect мекунад — бе Authorization header.
         // Ҳимоя аз state-и имзошуда меояд, на аз bearer-и муқаррарӣ.
+        //
+        // Ҳамеша 200 + text/html бармегардонад (муваффақ ё не — фарқе намекунад): SPA-и
+        // popup-кушода ин саҳифаро на бо fetch, балки бо худи browser-и popup мекушояд, ва
+        // натиҷа тавассути window.postMessage меояд, на HTTP status — ниг. OAuthPostMessagePage.
         group.MapGet("/{provider}/callback", CallbackAsync)
             .AllowAnonymous()
-            .WithSummary("Callback-и Meta: state-ро месанҷад, code-ро ба token табдил медиҳад, рӯйхати account бармегардонад")
-            .Produces<OAuthCallbackResponse>(StatusCodes.Status200OK)
-            .ProducesProblem(StatusCodes.Status400BadRequest)
-            .ProducesProblem(StatusCodes.Status502BadGateway);
+            .WithSummary(
+                "Callback-и Meta: state-ро месанҷад, code-ро ба token табдил медиҳад, натиҷаро (рӯйхати account ё хато) " +
+                "тавассути window.postMessage ба SPA-и popup-кушода мефиристад — ниг. OAuthPostMessagePage")
+            .Produces<string>(StatusCodes.Status200OK, "text/html");
 
         group.MapPost("/{provider}/connect", ConnectAsync)
             .WithValidation<ConnectChannelRequest>()
@@ -88,31 +92,26 @@ public static class ChannelOAuthEndpoints
         CancellationToken ct)
     {
         if (!TryParseOAuthProvider(provider, out var type))
-            return ProviderNotSupportedProblem(provider);
+            return PostMessageProblem(ProviderNotSupportedMessage(provider));
 
         if (!string.IsNullOrEmpty(error))
-        {
-            return Results.Problem(
-                title: "Корбар авторизатсияро рад кард",
-                detail: errorDescription ?? error,
-                statusCode: StatusCodes.Status400BadRequest);
-        }
+            return PostMessageProblem(("Корбар авторизатсияро рад кард", errorDescription ?? error));
 
         if (string.IsNullOrEmpty(code) || string.IsNullOrEmpty(state))
-            return InvalidStateProblem();
+            return PostMessageProblem(InvalidStateMessage);
 
         var signingKey = GetStateSigningKey(configuration);
         var now = DateTimeOffset.UtcNow;
 
         if (!OAuthStateCodec.TryDecode(state, signingKey, now, out var statePayload) || statePayload is null)
-            return InvalidStateProblem();
+            return PostMessageProblem(InvalidStateMessage);
 
         if (!string.Equals(statePayload.Provider, provider, StringComparison.OrdinalIgnoreCase))
-            return InvalidStateProblem();
+            return PostMessageProblem(InvalidStateMessage);
 
         var stateExpiresAt = DateTimeOffset.FromUnixTimeSeconds(statePayload.ExpiresAtUnix);
         if (!nonceTracker.TryConsume(statePayload.Nonce, stateExpiresAt, now))
-            return InvalidStateProblem();
+            return PostMessageProblem(InvalidStateMessage);
 
         var connector = connectorFactory.GetConnector(type);
         var redirectUri = BuildRedirectUri(configuration, provider);
@@ -124,24 +123,16 @@ public static class ChannelOAuthEndpoints
         }
         catch (InvalidOperationException)
         {
-            return Results.Problem(
-                title: "Хатогии Meta",
-                detail: "Табдили code ба token муваффақ нашуд. Дубора аз аввал кӯшиш кунед.",
-                statusCode: StatusCodes.Status502BadGateway);
+            return PostMessageProblem(("Хатогии Meta", "Табдили code ба token муваффақ нашуд. Дубора аз аввал кӯшиш кунед."));
         }
 
         if (accounts.Count == 0)
-        {
-            return Results.Problem(
-                title: "Account ёфт нашуд",
-                detail: "Ба ин корбар ҳеҷ Page/account-и қобили пайваст тобеъ нест.",
-                statusCode: StatusCodes.Status400BadRequest);
-        }
+            return PostMessageProblem(("Account ёфт нашуд", "Ба ин корбар ҳеҷ Page/account-и қобили пайваст тобеъ нест."));
 
         var connectionId = connectionStore.Create(new OAuthConnectionSession(type, statePayload.UserId, stateExpiresAt, accounts));
         var options = accounts.Select(a => new OAuthAccountOption(a.ExternalId, a.Name)).ToList();
 
-        return Results.Ok(new OAuthCallbackResponse(connectionId, options));
+        return PostMessageResult(new OAuthCallbackResponse(connectionId, options));
     }
 
     private static async Task<IResult> ConnectAsync(
@@ -223,10 +214,10 @@ public static class ChannelOAuthEndpoints
         detail: "connectionId кӯҳна шудааст, ба шумо тааллуқ надорад ё account-и хостаро надорад — аз OAuth аз нав сар кунед.",
         statusCode: StatusCodes.Status400BadRequest);
 
-    private static IResult InvalidStateProblem() => Results.Problem(
-        title: "State-и нодуруст",
-        detail: "State эътибор надорад, кӯҳна шудааст ё аллакай истифода шудааст. Аз аввал сар кунед.",
-        statusCode: StatusCodes.Status400BadRequest);
+    // Used only by CallbackAsync, which is always a postMessage page (see PostMessageProblem
+    // above it) — /start and /connect return normal JSON via their own *Problem() helpers below.
+    private static readonly (string Title, string Detail) InvalidStateMessage =
+        ("State-и нодуруст", "State эътибор надорад, кӯҳна шудааст ё аллакай истифода шудааст. Аз аввал сар кунед.");
 
     private static bool TryParseOAuthProvider(string provider, out ChannelType type)
     {
@@ -237,11 +228,28 @@ public static class ChannelOAuthEndpoints
         return false;
     }
 
-    private static IResult ProviderNotSupportedProblem(string provider) => Results.Problem(
-        title: "Провайдери нодуруст",
-        detail: $"'{provider}' барои OAuth дастгирӣ намешавад. Танҳо facebook ва instagram имконпазир аст " +
-                "(WhatsApp тавассути credentials дастӣ пайваст мешавад).",
-        statusCode: StatusCodes.Status400BadRequest);
+    // Shared text — StartAsync/ConnectAsync return it as normal JSON (ProviderNotSupportedProblem),
+    // CallbackAsync as a postMessage page (PostMessageProblem(ProviderNotSupportedMessage(provider))).
+    private static (string Title, string Detail) ProviderNotSupportedMessage(string provider) => (
+        "Провайдери нодуруст",
+        $"'{provider}' барои OAuth дастгирӣ намешавад. Танҳо facebook ва instagram имконпазир аст " +
+        "(WhatsApp тавассути credentials дастӣ пайваст мешавад).");
+
+    private static IResult ProviderNotSupportedProblem(string provider)
+    {
+        var (title, detail) = ProviderNotSupportedMessage(provider);
+        return Results.Problem(title: title, detail: detail, statusCode: StatusCodes.Status400BadRequest);
+    }
+
+    /// <summary>
+    /// CallbackAsync's success response — see OAuthPostMessagePage for why (this is a
+    /// popup-opened page, not something the SPA calls via fetch).
+    /// </summary>
+    private static IResult PostMessageResult(object payload) =>
+        Results.Content(OAuthPostMessagePage.Build(payload), "text/html");
+
+    private static IResult PostMessageProblem((string Title, string Detail) message) =>
+        PostMessageResult(new { title = message.Title, detail = message.Detail });
 
     private static string BuildRedirectUri(IConfiguration configuration, string provider) =>
         $"{MetaOAuthConfig.GetRedirectBaseUrl(configuration)}/api/channels/oauth/{provider}/callback";
