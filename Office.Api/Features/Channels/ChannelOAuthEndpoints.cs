@@ -89,6 +89,7 @@ public static class ChannelOAuthEndpoints
         IChannelOAuthConnectorFactory connectorFactory,
         IOAuthNonceTracker nonceTracker,
         IOAuthConnectionStore connectionStore,
+        ILogger<Program> logger,
         CancellationToken ct)
     {
         if (!TryParseOAuthProvider(provider, out var type))
@@ -121,9 +122,20 @@ public static class ChannelOAuthEndpoints
         {
             accounts = await connector.ExchangeCodeAsync(code, redirectUri, ct);
         }
-        catch (InvalidOperationException)
+        catch (MetaOAuthException ex)
         {
-            return PostMessageProblem(("Хатогии Meta", "Табдили code ба token муваффақ нашуд. Дубора аз аввал кӯшиш кунед."));
+            // ex.ResponseBody аллакай дар EnsureSuccessAsync log шудааст — ин ҷо бо {Provider}
+            // такрор log мекунем (алоқаи муфид агар дар байни якчанд log жараён гум шавад) ва,
+            // муҳимтараш, матни воқеии Meta-ро (на "муваффақ нашуд"-и умумӣ) ба popup мефиристем.
+            logger.LogError(ex, "OAuth callback: табдили code ба token барои {Provider} ноком шуд", provider);
+            return PostMessageProblem(("Хатогии Meta", TruncateForClient(ex.ResponseBody)));
+        }
+        catch (Exception ex)
+        {
+            // Ҳимояи охирин: ҳар хатои ғайричашмдошт (масалан шакли response-и Meta тағйир ёфта
+            // бошад) — ошкоро log ва ба popup мефиристад, на 500-и хомӯш бе тафсил.
+            logger.LogError(ex, "OAuth callback: хатои ғайричашмдошт барои {Provider}", provider);
+            return PostMessageProblem(("Хатогии ғайричашмдошт", TruncateForClient(ex.Message)));
         }
 
         if (accounts.Count == 0)
@@ -208,6 +220,14 @@ public static class ChannelOAuthEndpoints
             ? Results.Created($"/api/channels/{channel.Id}", ChannelsEndpoints.ToDetail(channel))
             : Results.Ok(ChannelsEndpoints.ToDetail(channel));
     }
+
+    // Матни хатогии Meta метавонад дароз бошад — token/secret дар он ҳеҷ гоҳ нест (MetaOAuthException
+    // танҳо response body-и хатогиро мебардорад, на дархости бо token/secret), пас нишон додани он
+    // ба корбар бехатар аст; кӯтоҳ мекунем танҳо барои андозаи UI.
+    private const int MaxClientErrorLength = 500;
+
+    private static string TruncateForClient(string text) =>
+        text.Length <= MaxClientErrorLength ? text : text[..MaxClientErrorLength] + "…";
 
     private static IResult ConnectionExpiredProblem() => Results.Problem(
         title: "Connection эътибор надорад",

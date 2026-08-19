@@ -95,6 +95,6 @@ public class FacebookOAuthConnector(HttpClient httpClient, IConfiguration config
         // худи URL-и дархост, ки token дорад, тавассути RemoveAllLoggers() аз log хориҷ шудааст).
         var body = await response.Content.ReadAsStringAsync(ct);
         logger.LogError("{Context} хатогӣ: {StatusCode} {Body}", context, (int)response.StatusCode, body);
-        throw new InvalidOperationException($"{context} хатогӣ: {(int)response.StatusCode}");
+        throw new MetaOAuthException(context, (int)response.StatusCode, body);
     }
 }
