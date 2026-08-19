@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Office.Api.Channels.Instagram;
+using Office.Api.Data.Entities;
 
 namespace Office.Api.Channels.Meta;
 
@@ -19,7 +20,7 @@ public class InstagramOAuthConnector(HttpClient httpClient, IConfiguration confi
 
     public string BuildAuthorizationUrl(string redirectUri, string state)
     {
-        var appId = MetaOAuthConfig.GetAppId(configuration);
+        var appId = MetaOAuthConfig.GetAppId(configuration, ChannelType.Instagram);
         return "https://www.instagram.com/oauth/authorize" +
                $"?client_id={Uri.EscapeDataString(appId)}" +
                $"&redirect_uri={Uri.EscapeDataString(redirectUri)}" +
@@ -30,8 +31,8 @@ public class InstagramOAuthConnector(HttpClient httpClient, IConfiguration confi
 
     public async Task<IReadOnlyList<ConnectableAccount>> ExchangeCodeAsync(string code, string redirectUri, CancellationToken ct)
     {
-        var appId = MetaOAuthConfig.GetAppId(configuration);
-        var appSecret = MetaOAuthConfig.GetAppSecret(configuration);
+        var appId = MetaOAuthConfig.GetAppId(configuration, ChannelType.Instagram);
+        var appSecret = MetaOAuthConfig.GetAppSecret(configuration, ChannelType.Instagram);
 
         using var tokenRequest = new HttpRequestMessage(HttpMethod.Post, "https://api.instagram.com/oauth/access_token")
         {

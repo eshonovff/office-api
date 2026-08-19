@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Office.Api.Channels.Facebook;
+using Office.Api.Data.Entities;
 
 namespace Office.Api.Channels.Meta;
 
@@ -15,7 +16,7 @@ public class FacebookOAuthConnector(HttpClient httpClient, IConfiguration config
 
     public string BuildAuthorizationUrl(string redirectUri, string state)
     {
-        var appId = MetaOAuthConfig.GetAppId(configuration);
+        var appId = MetaOAuthConfig.GetAppId(configuration, ChannelType.Facebook);
         return $"https://www.facebook.com/{GraphApiVersion}/dialog/oauth" +
                $"?client_id={Uri.EscapeDataString(appId)}" +
                $"&redirect_uri={Uri.EscapeDataString(redirectUri)}" +
@@ -26,8 +27,8 @@ public class FacebookOAuthConnector(HttpClient httpClient, IConfiguration config
 
     public async Task<IReadOnlyList<ConnectableAccount>> ExchangeCodeAsync(string code, string redirectUri, CancellationToken ct)
     {
-        var appId = MetaOAuthConfig.GetAppId(configuration);
-        var appSecret = MetaOAuthConfig.GetAppSecret(configuration);
+        var appId = MetaOAuthConfig.GetAppId(configuration, ChannelType.Facebook);
+        var appSecret = MetaOAuthConfig.GetAppSecret(configuration, ChannelType.Facebook);
 
         var shortLivedToken = await GetTokenFieldAsync(
             $"{GraphApiBaseUrl}/{GraphApiVersion}/oauth/access_token" +
