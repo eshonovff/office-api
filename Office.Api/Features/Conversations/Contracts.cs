@@ -1,4 +1,5 @@
 using Office.Api.Data.Entities;
+using Office.Api.Media;
 
 namespace Office.Api.Features.Conversations;
 
@@ -32,7 +33,10 @@ public record ConversationDetail(
     DateTimeOffset? LastMessageAt,
     int UnreadCount,
     DateTimeOffset? WindowExpiresAt,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt,
+    // Composer-и frontend бо ҳамин рақамҳо пеш аз боркунӣ санҷад — як ҷои ягона барои
+    // ҳудуди андозаи файл, на нусхаи дуюми дар frontend такрор навишташуда. Ниг. MediaUploadValidator.
+    IReadOnlyList<MediaTypeLimit> MediaLimits);
 
 public record MessageDto(
     Guid Id,

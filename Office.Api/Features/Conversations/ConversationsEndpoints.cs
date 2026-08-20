@@ -482,10 +482,10 @@ public static class ConversationsEndpoints
             return Results.BadRequest();
 
         var mimeType = string.IsNullOrEmpty(file.ContentType) ? "application/octet-stream" : file.ContentType;
-        var (messageType, maxSizeBytes) = MediaUploadValidator.Classify(mimeType);
+        var (messageType, maxSizeBytes) = MediaUploadValidator.Classify(conversation.Channel.Type, mimeType);
 
-        if (!MediaUploadValidator.IsWithinLimit(mimeType, file.Length))
-            return SizeLimitProblem(maxSizeBytes);
+        if (!MediaUploadValidator.IsWithinLimit(conversation.Channel.Type, mimeType, file.Length))
+            return SizeLimitProblem(conversation.Channel.Type, maxSizeBytes);
 
         return await SaveAndEnqueueAsync(
             conversation, file, messageType, mimeType, isVoiceNote: false, forcedExtension: null,
@@ -518,8 +518,8 @@ public static class ConversationsEndpoints
             return Results.BadRequest();
 
         // Ҳамеша аудио — MediaRecorder-и браузер webm/opus мефиристад, дар MediaSendJob ба ogg/opus transcode мешавад.
-        if (!MediaUploadValidator.IsWithinLimit("audio/webm", file.Length))
-            return SizeLimitProblem(MediaUploadValidator.AudioVideoMaxBytes);
+        if (!MediaUploadValidator.IsWithinLimit(conversation.Channel.Type, "audio/webm", file.Length))
+            return SizeLimitProblem(conversation.Channel.Type, MediaUploadValidator.Classify(conversation.Channel.Type, "audio/webm").MaxSizeBytes);
 
         var mimeType = string.IsNullOrEmpty(file.ContentType) ? "audio/webm" : file.ContentType;
 
@@ -528,9 +528,9 @@ public static class ConversationsEndpoints
             principal, db, backgroundJobs, configuration, env, events, ct);
     }
 
-    private static IResult SizeLimitProblem(long maxSizeBytes) => Results.Problem(
+    private static IResult SizeLimitProblem(ChannelType channelType, long maxSizeBytes) => Results.Problem(
         title: "Файл калон аст",
-        detail: $"Барои ин навъи файл ҳаҷми ҳадди аксар {maxSizeBytes / (1024 * 1024)} МБ аст.",
+        detail: $"Барои {channelType} ҳадди аксар {maxSizeBytes / (1024 * 1024)} МБ аст.",
         statusCode: StatusCodes.Status400BadRequest);
 
     private static IResult ReadOnlyProblem() => Results.Problem(
@@ -784,7 +784,8 @@ public static class ConversationsEndpoints
     internal static ConversationDetail ToDetail(Conversation c) => new(
         c.Id, c.ChannelId, c.Channel.Type.ToString(), c.Channel.Name, c.ExternalId,
         c.ContactName, c.ContactAvatarUrl, c.Status.ToString(), c.AssignedTo, c.Assignee?.FullName,
-        c.LastMessageAt, c.UnreadCount, c.WindowExpiresAt, c.CreatedAt);
+        c.LastMessageAt, c.UnreadCount, c.WindowExpiresAt, c.CreatedAt,
+        MediaUploadValidator.LimitsFor(c.Channel.Type));
 
     /// <summary>
     /// Не save мекунад — дар SaveChangesAsync-и навбатии caller якҷоя мешавад. Номҳо
