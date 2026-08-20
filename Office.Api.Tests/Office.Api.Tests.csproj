@@ -10,6 +10,10 @@
   <ItemGroup>
     <PackageReference Include="coverlet.collector" Version="6.0.4" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.10" />
+    <!-- Test-only: real AppDbContext + EF LINQ queries for WebhookProcessor's integration test —
+         every existing test in this project is a pure unit test against extracted logic; this is
+         the first one that needs an actual (in-memory) database instead of faking the DB away. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.10" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.10" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageReference Include="xunit" Version="2.9.3" />
