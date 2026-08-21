@@ -96,12 +96,25 @@ builder.Services.AddHangfire(config => config
 builder.Services.AddHangfireServer();
 
 // Коркарди медиа (transcode/thumbnail — CPU вазнин) дар навбати ҷудогонаи
-// маҳдуд, то якчанд боркунии ҳамзамон CPU-и серверро банд накунад.
+// маҳдуд, то якчанд боркунии ҳамзамон CPU-и серверро банд накунад. Танҳо
+// MediaDownloadJob/MediaSendJob — job-ҳое ки мижози зинда мунтазир аст (URL-и
+// CDN-и Facebook/Instagram зуд мӯҳлаташ мегузарад, ниг. MediaContentTypeValidator).
 builder.Services.AddHangfireServer(options =>
 {
     options.ServerName = "media-worker";
     options.Queues = ["media"];
     options.WorkerCount = 2;
+});
+
+// Job-ҳои backfill/тозакунӣ (WaveformBackfillJob, HtmlMediaCleanupJob) — на мижози зинда
+// мунтазир аст, метавонанд дақиқаҳо тӯл кашанд (сад-ҳо файл). Навбати ҷудогона: агар онҳо
+// дар "media" мебуданд, метавонистанд боркунии медиаи ТОЗАро ба таъхир андозанд, то URL-и
+// CDN мӯҳлаташ гузарад — маҳз ҳамин 2026-08-21 рӯй дод.
+builder.Services.AddHangfireServer(options =>
+{
+    options.ServerName = "media-maintenance-worker";
+    options.Queues = ["media-maintenance"];
+    options.WorkerCount = 1;
 });
 
 var corsAllowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>();

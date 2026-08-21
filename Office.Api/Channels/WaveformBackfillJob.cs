@@ -13,9 +13,10 @@ namespace Office.Api.Channels;
 /// тамом" — ҳар рӯз танҳо он чи ҳанӯз WaveformPeaks надорад ва файлаш дар диск
 /// ҳаст (MediaDeletedAt=null) коркард мекунад; агар ҳама аллакай сохта шуда
 /// бошанд, дархости холӣ бармегардонад (арзон, бехатар барои иҷрои такрорӣ).
-/// Дар навбати "media"-и Hangfire — ҳамон декодкунии ffmpeg-и вазнин.
+/// Дар навбати "media-maintenance"-и Hangfire (на "media") — на мижози зинда мунтазир аст,
+/// пас набояд боркунии медиаи тозаро дар навбати маҳдуди 2-worker-и "media" ба таъхир андозад.
 /// </summary>
-[Queue("media")]
+[Queue("media-maintenance")]
 public class WaveformBackfillJob(
     AppDbContext db,
     IMediaProcessor mediaProcessor,

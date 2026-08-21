@@ -12,9 +12,11 @@ namespace Office.Api.Channels;
 /// (URL-и мӯҳлаташгузашта — на 401/404, балки 200+HTML). Зеркашии дубора фоида надорад: URL-ҳо
 /// аллакай мӯҳлаташон гузаштааст — файлҳо абадан гум шудаанд. Recurring, вале пас аз тозакунии
 /// якум ҳамеша холӣ бармегардонад (арзон барои иҷрои такрорӣ, ниг. WaveformBackfillJob барои
-/// ҳамин алгу). Дар навбати "media" (файли диск мехонад).
+/// ҳамин алгу). Дар навбати "media-maintenance" (на "media"!) — 2026-08-21 маҳз ҳамин боиси
+/// боги дигар шуд: дар "media" (2 worker) буда, боркунии медиаи ТОЗАро (URL-и CDN зуд мӯҳлаташ
+/// мегузарад) ба таъхир андохт, то он мӯҳлаташ гузашт ва боз ҳамон "text/html" гирифт.
 /// </summary>
-[Queue("media")]
+[Queue("media-maintenance")]
 public class HtmlMediaCleanupJob(
     AppDbContext db,
     IConfiguration configuration,
