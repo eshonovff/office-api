@@ -212,6 +212,7 @@ builder.Services.AddScoped<MediaSendJob>();
 builder.Services.AddScoped<MediaRetentionCleanupJob>();
 builder.Services.AddScoped<WaveformBackfillJob>();
 builder.Services.AddScoped<ConversationAutoReleaseJob>();
+builder.Services.AddScoped<HtmlMediaCleanupJob>();
 
 builder.Services.AddHttpClient<ISmsSender, OsonSmsSender>();
 
@@ -301,6 +302,12 @@ RecurringJob.AddOrUpdate<WaveformBackfillJob>(
 
 RecurringJob.AddOrUpdate<ConversationAutoReleaseJob>(
     "conversation-auto-release", job => job.RunAsync(CancellationToken.None), Cron.MinuteInterval(15));
+
+// Тозакунии як маротиба (2026-08-21: 52 файли HTML-и канали Instagram) — recurring, вале пас
+// аз тозакунии якум ҳамеша холӣ бармегардонад. Дар Hangfire dashboard (/hangfire → Recurring
+// Jobs) бо "Trigger now" фавран иҷро кунед, интизори Cron.Daily лозим нест.
+RecurringJob.AddOrUpdate<HtmlMediaCleanupJob>(
+    "html-media-cleanup", job => job.RunAsync(CancellationToken.None), Cron.Daily);
 
 // Development: ҳамеша иҷро шавад. Production: танҳо агар RUN_MIGRATIONS=true.
 var runMigrations = app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("RUN_MIGRATIONS");
