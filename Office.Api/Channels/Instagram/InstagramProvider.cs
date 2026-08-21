@@ -77,20 +77,19 @@ public class InstagramProvider(
         throw new NotSupportedException(
             "Instagram mark_seen ба recipient (PSID) ниёз дорад, на message_id — ин интерфейс инро надорад.");
 
-    public async Task<Stream> DownloadMediaAsync(Channel channel, string mediaExternalId, CancellationToken ct)
+    public async Task<DownloadedMedia> DownloadMediaAsync(Channel channel, string mediaExternalId, CancellationToken ct)
     {
-        var credentials = GetCredentials(channel);
-
-        // Ҳамон алгуи Facebook: mediaExternalId худи URL-и CDN аст, на id-е ки бояд ҳал шавад.
+        // Ҳамон алгуи Facebook: mediaExternalId худи URL-и CDN-и имзошуда аст, на id-е ки бояд
+        // ҳал шавад — Bearer-и иловагӣ лозим нест (ва CDN-и Meta ба он бо 200+HTML-и хатогӣ ҷавоб
+        // медод, на 401 — бе санҷиши Content-Type поён ин ҳамчун "муваффақ" сабт мешуд).
         using var request = new HttpRequestMessage(HttpMethod.Get, mediaExternalId);
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credentials.AccessToken);
         var response = await httpClient.SendAsync(request, ct);
         response.EnsureSuccessStatusCode();
 
         var buffer = new MemoryStream();
         await response.Content.CopyToAsync(buffer, ct);
         buffer.Position = 0;
-        return buffer;
+        return new DownloadedMedia(buffer, response.Content.Headers.ContentType?.MediaType);
     }
 
     /// <summary>

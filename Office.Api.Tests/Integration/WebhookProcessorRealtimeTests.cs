@@ -227,7 +227,7 @@ public class WebhookProcessorRealtimeTests
             IReadOnlyList<string> parameters, CancellationToken ct) => throw new NotSupportedException();
 
         public Task MarkAsReadAsync(Channel channel, string messageExternalId, CancellationToken ct) => throw new NotSupportedException();
-        public Task<Stream> DownloadMediaAsync(Channel channel, string mediaExternalId, CancellationToken ct) => throw new NotSupportedException();
+        public Task<DownloadedMedia> DownloadMediaAsync(Channel channel, string mediaExternalId, CancellationToken ct) => throw new NotSupportedException();
 
         public Task<string> UploadMediaAsync(Channel channel, Stream content, string mimeType, string fileName, CancellationToken ct) =>
             throw new NotSupportedException();
@@ -262,7 +262,7 @@ public class WebhookProcessorRealtimeTests
             IReadOnlyList<string> parameters, CancellationToken ct) => throw new NotSupportedException();
 
         public Task MarkAsReadAsync(Channel channel, string messageExternalId, CancellationToken ct) => throw new NotSupportedException();
-        public Task<Stream> DownloadMediaAsync(Channel channel, string mediaExternalId, CancellationToken ct) => throw new NotSupportedException();
+        public Task<DownloadedMedia> DownloadMediaAsync(Channel channel, string mediaExternalId, CancellationToken ct) => throw new NotSupportedException();
 
         public Task<string> UploadMediaAsync(Channel channel, Stream content, string mimeType, string fileName, CancellationToken ct) =>
             throw new NotSupportedException();

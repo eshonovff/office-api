@@ -37,7 +37,12 @@ public interface IChannelProvider
 
     Task MarkAsReadAsync(Channel channel, string messageExternalId, CancellationToken ct);
 
-    Task<Stream> DownloadMediaAsync(Channel channel, string mediaExternalId, CancellationToken ct);
+    /// <summary>
+    /// ContentType-и ҳамон response — MediaDownloadJob инро ҳам барои санҷиши "воқеан медиа аст,
+    /// на HTML/JSON-и хатогӣ бо 200 OK" истифода мебарад, ҳам (агар message.MimeType холӣ бошад,
+    /// масалан Facebook/Instagram, ки webhook mime_type намедиҳанд) ҳамчун сарчашмаи он.
+    /// </summary>
+    Task<DownloadedMedia> DownloadMediaAsync(Channel channel, string mediaExternalId, CancellationToken ct);
 
     /// <summary>Бор кардани медиа ба провайдер, барои дертар фиристодан. Media id-ро бармегардонад.</summary>
     Task<string> UploadMediaAsync(Channel channel, Stream content, string mimeType, string fileName, CancellationToken ct);
@@ -72,3 +77,6 @@ public record ContactProfile(string? Name, string? AvatarUrl)
 {
     public static readonly ContactProfile Empty = new(null, null);
 }
+
+/// <summary>Content-ро баста мекунад (IDisposable — caller онро дар <c>await using</c> мегирад) бо ContentType-и воқеии response.</summary>
+public sealed record DownloadedMedia(Stream Content, string? ContentType);

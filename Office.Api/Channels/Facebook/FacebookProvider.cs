@@ -78,21 +78,21 @@ public class FacebookProvider(
         throw new NotSupportedException(
             "Facebook mark_seen ба recipient (PSID) ниёз дорад, на message_id — ин интерфейс инро надорад.");
 
-    public async Task<Stream> DownloadMediaAsync(Channel channel, string mediaExternalId, CancellationToken ct)
+    public async Task<DownloadedMedia> DownloadMediaAsync(Channel channel, string mediaExternalId, CancellationToken ct)
     {
-        var credentials = GetCredentials(channel);
-
         // Бар хилофи WhatsApp: mediaExternalId дар ин ҷо худи URL-и CDN (бо мӯҳлат) аст, на id-е
-        // ки бояд пеш ҳал шавад — FacebookPayloadParser онро мустақим аз attachment.payload.url мегирад.
+        // ки бояд пеш ҳал шавад — FacebookPayloadParser онро мустақим аз attachment.payload.url
+        // мегирад. URL худаш аллакай ИМЗОШУДА аст (query string) — Bearer-и иловагӣ лозим нест
+        // ва CDN-и Meta ба он ғайричашмдошта ҷавоб медиҳад (200 бо саҳифаи HTML-и хатогӣ, на 401) —
+        // бе санҷиши Content-Type (поён) ин ҳамчун "муваффақ" сабт мешуд.
         using var request = new HttpRequestMessage(HttpMethod.Get, mediaExternalId);
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credentials.PageAccessToken);
         var response = await httpClient.SendAsync(request, ct);
         response.EnsureSuccessStatusCode();
 
         var buffer = new MemoryStream();
         await response.Content.CopyToAsync(buffer, ct);
         buffer.Position = 0;
-        return buffer;
+        return new DownloadedMedia(buffer, response.Content.Headers.ContentType?.MediaType);
     }
 
     public async Task<string> UploadMediaAsync(Channel channel, Stream content, string mimeType, string fileName, CancellationToken ct)

@@ -92,7 +92,7 @@ public class WhatsAppProvider(
         await PostToGraphApiAsync(credentials, $"{credentials.PhoneNumberId}/messages", payload, ct);
     }
 
-    public async Task<Stream> DownloadMediaAsync(Channel channel, string mediaExternalId, CancellationToken ct)
+    public async Task<DownloadedMedia> DownloadMediaAsync(Channel channel, string mediaExternalId, CancellationToken ct)
     {
         var credentials = GetCredentials(channel);
 
@@ -104,6 +104,8 @@ public class WhatsAppProvider(
         using var metaDoc = JsonDocument.Parse(await metaResponse.Content.ReadAsStreamAsync(ct));
         var mediaUrl = metaDoc.RootElement.GetProperty("url").GetString()!;
 
+        // Бар хилофи Facebook/Instagram: URL-и муваққатии WhatsApp ҳанӯз Bearer-ро талаб мекунад
+        // (пеш аз-имзошуда нест — санадноми расмии Cloud API).
         using var downloadRequest = new HttpRequestMessage(HttpMethod.Get, mediaUrl);
         downloadRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credentials.AccessToken);
         var downloadResponse = await httpClient.SendAsync(downloadRequest, ct);
@@ -112,7 +114,7 @@ public class WhatsAppProvider(
         var buffer = new MemoryStream();
         await downloadResponse.Content.CopyToAsync(buffer, ct);
         buffer.Position = 0;
-        return buffer;
+        return new DownloadedMedia(buffer, downloadResponse.Content.Headers.ContentType?.MediaType);
     }
 
     public async Task<string> UploadMediaAsync(Channel channel, Stream content, string mimeType, string fileName, CancellationToken ct)

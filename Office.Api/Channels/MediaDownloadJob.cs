@@ -45,7 +45,26 @@ public class MediaDownloadJob(
 
         try
         {
-            await using var stream = await provider.DownloadMediaAsync(channel, mediaExternalId, ct);
+            var downloaded = await provider.DownloadMediaAsync(channel, mediaExternalId, ct);
+            await using var stream = downloaded.Content;
+
+            // HTTP 200 танҳо маънои "сервер ҷавоб дод" дорад — на он ки бадан воқеан медиа аст.
+            // Ин маҳз он ҷоест, ки CDN-и Meta барои URL-и мӯҳлаташгузашта 200+HTML баргардонд ва
+            // ҳамчун "муваффақ" сабт шуд. Диски бе фоида нависонда намешавад — ин хатои НИҲОӢ аст
+            // (URL ҳеҷ гоҳ дигар намешавад), пас такрор (throw поён) фоида надорад — return мекунем.
+            if (!MediaContentTypeValidator.Matches(message.Type, downloaded.ContentType))
+            {
+                var redactedId = MediaLogRedactor.Redact(mediaExternalId);
+                logger.LogError(
+                    "Media {MediaExternalId} барои паёми {MessageId}: Content-Type '{ContentType}' ба навъи интизории {ExpectedType} мувофиқ намеояд — эҳтимол URL мӯҳлаташ гузаштааст ё нодуруст аст.",
+                    redactedId, message.Id, downloaded.ContentType ?? "(холӣ)", message.Type);
+
+                message.MediaDownloadError =
+                    $"Сервер бадани '{downloaded.ContentType ?? "(бе Content-Type)"}' баргардонд, на медиаи воқеӣ — URL эҳтимол мӯҳлаташ гузаштааст.";
+                await db.SaveChangesAsync(ct);
+                await PublishAsync(message, ct);
+                return;
+            }
 
             var mediaFolder = Path.Combine(UploadsPathResolver.ResolveRootPath(configuration, env), "whatsapp-media", channel.Id.ToString());
             Directory.CreateDirectory(mediaFolder);
@@ -64,6 +83,10 @@ public class MediaDownloadJob(
             message.SizeBytes = sizeBytes;
             message.MediaExternalId = mediaExternalId;
             message.MediaDownloadError = null;
+            // Facebook/Instagram намедиҳанд mime_type дар webhook (WhatsApp медиҳад) — Content-Type-и
+            // ҳамин боркунӣ акнун сарчашмаи воқеӣ аст, на application/octet-stream-и пешфарз, ки <video>
+            // бозӣ намекард.
+            message.MimeType = downloaded.ContentType;
 
             if (message.Type == MessageType.Image)
                 message.ThumbnailUrl = await TryGenerateThumbnailAsync(fullPath, mediaFolder, channel.Id, message.Id, ct);
