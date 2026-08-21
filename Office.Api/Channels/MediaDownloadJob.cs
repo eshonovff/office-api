@@ -1,4 +1,5 @@
 using Hangfire;
+using Hangfire.Server;
 using Microsoft.EntityFrameworkCore;
 using Office.Api.Common;
 using Office.Api.Data;
@@ -28,7 +29,7 @@ public class MediaDownloadJob(
 {
     private const int ThumbnailMaxDimension = 320;
 
-    public async Task DownloadAsync(Guid messageId, string mediaExternalId, CancellationToken ct)
+    public async Task DownloadAsync(Guid messageId, string mediaExternalId, CancellationToken ct, PerformContext? context = null)
     {
         var message = await db.Messages
             .Include(m => m.Conversation).ThenInclude(c => c.Channel)
@@ -58,6 +59,15 @@ public class MediaDownloadJob(
                 logger.LogError(
                     "Media {MediaExternalId} барои паёми {MessageId}: Content-Type '{ContentType}' ба навъи интизории {ExpectedType} мувофиқ намеояд — эҳтимол URL мӯҳлаташ гузаштааст ё нодуруст аст.",
                     redactedId, message.Id, downloaded.ContentType ?? "(холӣ)", message.Type);
+
+                // МУВАҚҚАТӢ (2026-08-21): барои фаҳмидани сабаби воқеӣ — ин кӯшиши АВВАЛ аст ё
+                // такрори job-и кӯҳна бо URL-и аллакай мурда. Пас аз тасдиқ бардошта мешавад.
+                // URL-и пурра (бе редакт) БО МАҚСАД дар ин як сатр меравад, то бо curl муқоиса шавад.
+                var hangfireRetryCount = TryGetHangfireRetryCount(context);
+                logger.LogWarning(
+                    "МУВАҚҚАТӢ ТАШХИС: паёми {MessageId} сохта шуд дар {CreatedAt}, job иҷро мешавад дар {RunAt} (фарқ: {AgeSeconds}с), Hangfire retry #{RetryCount}, URL-и пурра: {FullUrl}",
+                    message.Id, message.CreatedAt, DateTimeOffset.UtcNow, (DateTimeOffset.UtcNow - message.CreatedAt).TotalSeconds,
+                    hangfireRetryCount?.ToString() ?? "(аввалин, бе AutomaticRetry)", mediaExternalId);
 
                 message.MediaDownloadError =
                     $"Сервер бадани '{downloaded.ContentType ?? "(бе Content-Type)"}' баргардонд, на медиаи воқеӣ — URL эҳтимол мӯҳлаташ гузаштааст.";
@@ -125,6 +135,22 @@ public class MediaDownloadJob(
     private Task PublishAsync(Message message, CancellationToken ct) =>
         events.MessageReceivedAsync(
             message.Conversation.ChannelId, message.Conversation.AssignedTo, MessageDto.FromEntity(message), ct);
+
+    /// <summary>0-indexed: null/missing means this is the first attempt, AutomaticRetry hasn't fired yet.</summary>
+    private static int? TryGetHangfireRetryCount(PerformContext? context)
+    {
+        if (context is null)
+            return null;
+
+        try
+        {
+            return context.GetJobParameter<int?>("RetryCount");
+        }
+        catch
+        {
+            return null;
+        }
+    }
 
     private async Task<string?> TryGenerateThumbnailAsync(string fullPath, string mediaFolder, Guid channelId, Guid messageId, CancellationToken ct)
     {
