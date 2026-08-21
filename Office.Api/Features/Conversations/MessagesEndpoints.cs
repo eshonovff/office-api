@@ -86,13 +86,20 @@ public static class MessagesEndpoints
         var hasAccess = message is not null && await access.HasAccessAsync(
             principal, message.Conversation.ChannelId, message.Conversation.AssignedTo, ct);
 
+        // downloadError/deletedAt intentionally NOT passed here (unlike DownloadMediaAsync):
+        // both describe the state of the main media file, not the thumbnail. A thumbnail is
+        // generated once, synchronously, only after the main download already succeeded — if
+        // that download later failed there's no ThumbnailUrl to begin with (falls through to
+        // NotFound below on its own) — and MediaRetentionCleanupJob deliberately never deletes
+        // thumbnails when it removes the main file (see its own doc comment), specifically so
+        // a still-image preview survives after the full video/file is gone. Passing the main
+        // media's MediaDeletedAt here was reporting 410 Gone for a thumbnail file that was
+        // still sitting right there on disk.
         var outcome = MediaAccessDecision.Evaluate(
-            messageFound: message is not null, hasAccess, message?.ThumbnailUrl, message?.MediaDownloadError, message?.MediaDeletedAt);
+            messageFound: message is not null, hasAccess, message?.ThumbnailUrl, downloadError: null, deletedAt: null);
 
         return outcome switch
         {
-            MediaAccessOutcome.DownloadFailed => DownloadFailedProblem(message!.MediaDownloadError!),
-            MediaAccessOutcome.Deleted => DeletedProblem(message!.MediaDeletedAt!.Value),
             MediaAccessOutcome.Ready => ServeStoredFileAsync(
                 message!.ThumbnailUrl!, "image/jpeg", null, MessageType.Image, configuration, env),
             _ => Results.NotFound(),
