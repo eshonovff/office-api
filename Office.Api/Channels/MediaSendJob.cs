@@ -76,9 +76,15 @@ public class MediaSendJob(
             // TranscodeVoiceNoteAsync-ро АЗ НАВ даъват мекард — вале файли манбаъ аллакай нест шуда
             // буд → ffmpeg "No such file or directory" абадан. Санҷиши MimeType-и поён + SaveChanges
             // фавран пас аз transcode ин ҳолатро пешгирӣ мекунад: кӯшиши дуюм онро дубора намекунад.
-            if (isVoiceNote && message.MimeType != "audio/ogg")
+            // МУҲИМ (2026-08-25, ниг. report): Facebook/Instagram-и message_attachments audio/ogg
+            // (Opus)-ро намепазирад — Meta docs-и худашон танҳо aac/m4a/wav/mp4-ро номбар мекунад;
+            // санҷиши зинда инро тасдиқ кард (OAuthException, code 1, "An unknown error has
+            // occurred" — хатои норавшан, на возеҳ). WhatsApp баръакс: ogg/opus-ро ҳамчун voice
+            // note интизор аст (документатсияи расмии Cloud API). Ду формат, ду роҳ.
+            var targetMimeType = channel.Type is ChannelType.Facebook or ChannelType.Instagram ? "audio/mp4" : "audio/ogg";
+            if (isVoiceNote && message.MimeType != targetMimeType)
             {
-                await TranscodeVoiceNoteAsync(message, rootPath, ct);
+                await TranscodeVoiceNoteAsync(message, channel.Type, rootPath, ct);
                 await db.SaveChangesAsync(ct);
             }
 
@@ -130,16 +136,22 @@ public class MediaSendJob(
         await PublishAsync(channel.Id, conversation.AssignedTo, message, ct);
     }
 
-    private async Task TranscodeVoiceNoteAsync(Message message, string rootPath, CancellationToken ct)
+    private async Task TranscodeVoiceNoteAsync(Message message, ChannelType channelType, string rootPath, CancellationToken ct)
     {
         var sourceFullPath = Path.Combine(rootPath, message.MediaUrl!);
-        var oggRelativePath = Path.ChangeExtension(message.MediaUrl!, ".ogg");
-        var oggFullPath = Path.Combine(rootPath, oggRelativePath);
+        // aac/m4a барои Facebook/Instagram (ogg/opus рад мешавад — ниг. SendAsync), ogg/opus барои WhatsApp.
+        var useAac = channelType is ChannelType.Facebook or ChannelType.Instagram;
+        var targetRelativePath = Path.ChangeExtension(message.MediaUrl!, useAac ? ".m4a" : ".ogg");
+        var targetFullPath = Path.Combine(rootPath, targetRelativePath);
 
-        await mediaProcessor.TranscodeToOggOpusAsync(sourceFullPath, oggFullPath, ct);
-        message.VoiceDurationSeconds = await mediaProcessor.GetAudioDurationSecondsAsync(oggFullPath, ct);
-        message.MimeType = "audio/ogg";
-        message.MediaUrl = oggRelativePath;
+        if (useAac)
+            await mediaProcessor.TranscodeToAacAsync(sourceFullPath, targetFullPath, ct);
+        else
+            await mediaProcessor.TranscodeToOggOpusAsync(sourceFullPath, targetFullPath, ct);
+
+        message.VoiceDurationSeconds = await mediaProcessor.GetAudioDurationSecondsAsync(targetFullPath, ct);
+        message.MimeType = useAac ? "audio/mp4" : "audio/ogg";
+        message.MediaUrl = targetRelativePath;
 
         if (File.Exists(sourceFullPath))
             File.Delete(sourceFullPath);

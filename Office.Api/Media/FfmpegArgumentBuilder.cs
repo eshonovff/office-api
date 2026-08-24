@@ -14,6 +14,18 @@ public static class FfmpegArgumentBuilder
         outputPath,
     ];
 
+    /// <summary>Facebook/Instagram audio attachment (aac/m4a/wav/mp4 — на ogg/opus, ниг. IMediaProcessor.TranscodeToAacAsync).</summary>
+    public static IReadOnlyList<string> TranscodeToAac(string inputPath, string outputPath) =>
+    [
+        "-y",
+        "-i", inputPath,
+        "-c:a", "aac",
+        "-b:a", "64k",
+        "-ac", "1",
+        "-vn",
+        outputPath,
+    ];
+
     public static IReadOnlyList<string> GenerateImageThumbnail(string inputPath, string outputPath, int maxDimension) =>
     [
         "-y",

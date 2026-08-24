@@ -15,6 +15,9 @@ public class FfmpegMediaProcessor(ILogger<FfmpegMediaProcessor> logger) : IMedia
     public Task TranscodeToOggOpusAsync(string inputPath, string outputPath, CancellationToken ct) =>
         RunAsync("ffmpeg", FfmpegArgumentBuilder.TranscodeToOggOpus(inputPath, outputPath), ct);
 
+    public Task TranscodeToAacAsync(string inputPath, string outputPath, CancellationToken ct) =>
+        RunAsync("ffmpeg", FfmpegArgumentBuilder.TranscodeToAac(inputPath, outputPath), ct);
+
     public Task GenerateImageThumbnailAsync(string inputPath, string outputPath, int maxDimension, CancellationToken ct) =>
         RunAsync("ffmpeg", FfmpegArgumentBuilder.GenerateImageThumbnail(inputPath, outputPath, maxDimension), ct);
 

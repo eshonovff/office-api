@@ -177,6 +177,7 @@ public class MediaDownloadJobContentTypeTests
     private sealed class ThrowingMediaProcessor : IMediaProcessor
     {
         public Task TranscodeToOggOpusAsync(string inputPath, string outputPath, CancellationToken ct) => throw new NotSupportedException();
+        public Task TranscodeToAacAsync(string inputPath, string outputPath, CancellationToken ct) => throw new NotSupportedException();
         public Task<int?> GetAudioDurationSecondsAsync(string inputPath, CancellationToken ct) => throw new NotSupportedException();
         public Task GenerateImageThumbnailAsync(string inputPath, string outputPath, int maxDimension, CancellationToken ct) => throw new NotSupportedException();
         public Task<IReadOnlyList<short>> GenerateWaveformPeaksAsync(string inputPath, int peakCount, CancellationToken ct) => throw new NotSupportedException();

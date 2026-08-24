@@ -26,13 +26,13 @@ public class MediaSendJobTests
 
     private readonly string _rootPath = Directory.CreateTempSubdirectory("office-api-tests-").FullName;
 
-    private (AppDbContext Db, Message Message) SeedVoiceNote(string mimeType = "audio/webm;codecs=opus")
+    private (AppDbContext Db, Message Message) SeedVoiceNote(string mimeType = "audio/webm;codecs=opus", ChannelType channelType = ChannelType.WhatsApp)
     {
         var db = CreateDb();
         var channel = new Channel
         {
             Id = Guid.CreateVersion7(),
-            Type = ChannelType.WhatsApp,
+            Type = channelType,
             Name = "Test channel",
             ExternalId = "1206432455895142",
             CredentialsEncrypted = "irrelevant",
@@ -46,6 +46,8 @@ public class MediaSendJobTests
             Channel = channel,
             ExternalId = "992000000000",
             Status = ConversationStatus.InProgress,
+            // Only matters for Facebook/Instagram (MessengerSendModePlanner) — WhatsApp ignores it.
+            WindowExpiresAt = DateTimeOffset.UtcNow.AddHours(1),
             CreatedAt = DateTimeOffset.UtcNow,
         };
         var relativePath = $"whatsapp-media/{channel.Id}/voice.webm";
@@ -123,6 +125,23 @@ public class MediaSendJobTests
     }
 
     [Fact]
+    public async Task SendAsync_InstagramVoiceNote_TranscodesToAacNotOgg()
+    {
+        // Confirmed live: Instagram's message_attachments rejected our ogg/opus voice notes with
+        // a generic OAuthException (code 1, "An unknown error has occurred") — Meta's own docs
+        // list aac/m4a/wav/mp4 as the supported audio formats for this endpoint, not ogg/opus.
+        var (db, message) = SeedVoiceNote(channelType: ChannelType.Instagram);
+        var provider = new FakeProvider();
+
+        await MakeJob(db, provider).SendAsync(message.Id, isVoiceNote: true, CancellationToken.None);
+
+        var reloaded = await db.Messages.SingleAsync();
+        Assert.EndsWith(".m4a", reloaded.MediaUrl);
+        Assert.Equal("audio/mp4", reloaded.MimeType);
+        Assert.Equal(MessageDeliveryStatus.Sent, reloaded.DeliveryStatus);
+    }
+
+    [Fact]
     public async Task SendAsync_WhatsAppWindowClosed_MarksFailedWithReasonAndDoesNotRethrow()
     {
         var (db, message) = SeedVoiceNote(mimeType: "audio/ogg"); // already transcoded, isolates this test to the send step
@@ -174,6 +193,12 @@ public class MediaSendJobTests
         public virtual Task TranscodeToOggOpusAsync(string inputPath, string outputPath, CancellationToken ct)
         {
             File.WriteAllBytes(outputPath, "fake-ogg-bytes"u8.ToArray());
+            return Task.CompletedTask;
+        }
+
+        public virtual Task TranscodeToAacAsync(string inputPath, string outputPath, CancellationToken ct)
+        {
+            File.WriteAllBytes(outputPath, "fake-aac-bytes"u8.ToArray());
             return Task.CompletedTask;
         }
 
