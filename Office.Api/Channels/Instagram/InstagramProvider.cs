@@ -49,6 +49,10 @@ public class InstagramProvider(
         {
             if (message.Body?.StartsWith(InstagramPayloadParser.UnsupportedTypeBodyPrefix, StringComparison.Ordinal) == true)
                 logger.LogWarning("Instagram: паёми навъи дастгирӣнашуда сабт шуд: {Body}", message.Body);
+
+            // Далели аввалини воқеии карусел — санҷида нашудааст то ҳол (ниг. InstagramPayloadParser).
+            if (message.Type == MessageType.Video && message.Body?.Contains(" боз)") == true)
+                logger.LogWarning("Instagram: эҳтимол пости каруселӣ дида шуд — шакли воқеии payload санҷида нашудааст: {Body}", message.Body);
         }
 
         return Task.FromResult(messages);

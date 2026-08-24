@@ -117,6 +117,9 @@ public class InstagramPayloadParserTests
         }
         """;
 
+    // URL воқеан пайванди саҳифаи веб аст (масалан https://www.instagram.com/reel/<code>/), на
+    // URL-и CDN — тасдиқшуда бо curl зидди production-и воқеӣ 2026-08-24 (ниг. InstagramPayloadParser
+    // барои тафсил). Ин фикстура қасдан ҳамин шаклро истифода мебарад, на шакли CDN-монанди пештара.
     private const string ReelAttachmentPayload = """
         {
           "object": "instagram",
@@ -133,7 +136,7 @@ public class InstagramPayloadParserTests
                     "attachments": [
                       {
                         "type": "ig_reel",
-                        "payload": { "url": "https://scontent.cdninstagram.com/v/reel.mp4?expires=123", "title": "funny cat" }
+                        "payload": { "url": "https://www.instagram.com/reel/DWJ5EU-Ad5i/", "title": "funny cat" }
                       }
                     ]
                   }
@@ -158,7 +161,61 @@ public class InstagramPayloadParserTests
                   "message": {
                     "mid": "aWdfZAG1fREEL2",
                     "attachments": [
-                      { "type": "ig_reel", "payload": { "url": "https://scontent.cdninstagram.com/v/reel2.mp4?expires=123" } }
+                      { "type": "ig_reel", "payload": { "url": "https://www.instagram.com/reel/AbCdEfGhIjK/" } }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+        """;
+
+    private const string PostAttachmentPayload = """
+        {
+          "object": "instagram",
+          "entry": [
+            {
+              "id": "17841400000000000",
+              "messaging": [
+                {
+                  "sender": { "id": "1254001234567890" },
+                  "recipient": { "id": "17841400000000000" },
+                  "timestamp": 1569262486134,
+                  "message": {
+                    "mid": "aWdfZAG1fUE9TVA",
+                    "attachments": [
+                      {
+                        "type": "ig_post",
+                        "payload": { "url": "https://www.instagram.com/p/CxYzAbCdEfG/", "title": "sunset" }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+        """;
+
+    // Далели аввалини (санҷиданашудаи) карусел — якчанд attachment дар як паём. Шакли воқеии
+    // payload-и Meta барои карусел ҳанӯз дида нашудааст, ниг. InstagramPayloadParser барои сабаб.
+    private const string CarouselPostAttachmentPayload = """
+        {
+          "object": "instagram",
+          "entry": [
+            {
+              "id": "17841400000000000",
+              "messaging": [
+                {
+                  "sender": { "id": "1254001234567890" },
+                  "recipient": { "id": "17841400000000000" },
+                  "timestamp": 1569262486134,
+                  "message": {
+                    "mid": "aWdfZAG1fQ0FST1VTRUw",
+                    "attachments": [
+                      { "type": "ig_post", "payload": { "url": "https://www.instagram.com/p/CxCarousel1/", "title": "trip" } },
+                      { "type": "ig_post", "payload": { "url": "https://www.instagram.com/p/CxCarousel2/" } }
                     ]
                   }
                 }
@@ -432,24 +489,56 @@ public class InstagramPayloadParserTests
     }
 
     [Fact]
-    public void ParseMessages_Reel_MapsToVideoWithReelMarkerAndTitle()
+    public void ParseMessages_Reel_MapsToVideoWithReelMarkerTitleAndPermalink()
     {
         var messages = InstagramPayloadParser.ParseMessages(Parse(ReelAttachmentPayload));
 
         var message = Assert.Single(messages);
         Assert.Equal(MessageType.Video, message.Type);
-        Assert.Equal("[Reel] funny cat", message.Body);
-        Assert.Equal("https://scontent.cdninstagram.com/v/reel.mp4?expires=123", message.MediaExternalId);
+        // payload.url is a web permalink, not a CDN asset (confirmed live, see the parser's
+        // comment) — it goes into Body for the frontend's "open in Instagram" link, and
+        // MediaExternalId stays null so WebhookProcessor never enqueues a doomed download.
+        Assert.Equal("[Reel] funny cat\nhttps://www.instagram.com/reel/DWJ5EU-Ad5i/", message.Body);
+        Assert.Null(message.MediaExternalId);
     }
 
     [Fact]
-    public void ParseMessages_ReelWithoutTitle_MapsToVideoWithBareMarker()
+    public void ParseMessages_ReelWithoutTitle_MapsToVideoWithBareMarkerAndPermalink()
     {
         var messages = InstagramPayloadParser.ParseMessages(Parse(ReelAttachmentNoTitlePayload));
 
         var message = Assert.Single(messages);
         Assert.Equal(MessageType.Video, message.Type);
-        Assert.Equal("[Reel]", message.Body);
+        Assert.Equal("[Reel]\nhttps://www.instagram.com/reel/AbCdEfGhIjK/", message.Body);
+        Assert.Null(message.MediaExternalId);
+    }
+
+    [Fact]
+    public void ParseMessages_Post_MapsToVideoWithPostMarkerTitleAndPermalink()
+    {
+        // ig_post used to fall through to the unsupported-type branch entirely — this is the
+        // regression fixed here: a shared feed post is now a recognized, visible message instead
+        // of "[unsupported type: ig_post]".
+        var messages = InstagramPayloadParser.ParseMessages(Parse(PostAttachmentPayload));
+
+        var message = Assert.Single(messages);
+        Assert.Equal(MessageType.Video, message.Type);
+        Assert.Equal("[Post] sunset\nhttps://www.instagram.com/p/CxYzAbCdEfG/", message.Body);
+        Assert.Null(message.MediaExternalId);
+    }
+
+    [Fact]
+    public void ParseMessages_CarouselPost_UsesFirstItemAndFlagsTheRest()
+    {
+        // Only attachments[0] is used, same as every other type here — but for a carousel that's
+        // a real, visible gap (not silent): the "(+N боз)" marker is the evidence trail for the
+        // day a real carousel payload's shape gets confirmed and this can be done properly.
+        var messages = InstagramPayloadParser.ParseMessages(Parse(CarouselPostAttachmentPayload));
+
+        var message = Assert.Single(messages);
+        Assert.Equal(MessageType.Video, message.Type);
+        Assert.Equal("[Post] trip (+1 боз)\nhttps://www.instagram.com/p/CxCarousel1/", message.Body);
+        Assert.Null(message.MediaExternalId);
     }
 
     [Fact]
