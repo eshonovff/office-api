@@ -187,6 +187,21 @@ public static class InstagramPayloadParser
             case "story_mention":
                 return (MessageType.StoryReply, text, null, url, url is null ? null : "Story");
 
+            // Story-и мубодилашуда (муштарӣ story-ро фиристод — на story_mention/reply_to.story,
+            // ки дигаранд, шакли payload комилан фарқ мекунад). Тасдиқшуда бо webhook_logs-и
+            // ВОҚЕИИ production (2026-08-25, ниг. report): майдонҳо story_media_id/story_media_url
+            // ҳастанд, на url/title (унвон умуман нест). story_media_url ин ҷо URL-и ВОҚЕИИ CDN аст
+            // (lookaside.fbsbx.com/ig_messaging_cdn/..., ҳамон шакли ig_post) — пас MediaExternalId
+            // пур мешавад, медиа тавассути роҳи муқаррарии MediaDownloadJob зеркашӣ мешавад.
+            case "ig_story":
+            {
+                var storyMediaUrl = payloadEl.ValueKind == JsonValueKind.Object &&
+                    payloadEl.TryGetProperty("story_media_url", out var storyMediaUrlEl)
+                    ? storyMediaUrlEl.GetString()
+                    : null;
+                return (MessageType.Video, "[Story]", storyMediaUrl, storyMediaUrl, storyMediaUrl is null ? null : "Story");
+            }
+
             // Reel-и мубодилашуда: MessageType-и ҷудогона надорем — video бо нишонаи "[Reel]" дар
             // матн (танҳо унвон, БЕ URL дар матн — ExternalContentUrl майдони алоҳида барои
             // "Кушодан дар Instagram"-и frontend, на URL дар матни паём).
@@ -242,10 +257,11 @@ public static class InstagramPayloadParser
 
     /// <summary>
     /// Танҳо барои ташхис (InstagramProvider инро log мекунад): JSON-и пурраи payload-и
-    /// attachment-ҳои ig_reel/ig_post/story_mention/reply_to.story. Ҳадаф: бидонем, оё Meta дар
-    /// онҳо майдони preview/thumbnail (масалан thumbnail_url, image_url) мефиристад — то ҳол
-    /// дида нашудааст (ниг. report), пас парсер аллакай онро истифода намекунад. Вақте ки
-    /// намунаи воқеӣ дар лог пайдо шавад, ин майдонро воқеан пайваст кардан мумкин мешавад.
+    /// attachment-ҳои ig_reel/ig_post/ig_story/story_mention/reply_to.story. Ҳадаф: бидонем, оё
+    /// Meta дар онҳо майдони preview/thumbnail (масалан thumbnail_url, image_url) мефиристад — то
+    /// ҳол дида нашудааст (ниг. report), пас парсер аллакай онро истифода намекунад. Инчунин
+    /// маҳз ҳамин лог буд, ки ig_story-ро (шакли комилан дигари payload) 2026-08-25 ошкор кард —
+    /// пас ҳангоми навъи нав пайдо шудан низ ҳамин тавр кор мекунад.
     /// </summary>
     public static IReadOnlyList<string> ExtractExternalContentPayloadsForDiagnostics(JsonElement payload)
     {
@@ -265,7 +281,7 @@ public static class InstagramPayloadParser
             foreach (var attachment in attachmentsEl.EnumerateArray())
             {
                 var type = attachment.TryGetProperty("type", out var typeEl) ? typeEl.GetString() : null;
-                if (type is "ig_reel" or "ig_post" or "story_mention" && attachment.TryGetProperty("payload", out var pEl))
+                if (type is "ig_reel" or "ig_post" or "ig_story" or "story_mention" && attachment.TryGetProperty("payload", out var pEl))
                     result.Add(pEl.GetRawText());
             }
         }

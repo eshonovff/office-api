@@ -117,6 +117,38 @@ public class InstagramPayloadParserTests
         }
         """;
 
+    // Далели воқеии production (webhook_logs, 2026-08-25) — шакли payload комилан фарқ мекунад
+    // аз ig_reel/ig_post: story_media_id/story_media_url, на url/title.
+    private const string StoryAttachmentPayload = """
+        {
+          "object": "instagram",
+          "entry": [
+            {
+              "id": "17841400000000000",
+              "messaging": [
+                {
+                  "sender": { "id": "1254001234567890" },
+                  "recipient": { "id": "17841400000000000" },
+                  "timestamp": 1569262486134,
+                  "message": {
+                    "mid": "aWdfZAG1faXRlbToxOklHTWVzc2FnZAUlE",
+                    "attachments": [
+                      {
+                        "type": "ig_story",
+                        "payload": {
+                          "story_media_id": "17904284028517454",
+                          "story_media_url": "https://lookaside.fbsbx.com/ig_messaging_cdn/?asset_id=17904284028517454&signature=abc123"
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+        """;
+
     // URL воқеан пайванди саҳифаи веб аст (масалан https://www.instagram.com/reel/<code>/), на
     // URL-и CDN — тасдиқшуда бо curl зидди production-и воқеӣ 2026-08-24 (ниг. InstagramPayloadParser
     // барои тафсил). Ин фикстура қасдан ҳамин шаклро истифода мебарад, на шакли CDN-монанди пештара.
@@ -566,11 +598,30 @@ public class InstagramPayloadParserTests
     }
 
     [Fact]
+    public void ParseMessages_Story_MapsToVideoWithStoryMarkerAndIsDownloadable()
+    {
+        // ig_story used to fall through to the unsupported-type branch (a completely different
+        // payload shape from ig_reel/ig_post — story_media_id/story_media_url, not url/title —
+        // meant the generic `url` extraction above never found anything for it). Confirmed live
+        // from webhook_logs (2026-08-25): story_media_url is a real lookaside.fbsbx.com CDN asset,
+        // same as ig_post — downloadable, not a permalink like ig_reel.
+        var messages = InstagramPayloadParser.ParseMessages(Parse(StoryAttachmentPayload));
+
+        var message = Assert.Single(messages);
+        Assert.Equal(MessageType.Video, message.Type);
+        Assert.Equal("[Story]", message.Body);
+        Assert.Equal("https://lookaside.fbsbx.com/ig_messaging_cdn/?asset_id=17904284028517454&signature=abc123", message.MediaExternalId);
+        Assert.Equal(message.MediaExternalId, message.ExternalContentUrl);
+        Assert.Equal("Story", message.ExternalContentKind);
+    }
+
+    [Fact]
     public void ExtractExternalContentPayloadsForDiagnostics_ReturnsRawPayloadForReelPostAndStory()
     {
         var reelPayloads = InstagramPayloadParser.ExtractExternalContentPayloadsForDiagnostics(Parse(ReelAttachmentPayload));
         var storyReplyPayloads = InstagramPayloadParser.ExtractExternalContentPayloadsForDiagnostics(Parse(StoryReplyPayload));
         var storyMentionPayloads = InstagramPayloadParser.ExtractExternalContentPayloadsForDiagnostics(Parse(StoryMentionPayload));
+        var igStoryPayloads = InstagramPayloadParser.ExtractExternalContentPayloadsForDiagnostics(Parse(StoryAttachmentPayload));
         var imagePayloads = InstagramPayloadParser.ExtractExternalContentPayloadsForDiagnostics(Parse(ImageAttachmentPayload));
 
         Assert.Single(reelPayloads);
@@ -578,7 +629,9 @@ public class InstagramPayloadParserTests
         Assert.Single(storyReplyPayloads);
         Assert.Contains("story.jpg", storyReplyPayloads[0]);
         Assert.Single(storyMentionPayloads);
-        // Not ig_reel/ig_post/story_mention/reply_to.story — nothing to diagnose here.
+        Assert.Single(igStoryPayloads);
+        Assert.Contains("story_media_url", igStoryPayloads[0]);
+        // Not ig_reel/ig_post/ig_story/story_mention/reply_to.story — nothing to diagnose here.
         Assert.Empty(imagePayloads);
     }
 
