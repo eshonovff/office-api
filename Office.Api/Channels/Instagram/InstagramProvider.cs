@@ -72,7 +72,7 @@ public class InstagramProvider(
         var credentials = GetCredentials(channel);
         var payload = BuildMessagePayload(conversationExternalId, new { text = body }, messageTag);
 
-        var responseBody = await PostToGraphApiAsync(credentials, "messages", payload, ct);
+        var responseBody = await PostToGraphApiAsync(channel, credentials, "messages", payload, ct);
         return InstagramPayloadParser.ExtractSentMessageId(responseBody);
     }
 
@@ -148,14 +148,14 @@ public class InstagramProvider(
             new { attachment = new { type = attachmentType, payload = new { attachment_id = mediaExternalId } } },
             messageTag);
 
-        var responseBody = await PostToGraphApiAsync(credentials, "messages", payload, ct);
+        var responseBody = await PostToGraphApiAsync(channel, credentials, "messages", payload, ct);
         var messageId = InstagramPayloadParser.ExtractSentMessageId(responseBody);
 
         // Send API як message object (матн ё attachment) мегирад — на ҳарду якҷоя, ҳамон Facebook.
         if (caption is { Length: > 0 })
         {
             var captionPayload = BuildMessagePayload(conversationExternalId, new { text = caption }, messageTag);
-            await PostToGraphApiAsync(credentials, "messages", captionPayload, ct);
+            await PostToGraphApiAsync(channel, credentials, "messages", captionPayload, ct);
         }
 
         return messageId;
@@ -211,7 +211,7 @@ public class InstagramProvider(
         return InstagramCredentials.Parse(protector.Unprotect(channel.CredentialsEncrypted));
     }
 
-    private async Task<string> PostToGraphApiAsync(InstagramCredentials credentials, string path, object payload, CancellationToken ct)
+    private async Task<string> PostToGraphApiAsync(Channel channel, InstagramCredentials credentials, string path, object payload, CancellationToken ct)
     {
         using var request = new HttpRequestMessage(
             HttpMethod.Post, $"{GraphApiBaseUrl}/{GraphApiVersion}/{credentials.InstagramAccountId}/{path}")
@@ -228,7 +228,13 @@ public class InstagramProvider(
         var errorCode = TryGetErrorCode(responseBody);
 
         if (errorCode == TokenExpiredErrorCode)
+        {
+            // Пеш аз ин танҳо notification-и Owner буд — нокомии токен дар UI намоён набуд, ва
+            // паёмҳо хомӯшона рад мешуданд то касе бо дасти худ канал сохт. Ниг. report.
+            channel.RequiresReconnect = true;
+            await db.SaveChangesAsync(ct);
             await NotifyOwnersAsync("Instagram: токени дастрасӣ эътибор надорад ё тамом шудааст. Каналро санҷед.", ct);
+        }
         else if (errorCode is RateLimitErrorCode or UserRateLimitErrorCode or SendApiRateLimitErrorCode)
             await NotifyOwnersAsync("Instagram: маҳдудияти дархост (rate limit) расид. Каналро санҷед.", ct);
 

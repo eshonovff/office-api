@@ -194,7 +194,12 @@ public static class ChannelsEndpoints
         channel.IsActive = request.IsActive;
 
         if (!string.IsNullOrEmpty(request.Credentials))
+        {
             channel.CredentialsEncrypted = protector.Protect(request.Credentials);
+            // Дастӣ гузоштани credentials-и нав (WhatsApp) — ҳамон "пайвастшавӣ лозим"-ро тоза
+            // мекунад, ки OAuth-и Facebook/Instagram дар ChannelOAuthEndpoints.ConnectAsync мекунад.
+            channel.RequiresReconnect = false;
+        }
 
         await db.SaveChangesAsync(ct);
         return Results.Ok(ToDetail(channel));
@@ -238,7 +243,8 @@ public static class ChannelsEndpoints
     }
 
     private static ChannelListItem ToListItem(Channel channel) => new(
-        channel.Id, channel.Type.ToString(), channel.Name, channel.ExternalId, channel.IsActive, channel.CreatedAt);
+        channel.Id, channel.Type.ToString(), channel.Name, channel.ExternalId, channel.IsActive, channel.CreatedAt,
+        channel.RequiresReconnect, channel.CredentialsExpiresAt);
 
     private static ChannelSummary ToSummary(Channel channel, bool joinable) => new(
         channel.Id, channel.Type.ToString(), channel.Name, channel.IsActive, joinable);
@@ -250,5 +256,7 @@ public static class ChannelsEndpoints
         channel.ExternalId,
         channel.IsActive,
         channel.CreatedAt,
+        channel.RequiresReconnect,
+        channel.CredentialsExpiresAt,
         channel.Members.Select(m => new ChannelMemberDto(m.UserId, m.User.FullName, m.User.Username)).ToList());
 }

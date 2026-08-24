@@ -186,6 +186,7 @@ public static class ChannelOAuthEndpoints
                 CredentialsEncrypted = credentialsEncrypted,
                 IsActive = true,
                 CreatedAt = DateTimeOffset.UtcNow,
+                CredentialsExpiresAt = account.CredentialsExpiresAt,
             };
             db.Channels.Add(channel);
         }
@@ -194,6 +195,10 @@ public static class ChannelOAuthEndpoints
             existing.Name = request.Name;
             existing.CredentialsEncrypted = credentialsEncrypted;
             existing.IsActive = true;
+            existing.CredentialsExpiresAt = account.CredentialsExpiresAt;
+            // Пайвастшавии нав (дастӣ ё худкор) ҳамеша аломати "пайвастшавӣ лозим"-ро тоза мекунад —
+            // ин маҳз он чизест, ки корбар ҳоло анҷом дод.
+            existing.RequiresReconnect = false;
             channel = existing;
         }
 

@@ -52,7 +52,7 @@ public class WhatsAppProvider(
             text = new { body },
         };
 
-        var responseBody = await PostToGraphApiAsync(credentials, $"{credentials.PhoneNumberId}/messages", payload, ct);
+        var responseBody = await PostToGraphApiAsync(channel, credentials, $"{credentials.PhoneNumberId}/messages", payload, ct);
         return WhatsAppPayloadParser.ExtractSentMessageId(responseBody);
     }
 
@@ -80,7 +80,7 @@ public class WhatsAppProvider(
             },
         };
 
-        var responseBody = await PostToGraphApiAsync(credentials, $"{credentials.PhoneNumberId}/messages", payload, ct);
+        var responseBody = await PostToGraphApiAsync(channel, credentials, $"{credentials.PhoneNumberId}/messages", payload, ct);
         return WhatsAppPayloadParser.ExtractSentMessageId(responseBody);
     }
 
@@ -89,7 +89,7 @@ public class WhatsAppProvider(
         var credentials = GetCredentials(channel);
         var payload = new { messaging_product = "whatsapp", status = "read", message_id = messageExternalId };
 
-        await PostToGraphApiAsync(credentials, $"{credentials.PhoneNumberId}/messages", payload, ct);
+        await PostToGraphApiAsync(channel, credentials, $"{credentials.PhoneNumberId}/messages", payload, ct);
     }
 
     public async Task<DownloadedMedia> DownloadMediaAsync(Channel channel, string mediaExternalId, CancellationToken ct)
@@ -169,7 +169,7 @@ public class WhatsAppProvider(
             [waType] = mediaObject,
         };
 
-        var responseBody = await PostToGraphApiAsync(credentials, $"{credentials.PhoneNumberId}/messages", payload, ct);
+        var responseBody = await PostToGraphApiAsync(channel, credentials, $"{credentials.PhoneNumberId}/messages", payload, ct);
         return WhatsAppPayloadParser.ExtractSentMessageId(responseBody);
     }
 
@@ -230,7 +230,7 @@ public class WhatsAppProvider(
         return WhatsAppCredentials.Parse(protector.Unprotect(channel.CredentialsEncrypted));
     }
 
-    private async Task<string> PostToGraphApiAsync(WhatsAppCredentials credentials, string path, object payload, CancellationToken ct)
+    private async Task<string> PostToGraphApiAsync(Channel channel, WhatsAppCredentials credentials, string path, object payload, CancellationToken ct)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, $"{GraphApiBaseUrl}/{GraphApiVersion}/{path}")
         {
@@ -249,7 +249,11 @@ public class WhatsAppProvider(
             throw new WhatsAppWindowClosedException("Тирезаи 24-соата вайрон шудааст — танҳо шаблон фиристода мешавад.");
 
         if (errorCode == TokenExpiredErrorCode)
+        {
+            channel.RequiresReconnect = true;
+            await db.SaveChangesAsync(ct);
             await NotifyOwnersAsync("WhatsApp: токени дастрасӣ эътибор надорад ё тамом шудааст. Каналро санҷед.", ct);
+        }
         else if (errorCode is RateLimitErrorCode or BusinessRateLimitErrorCode)
             await NotifyOwnersAsync("WhatsApp: маҳдудияти дархост (rate limit) расид. Каналро санҷед.", ct);
 

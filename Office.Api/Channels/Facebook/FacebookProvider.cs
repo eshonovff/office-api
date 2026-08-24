@@ -59,7 +59,7 @@ public class FacebookProvider(
         var credentials = GetCredentials(channel);
         var payload = BuildMessagePayload(conversationExternalId, new { text = body }, messageTag);
 
-        var responseBody = await PostToGraphApiAsync(credentials, "messages", payload, ct);
+        var responseBody = await PostToGraphApiAsync(channel, credentials, "messages", payload, ct);
         return FacebookPayloadParser.ExtractSentMessageId(responseBody);
     }
 
@@ -137,7 +137,7 @@ public class FacebookProvider(
             new { attachment = new { type = attachmentType, payload = new { attachment_id = mediaExternalId } } },
             messageTag);
 
-        var responseBody = await PostToGraphApiAsync(credentials, "messages", payload, ct);
+        var responseBody = await PostToGraphApiAsync(channel, credentials, "messages", payload, ct);
         var wamid = FacebookPayloadParser.ExtractSentMessageId(responseBody);
 
         // Send API-и Facebook як message object (ё матн, ё attachment) мегирад — на ҳарду якҷоя.
@@ -146,7 +146,7 @@ public class FacebookProvider(
         if (caption is { Length: > 0 })
         {
             var captionPayload = BuildMessagePayload(conversationExternalId, new { text = caption }, messageTag);
-            await PostToGraphApiAsync(credentials, "messages", captionPayload, ct);
+            await PostToGraphApiAsync(channel, credentials, "messages", captionPayload, ct);
         }
 
         return wamid;
@@ -209,7 +209,7 @@ public class FacebookProvider(
         return FacebookCredentials.Parse(protector.Unprotect(channel.CredentialsEncrypted));
     }
 
-    private async Task<string> PostToGraphApiAsync(FacebookCredentials credentials, string path, object payload, CancellationToken ct)
+    private async Task<string> PostToGraphApiAsync(Channel channel, FacebookCredentials credentials, string path, object payload, CancellationToken ct)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, $"{GraphApiBaseUrl}/{GraphApiVersion}/{credentials.PageId}/{path}")
         {
@@ -225,7 +225,11 @@ public class FacebookProvider(
         var errorCode = TryGetErrorCode(responseBody);
 
         if (errorCode == TokenExpiredErrorCode)
+        {
+            channel.RequiresReconnect = true;
+            await db.SaveChangesAsync(ct);
             await NotifyOwnersAsync("Facebook: токени дастрасии Page эътибор надорад ё тамом шудааст. Каналро санҷед.", ct);
+        }
         else if (errorCode is RateLimitErrorCode or UserRateLimitErrorCode or PageRateLimitErrorCode or SendApiRateLimitErrorCode)
             await NotifyOwnersAsync("Facebook: маҳдудияти дархост (rate limit) расид. Каналро санҷед.", ct);
 
