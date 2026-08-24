@@ -16,7 +16,13 @@ public class MessageConfiguration : IEntityTypeConfiguration<Message>
         builder.Property(m => m.ExternalId).HasMaxLength(200);
         builder.Property(m => m.MimeType).HasMaxLength(100);
         builder.Property(m => m.OriginalFileName).HasMaxLength(300);
-        builder.Property(m => m.MediaExternalId).HasMaxLength(200);
+        // МУҲИМ (2026-08-25, ниг. report): пеш аз ин 200 буд — барои media id-и кӯтоҳи WhatsApp
+        // кофӣ, вале Facebook/Instagram дар ин майдон URL-и пурраи CDN-и имзошударо (бо
+        // signature-и дароз, аксар вақт 300-600+ ҳарф) захира мекунанд. Натиҷа: HAR як боркунии
+        // муваффақи FB/IG дар SaveChangesAsync бо PostgresException 22001 "value too long"
+        // мешикаст — файл ба диск НАВИШТА МЕШУД, вале сабти DB ҳеҷ гоҳ намерасид, ва паём
+        // абадан "боркунӣ..." мемонд, ҳатто баъд аз 5 кӯшиши AutomaticRetry. Ҳудуд бардошта шуд.
+        builder.Property(m => m.MediaExternalId);
         builder.Property(m => m.SentByUserName).HasMaxLength(200);
         builder.Property(m => m.ThumbnailUrl).HasMaxLength(500);
         // smallint[] (0-100), на jsonb-и float — 32-40 адад ба ҳар паём ҷамъ мешавад,
