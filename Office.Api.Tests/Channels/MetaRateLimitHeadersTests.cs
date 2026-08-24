@@ -35,4 +35,30 @@ public class MetaRateLimitHeadersTests
 
         Assert.Equal("Retry-After=30", MetaRateLimitHeaders.Describe(response.Headers));
     }
+
+    [Fact]
+    public void TryGetCallVolumePercent_NoHeader_ReturnsNull()
+    {
+        using var response = new HttpResponseMessage();
+
+        Assert.Null(MetaRateLimitHeaders.TryGetCallVolumePercent(response.Headers));
+    }
+
+    [Fact]
+    public void TryGetCallVolumePercent_HeaderPresent_ParsesCallVolume()
+    {
+        using var response = new HttpResponseMessage();
+        response.Headers.Add("X-App-Usage", """{"call_volume":42,"total_time":10,"total_cputime":5}""");
+
+        Assert.Equal(42, MetaRateLimitHeaders.TryGetCallVolumePercent(response.Headers));
+    }
+
+    [Fact]
+    public void TryGetCallVolumePercent_MalformedJson_ReturnsNullInsteadOfThrowing()
+    {
+        using var response = new HttpResponseMessage();
+        response.Headers.Add("X-App-Usage", "not json");
+
+        Assert.Null(MetaRateLimitHeaders.TryGetCallVolumePercent(response.Headers));
+    }
 }

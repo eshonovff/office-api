@@ -1,4 +1,5 @@
 using System.Net.Http.Headers;
+using System.Text.Json;
 
 namespace Office.Api.Channels;
 
@@ -32,5 +33,30 @@ public static class MetaRateLimitHeaders
         }
 
         return parts is null ? null : string.Join("; ", parts);
+    }
+
+    /// <summary>
+    /// X-App-Usage: {"call_volume":N,...} — N (0-100) чӣ қадар ба маҳдудияти соатии app наздик
+    /// аст. InstagramContactProfileBackfillJob ин рақамро истифода мебарад, то дар байни
+    /// дархостҳо суст шавад пеш аз он ки воқеан ба rate limit расад.
+    /// </summary>
+    public static int? TryGetCallVolumePercent(HttpResponseHeaders headers)
+    {
+        if (!headers.TryGetValues("X-App-Usage", out var values))
+            return null;
+
+        var raw = values.FirstOrDefault();
+        if (string.IsNullOrEmpty(raw))
+            return null;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(raw);
+            return doc.RootElement.TryGetProperty("call_volume", out var el) && el.TryGetInt32(out var percent) ? percent : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 }

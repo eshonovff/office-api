@@ -168,6 +168,9 @@ public class WebhookProcessor(
                 ContactName = messages[0].ContactName ?? profile.Name,
                 ContactAvatarUrl = messages[0].ContactAvatarUrl ?? profile.AvatarUrl,
                 ContactUsername = profile.Username,
+                // Танҳо вақте ки воқеан кӯшиш кардем (WhatsApp ҳеҷ гоҳ, чунки боло аллакай
+                // ContactName дорад) — ниг. InstagramContactProfileBackfillJob барои сабаб.
+                ContactProfileFetchedAt = messages[0].ContactName is null ? DateTimeOffset.UtcNow : null,
                 Status = ConversationStatus.New,
                 CreatedAt = DateTimeOffset.UtcNow,
             };

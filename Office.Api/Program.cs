@@ -239,6 +239,7 @@ builder.Services.AddScoped<ConversationAutoReleaseJob>();
 builder.Services.AddScoped<HtmlMediaCleanupJob>();
 builder.Services.AddScoped<InstagramTokenRefreshJob>();
 builder.Services.AddHttpClient<InstagramTokenRefreshJob>(client => client.DefaultRequestHeaders.UserAgent.ParseAdd(BrowserUserAgent));
+builder.Services.AddScoped<InstagramContactProfileBackfillJob>();
 
 builder.Services.AddHttpClient<ISmsSender, OsonSmsSender>();
 
@@ -339,6 +340,11 @@ RecurringJob.AddOrUpdate<HtmlMediaCleanupJob>(
 // каналҳои ба анҷом наздикро худкор нав мекунад (ниг. InstagramTokenRefreshPolicy).
 RecurringJob.AddOrUpdate<InstagramTokenRefreshJob>(
     "instagram-token-refresh", job => job.RunAsync(CancellationToken.None), Cron.Daily);
+
+// Бозгашти якдафъаина (2026-08-25: чатҳои Instagram-и пеш аз ContactUsername сохта шуда буданд) —
+// recurring, вале пас аз пур шудани ҳама холӣ бармегардонад. Аз "Trigger now" фавран иҷро мешавад.
+RecurringJob.AddOrUpdate<InstagramContactProfileBackfillJob>(
+    "instagram-contact-profile-backfill", job => job.RunAsync(CancellationToken.None), Cron.Daily);
 
 // Development: ҳамеша иҷро шавад. Production: танҳо агар RUN_MIGRATIONS=true.
 var runMigrations = app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("RUN_MIGRATIONS");
