@@ -128,7 +128,9 @@ public class InstagramProvider(
         if (!response.IsSuccessStatusCode)
         {
             var responseBody = await response.Content.ReadAsStringAsync(ct);
-            logger.LogError("Instagram message_attachments хатогӣ: {StatusCode} {Body}", (int)response.StatusCode, responseBody);
+            logger.LogError(
+                "Instagram message_attachments хатогӣ: {StatusCode} {Body} | rate-limit сарлавҳаҳо: {RateLimitHeaders}",
+                (int)response.StatusCode, responseBody, MetaRateLimitHeaders.Describe(response.Headers) ?? "(нест)");
             throw new InvalidOperationException($"Instagram message_attachments хатогӣ: {responseBody}");
         }
 
@@ -238,7 +240,11 @@ public class InstagramProvider(
         else if (errorCode is RateLimitErrorCode or UserRateLimitErrorCode or SendApiRateLimitErrorCode)
             await NotifyOwnersAsync("Instagram: маҳдудияти дархост (rate limit) расид. Каналро санҷед.", ct);
 
-        logger.LogError("Instagram Graph API хатогӣ: {StatusCode} {Body}", (int)response.StatusCode, responseBody);
+        // МУВАҚҚАТӢ ТАШХИС (2026-08-25): се "Service temporarily unavailable" паиҳам — оё ин воқеан
+        // rate limit аст? Агар сарлавҳаҳои поён холӣ бошанд, не — Meta худаш ҳеҷ маҳдудият надида.
+        logger.LogError(
+            "Instagram Graph API хатогӣ: {StatusCode} {Body} | rate-limit сарлавҳаҳо: {RateLimitHeaders}",
+            (int)response.StatusCode, responseBody, MetaRateLimitHeaders.Describe(response.Headers) ?? "(нест)");
         throw new InvalidOperationException($"Instagram Graph API хатогӣ: {responseBody}");
     }
 

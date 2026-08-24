@@ -117,7 +117,9 @@ public class FacebookProvider(
         if (!response.IsSuccessStatusCode)
         {
             var responseBody = await response.Content.ReadAsStringAsync(ct);
-            logger.LogError("Facebook message_attachments хатогӣ: {StatusCode} {Body}", (int)response.StatusCode, responseBody);
+            logger.LogError(
+                "Facebook message_attachments хатогӣ: {StatusCode} {Body} | rate-limit сарлавҳаҳо: {RateLimitHeaders}",
+                (int)response.StatusCode, responseBody, MetaRateLimitHeaders.Describe(response.Headers) ?? "(нест)");
             throw new InvalidOperationException($"Facebook message_attachments хатогӣ: {responseBody}");
         }
 
@@ -233,7 +235,9 @@ public class FacebookProvider(
         else if (errorCode is RateLimitErrorCode or UserRateLimitErrorCode or PageRateLimitErrorCode or SendApiRateLimitErrorCode)
             await NotifyOwnersAsync("Facebook: маҳдудияти дархост (rate limit) расид. Каналро санҷед.", ct);
 
-        logger.LogError("Facebook Graph API хатогӣ: {StatusCode} {Body}", (int)response.StatusCode, responseBody);
+        logger.LogError(
+            "Facebook Graph API хатогӣ: {StatusCode} {Body} | rate-limit сарлавҳаҳо: {RateLimitHeaders}",
+            (int)response.StatusCode, responseBody, MetaRateLimitHeaders.Describe(response.Headers) ?? "(нест)");
         throw new InvalidOperationException($"Facebook Graph API хатогӣ: {responseBody}");
     }
 

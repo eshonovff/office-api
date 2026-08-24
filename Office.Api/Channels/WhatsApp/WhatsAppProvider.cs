@@ -257,7 +257,9 @@ public class WhatsAppProvider(
         else if (errorCode is RateLimitErrorCode or BusinessRateLimitErrorCode)
             await NotifyOwnersAsync("WhatsApp: маҳдудияти дархост (rate limit) расид. Каналро санҷед.", ct);
 
-        logger.LogError("WhatsApp Graph API хатогӣ: {StatusCode} {Body}", (int)response.StatusCode, responseBody);
+        logger.LogError(
+            "WhatsApp Graph API хатогӣ: {StatusCode} {Body} | rate-limit сарлавҳаҳо: {RateLimitHeaders}",
+            (int)response.StatusCode, responseBody, MetaRateLimitHeaders.Describe(response.Headers) ?? "(нест)");
         throw new InvalidOperationException($"WhatsApp Graph API хатогӣ: {responseBody}");
     }
 
