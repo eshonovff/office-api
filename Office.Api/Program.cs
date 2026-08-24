@@ -220,8 +220,11 @@ builder.Services.AddHttpClient<InstagramProvider>(client => client.DefaultReques
 builder.Services.AddScoped<IChannelProviderFactory, ChannelProviderFactory>();
 // RemoveAllLoggers(): URL-и дархостҳо ба Meta code/token-ро дар query string доранд —
 // logging handler-и пешфарзи HttpClientFactory набояд онҳоро ба log бароварад.
-builder.Services.AddHttpClient<FacebookOAuthConnector>().RemoveAllLoggers();
-builder.Services.AddHttpClient<InstagramOAuthConnector>().RemoveAllLoggers();
+// BrowserUserAgent: ig_exchange_token (graph.instagram.com) ҳамон CDN-и Meta-и оилавист, ки
+// бе User-Agent 302-ро пайгирӣ карда, ба ҷои хатои auth-и возеҳ бо HTML-и "unsupportedbrowser"
+// ҷавоб медод — эҳтимол сабаби воқеии "ig_exchange_token ҳеҷ гоҳ кор накард".
+builder.Services.AddHttpClient<FacebookOAuthConnector>(client => client.DefaultRequestHeaders.UserAgent.ParseAdd(BrowserUserAgent)).RemoveAllLoggers();
+builder.Services.AddHttpClient<InstagramOAuthConnector>(client => client.DefaultRequestHeaders.UserAgent.ParseAdd(BrowserUserAgent)).RemoveAllLoggers();
 builder.Services.AddScoped<IChannelOAuthConnectorFactory, ChannelOAuthConnectorFactory>();
 builder.Services.AddSingleton<IOAuthNonceTracker, OAuthNonceTracker>();
 builder.Services.AddSingleton<IOAuthConnectionStore, OAuthConnectionStore>();
@@ -234,6 +237,8 @@ builder.Services.AddScoped<MediaRetentionCleanupJob>();
 builder.Services.AddScoped<WaveformBackfillJob>();
 builder.Services.AddScoped<ConversationAutoReleaseJob>();
 builder.Services.AddScoped<HtmlMediaCleanupJob>();
+builder.Services.AddScoped<InstagramTokenRefreshJob>();
+builder.Services.AddHttpClient<InstagramTokenRefreshJob>(client => client.DefaultRequestHeaders.UserAgent.ParseAdd(BrowserUserAgent));
 
 builder.Services.AddHttpClient<ISmsSender, OsonSmsSender>();
 
@@ -329,6 +334,11 @@ RecurringJob.AddOrUpdate<ConversationAutoReleaseJob>(
 // Jobs) бо "Trigger now" фавран иҷро кунед, интизори Cron.Daily лозим нест.
 RecurringJob.AddOrUpdate<HtmlMediaCleanupJob>(
     "html-media-cleanup", job => job.RunAsync(CancellationToken.None), Cron.Daily);
+
+// Instagram ig_exchange_token/ig_refresh_token-и дарозмуддат ~60 рӯз аст — ин job ҳар рӯз
+// каналҳои ба анҷом наздикро худкор нав мекунад (ниг. InstagramTokenRefreshPolicy).
+RecurringJob.AddOrUpdate<InstagramTokenRefreshJob>(
+    "instagram-token-refresh", job => job.RunAsync(CancellationToken.None), Cron.Daily);
 
 // Development: ҳамеша иҷро шавад. Production: танҳо агар RUN_MIGRATIONS=true.
 var runMigrations = app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("RUN_MIGRATIONS");

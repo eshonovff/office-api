@@ -5,4 +5,9 @@ namespace Office.Api.Channels.Meta;
 /// CredentialsJson танҳо дар <see cref="OAuthConnectionStore"/> (дохили процесс) мемонад — ҳеҷ гоҳ
 /// ба DTO-и берунии /callback намебарояд, то токен ба фронтенд/browser нарасад.
 /// </summary>
-public sealed record ConnectableAccount(string ExternalId, string Name, string CredentialsJson);
+public sealed record ConnectableAccount(
+    string ExternalId,
+    string Name,
+    string CredentialsJson,
+    /// <summary>Танҳо Instagram медиҳад (ig_exchange_token-и response's expires_in) — Facebook null мемонад.</summary>
+    DateTimeOffset? CredentialsExpiresAt = null);

@@ -68,10 +68,22 @@ public class InstagramOAuthConnector(HttpClient httpClient, IConfiguration confi
             HttpMethod.Get,
             "https://graph.instagram.com/access_token?grant_type=ig_exchange_token" +
             $"&client_secret={Uri.EscapeDataString(appSecret)}&access_token={Uri.EscapeDataString(shortLivedToken)}");
+        //
+        // 2026-08-25: ин қадам "ҳеҷ гоҳ кор накард" гуфта шуда буд — фарзияи нав, бо далели User-Agent-и
+        // media CDN (ниг. Program.cs/BrowserUserAgent): graph.instagram.com низ метавонад ба дархости бе
+        // User-Agent бо 302 → HTML ҷавоб диҳад, ки IsSuccessStatusCode-ро намегузарад (200 нест — TRUE
+        // мемонад ин ҷо, чунки EnsureSuccessAsync 2xx-ро месанҷад, на Content-Type), вале JsonDocument.Parse
+        // поён бо HTML ба NotSupportedException/JsonException меафтад — хатои норавшан, на хатои auth-и возеҳ.
+        // AddHttpClient<InstagramOAuthConnector> акнун ҳамон BrowserUserAgent-ро дорад (Program.cs).
         var exchangeResponse = await httpClient.SendAsync(exchangeRequest, ct);
         await EnsureSuccessAsync(exchangeRequest, exchangeResponse, "Instagram ig_exchange_token (step 2: short-lived → long-lived)", ct);
         using var exchangeDoc = JsonDocument.Parse(await exchangeResponse.Content.ReadAsStreamAsync(ct));
         var longLivedToken = exchangeDoc.RootElement.GetProperty("access_token").GetString()!;
+        // "expires_in" сонияи то анҷоми эътибор аст (~5184000 ≈ 60 рӯз) — InstagramTokenRefreshJob
+        // ба ин такя мекунад, то пеш аз мӯҳлат худкор нав кунад.
+        var expiresAt = exchangeDoc.RootElement.TryGetProperty("expires_in", out var expiresInEl) && expiresInEl.TryGetInt64(out var expiresInSeconds)
+            ? DateTimeOffset.UtcNow.AddSeconds(expiresInSeconds)
+            : (DateTimeOffset?)null;
 
         // ҚАДАМИ 3: маълумоти account бо токени дарозмуддат.
         using var meRequest = new HttpRequestMessage(
@@ -99,7 +111,7 @@ public class InstagramOAuthConnector(HttpClient httpClient, IConfiguration confi
         // медиҳад — на рӯйхати чандто барои интихоб. Барои шакли якхела бо Facebook (то /connect
         // бе мантиқи алоҳида кор кунад), боз ҳам ҳамчун рӯйхати як-узвӣ бармегардонем.
         var credentialsJson = JsonSerializer.Serialize(new InstagramCredentials(accountId, longLivedToken));
-        return [new ConnectableAccount(accountId, username, credentialsJson)];
+        return [new ConnectableAccount(accountId, username, credentialsJson, expiresAt)];
     }
 
     /// <summary>

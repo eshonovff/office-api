@@ -2,7 +2,18 @@ namespace Office.Api.Features.Channels;
 
 public record ChannelMemberDto(Guid UserId, string FullName, string Username);
 
-public record ChannelListItem(Guid Id, string Type, string Name, string ExternalId, bool IsActive, DateTimeOffset CreatedAt);
+public record ChannelListItem(
+    Guid Id,
+    string Type,
+    string Name,
+    string ExternalId,
+    bool IsActive,
+    DateTimeOffset CreatedAt,
+    // Meta бо хатои токен ҷавоб дод (ё нав кардани худкор ноком шуд) — пайвастшавии дастӣ/OAuth
+    // дубора лозим аст. Ниг. Channel.RequiresReconnect.
+    bool RequiresReconnect,
+    // Танҳо Instagram (ig_exchange_token/refresh медиҳад) — дигарон null.
+    DateTimeOffset? CredentialsExpiresAt);
 
 /// <summary>
 /// GET /api/channels/mine — барои inbox.view, на channels.manage; ExternalId/CreatedAt-ро
@@ -18,6 +29,8 @@ public record ChannelDetail(
     string ExternalId,
     bool IsActive,
     DateTimeOffset CreatedAt,
+    bool RequiresReconnect,
+    DateTimeOffset? CredentialsExpiresAt,
     IReadOnlyList<ChannelMemberDto> Members);
 
 public record CreateChannelRequest(string Type, string Name, string ExternalId, string Credentials);
