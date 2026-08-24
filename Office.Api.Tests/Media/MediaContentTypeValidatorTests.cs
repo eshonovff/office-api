@@ -1,4 +1,3 @@
-using Office.Api.Data.Entities;
 using Office.Api.Media;
 
 namespace Office.Api.Tests.Media;
@@ -6,49 +5,47 @@ namespace Office.Api.Tests.Media;
 public class MediaContentTypeValidatorTests
 {
     [Theory]
-    [InlineData(MessageType.Image, "image/jpeg", true)]
-    [InlineData(MessageType.Image, "image/png", true)]
-    [InlineData(MessageType.Video, "video/mp4", true)]
-    [InlineData(MessageType.Audio, "audio/ogg", true)]
-    [InlineData(MessageType.File, "application/pdf", true)]
-    [InlineData(MessageType.File, "application/zip", true)]
-    public void Matches_RealMediaContentType_ReturnsTrue(MessageType type, string contentType, bool expected)
+    [InlineData("image/jpeg")]
+    [InlineData("image/png")]
+    [InlineData("video/mp4")]
+    [InlineData("audio/ogg")]
+    [InlineData("application/pdf")]
+    [InlineData("application/zip")]
+    [InlineData("application/octet-stream")]
+    // Instagram wraps a voice message in an mp4 container more often than not (not always
+    // audio/*) — this used to be rejected as a "wrong category" even though the file is
+    // completely healthy. The validator no longer cares which category a message expected.
+    [InlineData("video/quicktime")]
+    [InlineData("application/ogg")]
+    public void Matches_RealMediaContentType_ReturnsTrue(string contentType)
     {
-        Assert.Equal(expected, MediaContentTypeValidator.Matches(type, contentType));
+        Assert.True(MediaContentTypeValidator.Matches(contentType));
     }
 
     // Regression: a 200 OK with Content-Type: text/html was silently accepted as a successful
     // download for two days — this is exactly the case that must never pass again.
     [Theory]
-    [InlineData(MessageType.Image, "text/html")]
-    [InlineData(MessageType.Video, "text/html")]
-    [InlineData(MessageType.Audio, "text/html")]
-    [InlineData(MessageType.File, "text/html")]
-    public void Matches_HtmlContentType_ReturnsFalse(MessageType type, string contentType)
+    [InlineData("text/html")]
+    [InlineData("text/html; charset=utf-8")]
+    [InlineData("text/plain")]
+    [InlineData("application/json")]
+    [InlineData("application/problem+json")]
+    [InlineData("application/xml")]
+    public void Matches_ErrorPageOrApiResponseContentType_ReturnsFalse(string contentType)
     {
-        Assert.False(MediaContentTypeValidator.Matches(type, contentType));
-    }
-
-    [Theory]
-    [InlineData(MessageType.Image, "video/mp4")]
-    [InlineData(MessageType.Video, "image/jpeg")]
-    [InlineData(MessageType.Audio, "application/json")]
-    public void Matches_WrongMediaCategory_ReturnsFalse(MessageType type, string contentType)
-    {
-        Assert.False(MediaContentTypeValidator.Matches(type, contentType));
+        Assert.False(MediaContentTypeValidator.Matches(contentType));
     }
 
     [Fact]
     public void Matches_MissingContentType_ReturnsFalse()
     {
-        Assert.False(MediaContentTypeValidator.Matches(MessageType.Image, null));
-        Assert.False(MediaContentTypeValidator.Matches(MessageType.Image, ""));
+        Assert.False(MediaContentTypeValidator.Matches(null));
+        Assert.False(MediaContentTypeValidator.Matches(""));
     }
 
     [Fact]
     public void Matches_ContentTypeWithCharsetSuffix_StillMatchesOnTheBaseType()
     {
-        Assert.True(MediaContentTypeValidator.Matches(MessageType.File, "application/pdf; charset=binary"));
-        Assert.False(MediaContentTypeValidator.Matches(MessageType.Image, "text/html; charset=utf-8"));
+        Assert.True(MediaContentTypeValidator.Matches("application/pdf; charset=binary"));
     }
 }

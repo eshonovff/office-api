@@ -53,7 +53,7 @@ public class MediaDownloadJob(
             // Ин маҳз он ҷоест, ки CDN-и Meta барои URL-и мӯҳлаташгузашта 200+HTML баргардонд ва
             // ҳамчун "муваффақ" сабт шуд. Диски бе фоида нависонда намешавад — ин хатои НИҲОӢ аст
             // (URL ҳеҷ гоҳ дигар намешавад), пас такрор (throw поён) фоида надорад — return мекунем.
-            if (!MediaContentTypeValidator.Matches(message.Type, downloaded.ContentType))
+            if (!MediaContentTypeValidator.Matches(downloaded.ContentType))
             {
                 var redactedId = MediaLogRedactor.Redact(mediaExternalId);
                 logger.LogError(
