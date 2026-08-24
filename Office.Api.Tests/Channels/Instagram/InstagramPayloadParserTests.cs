@@ -171,6 +171,10 @@ public class InstagramPayloadParserTests
         }
         """;
 
+    // URL — далели воқеии production (2026-08-25, ниг. InstagramPayloadParser): барои ig_post
+    // ин URL-и ВОҚЕИИ CDN аст (lookaside.fbsbx.com/ig_messaging_cdn/...), на пайванди веб — ig_reel
+    // фарқ мекунад (он ҷо instagram.com/reel/<code>/, тасдиқшуда бо curl). ig_post_media_id ҳам
+    // ҳамроҳи url меояд, вале ҳанӯз истифода намешавад.
     private const string PostAttachmentPayload = """
         {
           "object": "instagram",
@@ -187,7 +191,11 @@ public class InstagramPayloadParserTests
                     "attachments": [
                       {
                         "type": "ig_post",
-                        "payload": { "url": "https://www.instagram.com/p/CxYzAbCdEfG/", "title": "sunset" }
+                        "payload": {
+                          "url": "https://lookaside.fbsbx.com/ig_messaging_cdn/?asset_id=18614582272044180&signature=abc123",
+                          "title": "sunset",
+                          "ig_post_media_id": "18614582272044180"
+                        }
                       }
                     ]
                   }
@@ -214,8 +222,8 @@ public class InstagramPayloadParserTests
                   "message": {
                     "mid": "aWdfZAG1fQ0FST1VTRUw",
                     "attachments": [
-                      { "type": "ig_post", "payload": { "url": "https://www.instagram.com/p/CxCarousel1/", "title": "trip" } },
-                      { "type": "ig_post", "payload": { "url": "https://www.instagram.com/p/CxCarousel2/" } }
+                      { "type": "ig_post", "payload": { "url": "https://lookaside.fbsbx.com/ig_messaging_cdn/?asset_id=1", "title": "trip" } },
+                      { "type": "ig_post", "payload": { "url": "https://lookaside.fbsbx.com/ig_messaging_cdn/?asset_id=2" } }
                     ]
                   }
                 }
@@ -524,18 +532,22 @@ public class InstagramPayloadParserTests
     }
 
     [Fact]
-    public void ParseMessages_Post_MapsToVideoWithPostMarkerAndTitle()
+    public void ParseMessages_Post_MapsToVideoWithPostMarkerAndIsDownloadable()
     {
-        // ig_post used to fall through to the unsupported-type branch entirely — this is the
-        // regression fixed here: a shared feed post is now a recognized, visible message instead
-        // of "[unsupported type: ig_post]".
+        // ig_post used to fall through to the unsupported-type branch entirely, then (in an
+        // earlier fix) was wrongly treated as non-downloadable like ig_reel — live production
+        // evidence (2026-08-25) proved that wrong: unlike ig_reel's web permalink, ig_post's url
+        // really is a lookaside.fbsbx.com CDN asset (confirmed: MediaDownloadJob fetched one
+        // successfully). MediaExternalId is populated so it downloads through the normal path;
+        // ExternalContentUrl/Kind are ALSO populated so the frontend can still offer an
+        // "open in Instagram" link alongside the real player.
         var messages = InstagramPayloadParser.ParseMessages(Parse(PostAttachmentPayload));
 
         var message = Assert.Single(messages);
         Assert.Equal(MessageType.Video, message.Type);
         Assert.Equal("[Post] sunset", message.Body);
-        Assert.Null(message.MediaExternalId);
-        Assert.Equal("https://www.instagram.com/p/CxYzAbCdEfG/", message.ExternalContentUrl);
+        Assert.Equal("https://lookaside.fbsbx.com/ig_messaging_cdn/?asset_id=18614582272044180&signature=abc123", message.MediaExternalId);
+        Assert.Equal(message.MediaExternalId, message.ExternalContentUrl);
         Assert.Equal("Post", message.ExternalContentKind);
     }
 
@@ -550,8 +562,7 @@ public class InstagramPayloadParserTests
         var message = Assert.Single(messages);
         Assert.Equal(MessageType.Video, message.Type);
         Assert.Equal("[Post] trip (+1 боз)", message.Body);
-        Assert.Null(message.MediaExternalId);
-        Assert.Equal("https://www.instagram.com/p/CxCarousel1/", message.ExternalContentUrl);
+        Assert.Equal("https://lookaside.fbsbx.com/ig_messaging_cdn/?asset_id=1", message.MediaExternalId);
     }
 
     [Fact]

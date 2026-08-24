@@ -187,25 +187,37 @@ public static class InstagramPayloadParser
             case "story_mention":
                 return (MessageType.StoryReply, text, null, url, url is null ? null : "Story");
 
-            // Reel/пости мубодилашуда: MessageType-и ҷудогона надорем — video бо нишонаи "[Reel]"/
-            // "[Post]" дар матн (танҳо унвон, БЕ URL — ниг. report: URL дар матн буд, вале тугмаи
-            // "Кушодан дар Instagram" гоҳо ба саҳифаи маҳаллӣ мебурд; ExternalContentUrl майдони
-            // алоҳида, боэътимодтар аст барои frontend).
+            // Reel-и мубодилашуда: MessageType-и ҷудогона надорем — video бо нишонаи "[Reel]" дар
+            // матн (танҳо унвон, БЕ URL дар матн — ExternalContentUrl майдони алоҳида барои
+            // "Кушодан дар Instagram"-и frontend, на URL дар матни паём).
             //
-            // МУҲИМ (тасдиқшуда 2026-08-24 бо санҷиши зиндаи production, на тахмин): payload.url
-            // барои ҳарду навъ ин ПАЙВАНДИ САҲИФАИ ВЕБ аст (масалан instagram.com/reel/<code>/),
-            // на URL-и CDN-и медиаи хом. curl бо User-Agent-и воқеӣ HTML-и саҳифаро баргардонд (на
-            // видео); бе User-Agent — 302 → facebook.com/unsupportedbrowser. Ҳеҷ сарлавҳае натиҷаи
-            // медиаи воқеиро намедиҳад — MediaExternalId қасдан NULL аст (WebhookProcessor
-            // MediaDownloadJob-ро танҳо барои MediaExternalId!=null дар навбат мегузорад).
+            // МУҲИМ (тасдиқшуда 2026-08-24 бо санҷиши зиндаи production, на тахмин — ниг. report):
+            // payload.url барои ig_reel ПАЙВАНДИ САҲИФАИ ВЕБ аст (масалан instagram.com/reel/<code>/),
+            // на URL-и CDN-и медиаи хом (curl бо User-Agent-и воқеӣ HTML-и саҳифаро баргардонд, на
+            // видео). MediaExternalId қасдан NULL аст — MediaDownloadJob ҳеҷ гоҳ ба ин URL муваффақ
+            // намешавад.
             case "ig_reel":
+            {
+                var title = payloadEl.ValueKind == JsonValueKind.Object && payloadEl.TryGetProperty("title", out var titleEl)
+                    ? titleEl.GetString()
+                    : null;
+                var caption = string.IsNullOrEmpty(title) ? "[Reel]" : $"[Reel] {title}";
+                return (MessageType.Video, caption, null, url, url is null ? null : "Reel");
+            }
+
+            // Пости мубодилашуда: БАРХИЛОФИ ig_reel — тасдиқшуда бо санҷиши зиндаи production
+            // (2026-08-25, ниг. report): payload.url ин ҷо URL-и ВОҚЕИИ CDN аст (lookaside.fbsbx.com/
+            // ig_messaging_cdn/..., ҳамон шакле ки барои attachment-ҳои муқаррарии сурат/видео/овоз
+            // истифода мешавад), на пайванди веб. Бинобар ин, БАРХИЛОФИ ислоҳи қаблӣ, MediaExternalId
+            // пур мешавад — медиа тавассути роҳи муқаррарии MediaDownloadJob зеркашӣ мешавад.
+            // ExternalContentUrl/Kind ҳам якҷоя пур мешаванд, то фронтенд илова бар плеер тугмаи
+            // "Кушодан дар Instagram"-ро низ пешниҳод кунад (пости аслиро дидан).
             case "ig_post":
             {
                 var title = payloadEl.ValueKind == JsonValueKind.Object && payloadEl.TryGetProperty("title", out var titleEl)
                     ? titleEl.GetString()
                     : null;
-                var marker = attachmentType == "ig_reel" ? "[Reel]" : "[Post]";
-                var caption = string.IsNullOrEmpty(title) ? marker : $"{marker} {title}";
+                var caption = string.IsNullOrEmpty(title) ? "[Post]" : $"[Post] {title}";
                 // Каруселро (якчанд сурат/видео дар як пост) ҳанӯз ҷудо намекунем — payload-и
                 // воқеии карусел санҷида нашудааст (танҳо якдонагӣ дар production дида шудааст,
                 // ниг. report). Агар Meta якчанд attachment дар як паём фиристад, ин ҳамчун далел
@@ -213,8 +225,7 @@ public static class InstagramPayloadParser
                 // дафъаи аввали воқеан дидани карусел бидонем, шакли он чӣ гуна аст.
                 if (attachmentsEl.GetArrayLength() > 1)
                     caption += $" (+{attachmentsEl.GetArrayLength() - 1} боз)";
-                var kind = attachmentType == "ig_reel" ? "Reel" : "Post";
-                return (MessageType.Video, caption, null, url, url is null ? null : kind);
+                return (MessageType.Video, caption, url, url, url is null ? null : "Post");
             }
 
             // Стикери дил (double-tap/heart sticker) — расм/видео надорад, барои сабти "навъи
