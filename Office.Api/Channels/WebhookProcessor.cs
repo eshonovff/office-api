@@ -189,6 +189,8 @@ public class WebhookProcessor(
                 MediaUrl = parsed.MediaUrl,
                 MimeType = parsed.MimeType,
                 OriginalFileName = parsed.OriginalFileName,
+                ExternalContentUrl = parsed.ExternalContentUrl,
+                ExternalContentKind = parsed.ExternalContentKind,
                 ExternalId = parsed.MessageExternalId,
                 DeliveryStatus = parsed.Direction == MessageDirection.Inbound
                     ? MessageDeliveryStatus.Delivered

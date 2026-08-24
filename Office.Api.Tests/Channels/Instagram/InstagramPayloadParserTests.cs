@@ -467,14 +467,19 @@ public class InstagramPayloadParserTests
     }
 
     [Fact]
-    public void ParseMessages_StoryReply_MapsToStoryReplyWithTextAndStoryImage()
+    public void ParseMessages_StoryReply_MapsToStoryReplyWithTextAndExternalContentUrl()
     {
         var messages = InstagramPayloadParser.ParseMessages(Parse(StoryReplyPayload));
 
         var message = Assert.Single(messages);
         Assert.Equal(MessageType.StoryReply, message.Type);
         Assert.Equal("cool story!", message.Body);
-        Assert.Equal("https://scontent.cdninstagram.com/v/story.jpg?expires=456", message.MediaExternalId);
+        // Same treatment as ig_reel/ig_post below: never trust an "external Instagram content"
+        // url as downloadable CDN media without live confirmation — MediaExternalId stays null,
+        // the url only travels as ExternalContentUrl for the frontend's own link-out.
+        Assert.Null(message.MediaExternalId);
+        Assert.Equal("https://scontent.cdninstagram.com/v/story.jpg?expires=456", message.ExternalContentUrl);
+        Assert.Equal("Story", message.ExternalContentKind);
     }
 
     [Fact]
@@ -485,36 +490,41 @@ public class InstagramPayloadParserTests
         var message = Assert.Single(messages);
         Assert.Equal(MessageType.StoryReply, message.Type);
         Assert.Null(message.Body);
-        Assert.Equal("https://scontent.cdninstagram.com/v/mention.jpg?expires=789", message.MediaExternalId);
+        Assert.Null(message.MediaExternalId);
+        Assert.Equal("https://scontent.cdninstagram.com/v/mention.jpg?expires=789", message.ExternalContentUrl);
+        Assert.Equal("Story", message.ExternalContentKind);
     }
 
     [Fact]
-    public void ParseMessages_Reel_MapsToVideoWithReelMarkerTitleAndPermalink()
+    public void ParseMessages_Reel_MapsToVideoWithReelMarkerAndTitle()
     {
         var messages = InstagramPayloadParser.ParseMessages(Parse(ReelAttachmentPayload));
 
         var message = Assert.Single(messages);
         Assert.Equal(MessageType.Video, message.Type);
         // payload.url is a web permalink, not a CDN asset (confirmed live, see the parser's
-        // comment) — it goes into Body for the frontend's "open in Instagram" link, and
-        // MediaExternalId stays null so WebhookProcessor never enqueues a doomed download.
-        Assert.Equal("[Reel] funny cat\nhttps://www.instagram.com/reel/DWJ5EU-Ad5i/", message.Body);
+        // comment) — it's a dedicated field now, not embedded in Body (an earlier version put it
+        // on a second Body line, which the "open in Instagram" button ended up mishandling).
+        Assert.Equal("[Reel] funny cat", message.Body);
         Assert.Null(message.MediaExternalId);
+        Assert.Equal("https://www.instagram.com/reel/DWJ5EU-Ad5i/", message.ExternalContentUrl);
+        Assert.Equal("Reel", message.ExternalContentKind);
     }
 
     [Fact]
-    public void ParseMessages_ReelWithoutTitle_MapsToVideoWithBareMarkerAndPermalink()
+    public void ParseMessages_ReelWithoutTitle_MapsToVideoWithBareMarker()
     {
         var messages = InstagramPayloadParser.ParseMessages(Parse(ReelAttachmentNoTitlePayload));
 
         var message = Assert.Single(messages);
         Assert.Equal(MessageType.Video, message.Type);
-        Assert.Equal("[Reel]\nhttps://www.instagram.com/reel/AbCdEfGhIjK/", message.Body);
+        Assert.Equal("[Reel]", message.Body);
         Assert.Null(message.MediaExternalId);
+        Assert.Equal("https://www.instagram.com/reel/AbCdEfGhIjK/", message.ExternalContentUrl);
     }
 
     [Fact]
-    public void ParseMessages_Post_MapsToVideoWithPostMarkerTitleAndPermalink()
+    public void ParseMessages_Post_MapsToVideoWithPostMarkerAndTitle()
     {
         // ig_post used to fall through to the unsupported-type branch entirely — this is the
         // regression fixed here: a shared feed post is now a recognized, visible message instead
@@ -523,8 +533,10 @@ public class InstagramPayloadParserTests
 
         var message = Assert.Single(messages);
         Assert.Equal(MessageType.Video, message.Type);
-        Assert.Equal("[Post] sunset\nhttps://www.instagram.com/p/CxYzAbCdEfG/", message.Body);
+        Assert.Equal("[Post] sunset", message.Body);
         Assert.Null(message.MediaExternalId);
+        Assert.Equal("https://www.instagram.com/p/CxYzAbCdEfG/", message.ExternalContentUrl);
+        Assert.Equal("Post", message.ExternalContentKind);
     }
 
     [Fact]
@@ -537,8 +549,26 @@ public class InstagramPayloadParserTests
 
         var message = Assert.Single(messages);
         Assert.Equal(MessageType.Video, message.Type);
-        Assert.Equal("[Post] trip (+1 боз)\nhttps://www.instagram.com/p/CxCarousel1/", message.Body);
+        Assert.Equal("[Post] trip (+1 боз)", message.Body);
         Assert.Null(message.MediaExternalId);
+        Assert.Equal("https://www.instagram.com/p/CxCarousel1/", message.ExternalContentUrl);
+    }
+
+    [Fact]
+    public void ExtractExternalContentPayloadsForDiagnostics_ReturnsRawPayloadForReelPostAndStory()
+    {
+        var reelPayloads = InstagramPayloadParser.ExtractExternalContentPayloadsForDiagnostics(Parse(ReelAttachmentPayload));
+        var storyReplyPayloads = InstagramPayloadParser.ExtractExternalContentPayloadsForDiagnostics(Parse(StoryReplyPayload));
+        var storyMentionPayloads = InstagramPayloadParser.ExtractExternalContentPayloadsForDiagnostics(Parse(StoryMentionPayload));
+        var imagePayloads = InstagramPayloadParser.ExtractExternalContentPayloadsForDiagnostics(Parse(ImageAttachmentPayload));
+
+        Assert.Single(reelPayloads);
+        Assert.Contains("DWJ5EU-Ad5i", reelPayloads[0]);
+        Assert.Single(storyReplyPayloads);
+        Assert.Contains("story.jpg", storyReplyPayloads[0]);
+        Assert.Single(storyMentionPayloads);
+        // Not ig_reel/ig_post/story_mention/reply_to.story — nothing to diagnose here.
+        Assert.Empty(imagePayloads);
     }
 
     [Fact]

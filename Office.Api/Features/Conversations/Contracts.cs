@@ -59,7 +59,11 @@ public record MessageDto(
     DateTimeOffset? MediaDeletedAt,
     string? MediaDownloadError,
     IReadOnlyList<double>? WaveformPeaks,
-    string? FailureReason)
+    string? FailureReason,
+    // Пайванди воқеии Reel/Post/Story-и мубодилашуда (ниг. Message.ExternalContentUrl) — на
+    // дар матн, майдони алоҳида барои frontend, то "Кушодан дар Instagram" боэътимод кор кунад.
+    string? ExternalContentUrl,
+    string? ExternalContentKind)
 {
     /// <summary>
     /// Ягона роҳи табдили Message ба шакли берунӣ — ҳам REST (GET/POST-и Conversations),
@@ -75,7 +79,7 @@ public record MessageDto(
         m.MediaDeletedAt, m.MediaDownloadError,
         // 0-100 дар DB (smallint[], фишурда) → 0-1 дар DTO (тавре ки frontend интизор аст).
         m.WaveformPeaks?.Select(p => p / 100.0).ToList(),
-        m.FailureReason);
+        m.FailureReason, m.ExternalContentUrl, m.ExternalContentKind);
 }
 
 public record ConversationAssignmentEventDto(

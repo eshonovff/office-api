@@ -55,6 +55,12 @@ public class InstagramProvider(
                 logger.LogWarning("Instagram: эҳтимол пости каруселӣ дида шуд — шакли воқеии payload санҷида нашудааст: {Body}", message.Body);
         }
 
+        // МУВАҚҚАТӢ ТАШХИС: ин payload-ҳо ҳеҷ токен/парол надоранд (url + title, ҳамин
+        // тасдиқшуд), пас пурра log кардан бехатар аст — то бидонем, оё Meta майдони
+        // preview/thumbnail низ мефиристад (ниг. ExtractExternalContentPayloadsForDiagnostics).
+        foreach (var rawPayload in InstagramPayloadParser.ExtractExternalContentPayloadsForDiagnostics(payload))
+            logger.LogInformation("Instagram: payload-и Reel/Post/Story (ташхис): {RawPayload}", rawPayload);
+
         return Task.FromResult(messages);
     }
 

@@ -48,7 +48,7 @@ public static class InstagramPayloadParser
                     continue;
 
                 var mid = messageEl.GetProperty("mid").GetString()!;
-                var (type, body, mediaUrl) = MapMessageContent(messageEl);
+                var (type, body, mediaUrl, externalContentUrl, externalContentKind) = MapMessageContent(messageEl);
 
                 result.Add(new ParsedWebhookMessage(
                     ConversationExternalId: senderId,
@@ -62,7 +62,9 @@ public static class InstagramPayloadParser
                     SentAt: sentAt,
                     // Ҳамон алгуи Facebook: URL-и CDN бо мӯҳлат, на media id — InstagramProvider.
                     // DownloadMediaAsync онро мустақим GET мекунад.
-                    MediaExternalId: mediaUrl));
+                    MediaExternalId: mediaUrl,
+                    ExternalContentUrl: externalContentUrl,
+                    ExternalContentKind: externalContentKind));
 
                 continue;
             }
@@ -142,23 +144,26 @@ public static class InstagramPayloadParser
         }
     }
 
-    private static (MessageType Type, string? Body, string? MediaUrl) MapMessageContent(JsonElement messageEl)
+    private static (MessageType Type, string? Body, string? MediaUrl, string? ExternalContentUrl, string? ExternalContentKind) MapMessageContent(
+        JsonElement messageEl)
     {
         var text = messageEl.TryGetProperty("text", out var textEl) ? textEl.GetString() : null;
 
-        // Ҷавоб ба сторис: паёми матнии оддӣ + reply_to.story (URL-и сторис ҳамчун контекст,
-        // бо MessageType.StoryReply нишон дода мешавад — frontend аллакай инро ҳамчун
-        // расм+матн намоиш медиҳад, ниг. MessageBubble.tsx).
+        // Ҷавоб ба сторис: паёми матнии оддӣ + reply_to.story. URL-и сторис ин ҷо ҳам (ниг.
+        // ig_reel/ig_post поён барои далел) эҳтимолан пайванди веб аст, на CDN — санҷиши зиндаи
+        // мустақим барои ҳамин ҳолат карда нашудааст (сторис 24 соат зинда аст, дидани воқеӣ дар
+        // production душвор), вале сохтори якхела (ҳамон Messenger Platform "мубодилаи мазмуни
+        // берунӣ") бо эҳтиёт ҳамин тавр рафтор мекунад: MediaExternalId не, ExternalContentUrl бале.
         if (messageEl.TryGetProperty("reply_to", out var replyToEl) && replyToEl.TryGetProperty("story", out var storyEl))
         {
             var storyUrl = storyEl.TryGetProperty("url", out var storyUrlEl) ? storyUrlEl.GetString() : null;
-            return (MessageType.StoryReply, text, storyUrl);
+            return (MessageType.StoryReply, text, null, storyUrl, storyUrl is null ? null : "Story");
         }
 
         if (!messageEl.TryGetProperty("attachments", out var attachmentsEl) || attachmentsEl.ValueKind != JsonValueKind.Array ||
             attachmentsEl.GetArrayLength() == 0)
         {
-            return (MessageType.Text, text, null);
+            return (MessageType.Text, text, null, null, null);
         }
 
         var attachment = attachmentsEl[0];
@@ -169,33 +174,30 @@ public static class InstagramPayloadParser
         switch (attachmentType)
         {
             case "image":
-                return (MessageType.Image, text, url);
+                return (MessageType.Image, text, url, null, null);
             case "video":
-                return (MessageType.Video, text, url);
+                return (MessageType.Video, text, url, null, null);
             case "audio":
-                return (MessageType.Audio, text, url);
+                return (MessageType.Audio, text, url, null, null);
             case "file":
-                return (MessageType.File, text, url);
+                return (MessageType.File, text, url, null, null);
 
             // story_mention: корбар account-ро дар сторисаш зикр кард (на "reply" — attachment-и
-            // алоҳида, бе reply_to). MessageType-и ҷудогона надорем — StoryReply қасдан такрор
-            // истифода мешавад (на партофта мешавад), ниг. report барои сабаб.
+            // алоҳида, бе reply_to). Ҳамон эҳтиёти боло (ниг. reply_to.story).
             case "story_mention":
-                return (MessageType.StoryReply, text, url);
+                return (MessageType.StoryReply, text, null, url, url is null ? null : "Story");
 
             // Reel/пости мубодилашуда: MessageType-и ҷудогона надорем — video бо нишонаи "[Reel]"/
-            // "[Post]" дар матн, ва (агар URL бошад) сатри дуюми матн — ҳамон URL, барои пайванди
-            // "Кушодан дар Instagram" дар frontend.
+            // "[Post]" дар матн (танҳо унвон, БЕ URL — ниг. report: URL дар матн буд, вале тугмаи
+            // "Кушодан дар Instagram" гоҳо ба саҳифаи маҳаллӣ мебурд; ExternalContentUrl майдони
+            // алоҳида, боэътимодтар аст барои frontend).
             //
             // МУҲИМ (тасдиқшуда 2026-08-24 бо санҷиши зиндаи production, на тахмин): payload.url
             // барои ҳарду навъ ин ПАЙВАНДИ САҲИФАИ ВЕБ аст (масалан instagram.com/reel/<code>/),
             // на URL-и CDN-и медиаи хом. curl бо User-Agent-и воқеӣ HTML-и саҳифаро баргардонд (на
             // видео); бе User-Agent — 302 → facebook.com/unsupportedbrowser. Ҳеҷ сарлавҳае натиҷаи
-            // медиаи воқеиро намедиҳад — MediaDownloadJob ҳеҷ гоҳ барои ин URL-ҳо муваффақ намешавад.
-            // Бинобар ин MediaExternalId қасдан NULL аст (WebhookProcessor MediaDownloadJob-ро танҳо
-            // барои MediaExternalId!=null дар навбат мегузорад) — ба ҷои кӯшиши абадан-ноком, URL
-            // ҳамчун пайванди берунӣ дар матн нигоҳ дошта мешавад, frontend бадани медиа нишон
-            // намедиҳад, балки тугмаи "Кушодан дар Instagram"-ро.
+            // медиаи воқеиро намедиҳад — MediaExternalId қасдан NULL аст (WebhookProcessor
+            // MediaDownloadJob-ро танҳо барои MediaExternalId!=null дар навбат мегузорад).
             case "ig_reel":
             case "ig_post":
             {
@@ -211,19 +213,52 @@ public static class InstagramPayloadParser
                 // дафъаи аввали воқеан дидани карусел бидонем, шакли он чӣ гуна аст.
                 if (attachmentsEl.GetArrayLength() > 1)
                     caption += $" (+{attachmentsEl.GetArrayLength() - 1} боз)";
-                var body = string.IsNullOrEmpty(url) ? caption : $"{caption}\n{url}";
-                return (MessageType.Video, body, null);
+                var kind = attachmentType == "ig_reel" ? "Reel" : "Post";
+                return (MessageType.Video, caption, null, url, url is null ? null : kind);
             }
 
             // Стикери дил (double-tap/heart sticker) — расм/видео надорад, барои сабти "навъи
             // маълум" (на паёми холӣ) матни собит истифода мешавад.
             case "like_heart":
-                return (MessageType.Text, "❤️ (стикер)", null);
+                return (MessageType.Text, "❤️ (стикер)", null, null, null);
 
             // Ҳеҷ навъ хомӯшона партофта намешавад — InstagramProvider.ParseWebhookAsync ин
             // ҳолатро log мекунад (UnsupportedTypeBodyPrefix-ро санҷида).
             default:
-                return (MessageType.Text, $"{UnsupportedTypeBodyPrefix}{attachmentType ?? "(бе навъ)"}]", url);
+                return (MessageType.Text, $"{UnsupportedTypeBodyPrefix}{attachmentType ?? "(бе навъ)"}]", url, null, null);
         }
+    }
+
+    /// <summary>
+    /// Танҳо барои ташхис (InstagramProvider инро log мекунад): JSON-и пурраи payload-и
+    /// attachment-ҳои ig_reel/ig_post/story_mention/reply_to.story. Ҳадаф: бидонем, оё Meta дар
+    /// онҳо майдони preview/thumbnail (масалан thumbnail_url, image_url) мефиристад — то ҳол
+    /// дида нашудааст (ниг. report), пас парсер аллакай онро истифода намекунад. Вақте ки
+    /// намунаи воқеӣ дар лог пайдо шавад, ин майдонро воқеан пайваст кардан мумкин мешавад.
+    /// </summary>
+    public static IReadOnlyList<string> ExtractExternalContentPayloadsForDiagnostics(JsonElement payload)
+    {
+        var result = new List<string>();
+
+        foreach (var messagingEvent in EnumerateMessagingEvents(payload))
+        {
+            if (!messagingEvent.TryGetProperty("message", out var messageEl))
+                continue;
+
+            if (messageEl.TryGetProperty("reply_to", out var replyToEl) && replyToEl.TryGetProperty("story", out var storyEl))
+                result.Add(storyEl.GetRawText());
+
+            if (!messageEl.TryGetProperty("attachments", out var attachmentsEl) || attachmentsEl.ValueKind != JsonValueKind.Array)
+                continue;
+
+            foreach (var attachment in attachmentsEl.EnumerateArray())
+            {
+                var type = attachment.TryGetProperty("type", out var typeEl) ? typeEl.GetString() : null;
+                if (type is "ig_reel" or "ig_post" or "story_mention" && attachment.TryGetProperty("payload", out var pEl))
+                    result.Add(pEl.GetRawText());
+            }
+        }
+
+        return result;
     }
 }

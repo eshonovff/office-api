@@ -26,6 +26,17 @@ public class Message
     public DateTimeOffset? MediaDeletedAt { get; set; }
     public string? MediaDownloadError { get; set; }
 
+    /// <summary>
+    /// Пайванди воқеии Instagram барои Reel/Post/Story-и мубодилашуда (масалан
+    /// instagram.com/reel/&lt;code&gt;/) — ҳеҷ гоҳ зеркашӣ намешавад: тасдиқшуда (2026-08-24,
+    /// curl зидди production) ин ҳамеша САҲИФАИ ВЕБ аст, на URL-и CDN-и медиа. Танҳо ҳамчун
+    /// пайванди берунӣ нигоҳ дошта мешавад — на дар матн, то frontend ба таври мустақим ва
+    /// боэътимод "Кушодан дар Instagram" созад.
+    /// </summary>
+    public string? ExternalContentUrl { get; set; }
+    /// <summary>"Reel" | "Post" | "Story" — танҳо вақте ExternalContentUrl пур аст.</summary>
+    public string? ExternalContentKind { get; set; }
+
     public Guid? SentByUserId { get; set; }
     public User? SentByUser { get; set; }
     /// <summary>
