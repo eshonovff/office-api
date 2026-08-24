@@ -207,8 +207,16 @@ builder.Services.AddHostedService<DeadlineNotificationBackgroundService>();
 builder.Services.AddSingleton<IChannelCredentialsProtector, ChannelCredentialsProtector>();
 builder.Services.AddSingleton<IMediaProcessor, FfmpegMediaProcessor>();
 builder.Services.AddHttpClient<WhatsAppProvider>();
-builder.Services.AddHttpClient<FacebookProvider>();
-builder.Services.AddHttpClient<InstagramProvider>();
+// 2026-08-24: се рӯз "text/html ба ҷои медиа" — сабаб ин буд, на URL-и мӯҳлатгузашта.
+// HttpClient-и .NET бе User-Agent ҳеҷ сарлавҳа намефиристад; lookaside.fbsbx.com (Meta-и
+// media CDN-и Facebook/Instagram) ба дархости бе User-Agent бо 302 → facebook.com/unsupportedbrowser
+// ҷавоб медиҳад, ки HttpClient-и пешфарз (AllowAutoRedirect=true) худаш пайгирӣ мекунад — натиҷа: 200
+// OK бо Content-Type: text/html, тасдиқшуда бо curl (бе UA → ҳамон саҳифа; бо UA → 200 video/mp4 воқеӣ).
+// graph.facebook.com/graph.instagram.com (Send/Graph API) ин сарлавҳаро рад намекунанд, пас ҳамин
+// клиенти якхела барои ҳарду истифода бехатар аст.
+const string BrowserUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+builder.Services.AddHttpClient<FacebookProvider>(client => client.DefaultRequestHeaders.UserAgent.ParseAdd(BrowserUserAgent));
+builder.Services.AddHttpClient<InstagramProvider>(client => client.DefaultRequestHeaders.UserAgent.ParseAdd(BrowserUserAgent));
 builder.Services.AddScoped<IChannelProviderFactory, ChannelProviderFactory>();
 // RemoveAllLoggers(): URL-и дархостҳо ба Meta code/token-ро дар query string доранд —
 // logging handler-и пешфарзи HttpClientFactory набояд онҳоро ба log бароварад.
