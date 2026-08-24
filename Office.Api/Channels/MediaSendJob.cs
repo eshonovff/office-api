@@ -68,8 +68,19 @@ public class MediaSendJob(
 
         try
         {
-            if (isVoiceNote)
+            // МУҲИМ (2026-08-25, ниг. report): пеш аз ин, агар TranscodeVoiceNoteAsync муваффақ
+            // мешуд (.webm нест карда мешуд, MediaUrl → .ogg дар ХОТИРА иваз мешуд) вале қадами
+            // БАЪДӢ (боркунӣ/фиристодан ба Meta) хато медод, SaveChangesAsync ҳеҷ гоҳ намерасид —
+            // тағйирот гум мешуд. Кӯшиши такрори Hangfire (баъди хатои муваққатии Meta, масалан
+            // "Service temporarily unavailable") message.MediaUrl-ро БОЗ ".webm" медид ва
+            // TranscodeVoiceNoteAsync-ро АЗ НАВ даъват мекард — вале файли манбаъ аллакай нест шуда
+            // буд → ffmpeg "No such file or directory" абадан. Санҷиши MimeType-и поён + SaveChanges
+            // фавран пас аз transcode ин ҳолатро пешгирӣ мекунад: кӯшиши дуюм онро дубора намекунад.
+            if (isVoiceNote && message.MimeType != "audio/ogg")
+            {
                 await TranscodeVoiceNoteAsync(message, rootPath, ct);
+                await db.SaveChangesAsync(ct);
+            }
 
             var fullPath = Path.Combine(rootPath, message.MediaUrl!);
 
@@ -87,12 +98,32 @@ public class MediaSendJob(
             message.MediaExternalId = mediaExternalId;
             message.ExternalId = wamid;
             message.DeliveryStatus = MessageDeliveryStatus.Sent;
+            message.FailureReason = null;
             conversation.LastMessageAt = message.CreatedAt;
         }
         catch (WhatsAppWindowClosedException ex)
         {
             message.DeliveryStatus = MessageDeliveryStatus.Failed;
+            message.FailureReason = "Тирезаи 24-соата баста аст — танҳо шаблон фиристода мешавад.";
             logger.LogWarning(ex, "MediaSendJob: тирезаи 24-соата баста барои паёми {MessageId}.", messageId);
+            await db.SaveChangesAsync(ct);
+            await PublishAsync(channel.Id, conversation.AssignedTo, message, ct);
+            return;
+        }
+        catch (Exception ex)
+        {
+            // Пеш аз ин: хар хатои дигар (аз Meta ё аз ҷои дигар) хомӯшона партофта мешуд —
+            // Hangfire дар паси парда такрор мекард, вале паём то анҷоми ҳамаи кӯшишҳо "Pending"
+            // мемонд, бе ҳеҷ нишонае дар UI, ки чизе вайрон шуд (ниг. report: ҳам сурат, ҳам овоз
+            // "абадан фиристода мешуда" менамуданд, бе хатои возеҳ). Акнун ҳар кӯшиши ноком фавран
+            // "Failed"+сабаби воқеиро нишон медиҳад; агар кӯшиши оянда муваффақ шавад, ба "Sent"
+            // бармегардад (боло). throw — Hangfire мувофиқи [AutomaticRetry] такрор мекунад.
+            message.DeliveryStatus = MessageDeliveryStatus.Failed;
+            message.FailureReason = ex.Message.Length > 500 ? ex.Message[..500] : ex.Message;
+            logger.LogError(ex, "MediaSendJob: кӯшиши фиристодани паёми {MessageId} ноком шуд.", messageId);
+            await db.SaveChangesAsync(ct);
+            await PublishAsync(channel.Id, conversation.AssignedTo, message, ct);
+            throw;
         }
 
         await db.SaveChangesAsync(ct);
