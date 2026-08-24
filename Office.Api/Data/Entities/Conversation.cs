@@ -10,6 +10,8 @@ public class Conversation
     public required string ExternalId { get; set; }
     public string? ContactName { get; set; }
     public string? ContactAvatarUrl { get; set; }
+    /// <summary>Instagram @handle (агар GetContactProfileAsync дошта бошад) — барои пайванди профил дар frontend. Facebook чунин майдон намедиҳад, null мемонад.</summary>
+    public string? ContactUsername { get; set; }
 
     public ConversationStatus Status { get; set; } = ConversationStatus.New;
 

@@ -11,6 +11,9 @@ public record ConversationListItem(
     string ExternalId,
     string? ContactName,
     string? ContactAvatarUrl,
+    // Instagram @handle-и мижоз (агар GetContactProfileAsync дошта бошад) — барои пайванди
+    // профил дар frontend (instagram.com/{username}). Facebook null мемонад.
+    string? ContactUsername,
     string Status,
     Guid? AssignedTo,
     string? AssignedToName,
@@ -27,6 +30,7 @@ public record ConversationDetail(
     string ExternalId,
     string? ContactName,
     string? ContactAvatarUrl,
+    string? ContactUsername,
     string Status,
     Guid? AssignedTo,
     string? AssignedToName,

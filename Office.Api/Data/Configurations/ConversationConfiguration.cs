@@ -12,6 +12,7 @@ public class ConversationConfiguration : IEntityTypeConfiguration<Conversation>
 
         builder.Property(c => c.ExternalId).HasMaxLength(200).IsRequired();
         builder.Property(c => c.ContactName).HasMaxLength(200);
+        builder.Property(c => c.ContactUsername).HasMaxLength(200);
         builder.Property(c => c.Status).HasConversion<string>().HasMaxLength(20);
 
         // Restrict, na Cascade — нест кардани канал набояд таърихи чатро бо худ барад.

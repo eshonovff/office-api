@@ -167,6 +167,7 @@ public class WebhookProcessor(
                 ExternalId = conversationExternalId,
                 ContactName = messages[0].ContactName ?? profile.Name,
                 ContactAvatarUrl = messages[0].ContactAvatarUrl ?? profile.AvatarUrl,
+                ContactUsername = profile.Username,
                 Status = ConversationStatus.New,
                 CreatedAt = DateTimeOffset.UtcNow,
             };

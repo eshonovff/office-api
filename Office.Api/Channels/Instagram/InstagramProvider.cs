@@ -184,11 +184,13 @@ public class InstagramProvider(
         }
 
         using var doc = JsonDocument.Parse(await response.Content.ReadAsStreamAsync(ct));
-        var name = doc.RootElement.TryGetProperty("name", out var nameEl) ? nameEl.GetString()
-            : doc.RootElement.TryGetProperty("username", out var usernameEl) ? usernameEl.GetString() : null;
+        var username = doc.RootElement.TryGetProperty("username", out var usernameEl) ? usernameEl.GetString() : null;
+        // "name" аксар вақт холист барои account-ҳои шахсӣ — username ҳамеша ҳаст (агар
+        // "name" набошад, ҳамчун номи намоён истифода мешавад, вале ҳам алоҳида нигоҳ дошта мешавад).
+        var name = doc.RootElement.TryGetProperty("name", out var nameEl) ? nameEl.GetString() : null;
         var avatarUrl = doc.RootElement.TryGetProperty("profile_pic", out var picEl) ? picEl.GetString() : null;
 
-        return new ContactProfile(name, avatarUrl);
+        return new ContactProfile(string.IsNullOrEmpty(name) ? username : name, avatarUrl, username);
     }
 
     private static object BuildMessagePayload(string conversationExternalId, object message, string? messageTag) =>

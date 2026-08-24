@@ -774,7 +774,7 @@ public static class ConversationsEndpoints
 
     private static ConversationListItem ToListItem(Conversation c) => new(
         c.Id, c.ChannelId, c.Channel.Type.ToString(), c.Channel.Name, c.ExternalId,
-        c.ContactName, c.ContactAvatarUrl, c.Status.ToString(), c.AssignedTo, c.Assignee?.FullName,
+        c.ContactName, c.ContactAvatarUrl, c.ContactUsername, c.Status.ToString(), c.AssignedTo, c.Assignee?.FullName,
         c.LastMessageAt, c.UnreadCount, c.WindowExpiresAt, c.CreatedAt);
 
     /// <summary>
@@ -783,7 +783,7 @@ public static class ConversationsEndpoints
     /// </summary>
     internal static ConversationDetail ToDetail(Conversation c) => new(
         c.Id, c.ChannelId, c.Channel.Type.ToString(), c.Channel.Name, c.ExternalId,
-        c.ContactName, c.ContactAvatarUrl, c.Status.ToString(), c.AssignedTo, c.Assignee?.FullName,
+        c.ContactName, c.ContactAvatarUrl, c.ContactUsername, c.Status.ToString(), c.AssignedTo, c.Assignee?.FullName,
         c.LastMessageAt, c.UnreadCount, c.WindowExpiresAt, c.CreatedAt,
         MediaUploadValidator.LimitsFor(c.Channel.Type));
 

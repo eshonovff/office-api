@@ -73,7 +73,7 @@ public interface IChannelProvider
 /// захира мешавад (танҳо як маротиба, ҳангоми сохтани conversation); баъд аз мӯҳлат вайрон
 /// шуданаш маълум аст ва қасдан ҳал нашудааст (ниг. эзоҳи commit).
 /// </summary>
-public record ContactProfile(string? Name, string? AvatarUrl)
+public record ContactProfile(string? Name, string? AvatarUrl, string? Username = null)
 {
     public static readonly ContactProfile Empty = new(null, null);
 }
