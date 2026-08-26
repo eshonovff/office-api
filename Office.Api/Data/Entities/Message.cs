@@ -57,5 +57,12 @@ public class Message
     /// <summary>Пур мешавад ҳар вақте DeliveryStatus ба Failed мегузарад — "чаро" на танҳо "нашуд".</summary>
     public string? FailureReason { get; set; }
 
+    /// <summary>
+    /// Ҷавоби хоми Meta Graph API (JSON), фақат вақте FailureReason аз GraphApiException омадааст —
+    /// барои debug дар frontend (details/tooltip-и пӯшида), FailureReason-и худ ҳамеша матни
+    /// инсонфаҳм мемонад (ниг. MetaErrorTranslator).
+    /// </summary>
+    public string? FailureDetail { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; }
 }

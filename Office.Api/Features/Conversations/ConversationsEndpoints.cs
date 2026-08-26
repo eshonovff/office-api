@@ -785,7 +785,8 @@ public static class ConversationsEndpoints
         c.Id, c.ChannelId, c.Channel.Type.ToString(), c.Channel.Name, c.ExternalId,
         c.ContactName, c.ContactAvatarUrl, c.ContactUsername, c.Status.ToString(), c.AssignedTo, c.Assignee?.FullName,
         c.LastMessageAt, c.UnreadCount, c.WindowExpiresAt, c.CreatedAt,
-        MediaUploadValidator.LimitsFor(c.Channel.Type));
+        MediaUploadValidator.LimitsFor(c.Channel.Type),
+        ChannelCapabilities.CanSendMedia(c.Channel.Type), ChannelCapabilities.CanSendVoice(c.Channel.Type));
 
     /// <summary>
     /// Не save мекунад — дар SaveChangesAsync-и навбатии caller якҷоя мешавад. Номҳо

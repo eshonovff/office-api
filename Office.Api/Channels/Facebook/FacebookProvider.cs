@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Office.Api.Auth;
+using Office.Api.Channels;
 using Office.Api.Channels.WhatsApp;
 using Office.Api.Data;
 using Office.Api.Data.Entities;
@@ -120,7 +121,7 @@ public class FacebookProvider(
             logger.LogError(
                 "Facebook message_attachments хатогӣ: {StatusCode} {Body} | rate-limit сарлавҳаҳо: {RateLimitHeaders}",
                 (int)response.StatusCode, responseBody, MetaRateLimitHeaders.Describe(response.Headers) ?? "(нест)");
-            throw new InvalidOperationException($"Facebook message_attachments хатогӣ: {responseBody}");
+            throw new GraphApiException(MetaErrorTranslator.Translate(responseBody), responseBody);
         }
 
         using var doc = JsonDocument.Parse(await response.Content.ReadAsStreamAsync(ct));
@@ -238,7 +239,7 @@ public class FacebookProvider(
         logger.LogError(
             "Facebook Graph API хатогӣ: {StatusCode} {Body} | rate-limit сарлавҳаҳо: {RateLimitHeaders}",
             (int)response.StatusCode, responseBody, MetaRateLimitHeaders.Describe(response.Headers) ?? "(нест)");
-        throw new InvalidOperationException($"Facebook Graph API хатогӣ: {responseBody}");
+        throw new GraphApiException(MetaErrorTranslator.Translate(responseBody), responseBody);
     }
 
     private async Task NotifyOwnersAsync(string message, CancellationToken ct)

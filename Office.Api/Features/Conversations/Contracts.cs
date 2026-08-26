@@ -1,3 +1,4 @@
+using Office.Api.Channels;
 using Office.Api.Data.Entities;
 using Office.Api.Media;
 
@@ -40,7 +41,11 @@ public record ConversationDetail(
     DateTimeOffset CreatedAt,
     // Composer-и frontend бо ҳамин рақамҳо пеш аз боркунӣ санҷад — як ҷои ягона барои
     // ҳудуди андозаи файл, на нусхаи дуюми дар frontend такрор навишташуда. Ниг. MediaUploadValidator.
-    IReadOnlyList<MediaTypeLimit> MediaLimits);
+    IReadOnlyList<MediaTypeLimit> MediaLimits,
+    // Оё ин канал ҳозир медиа/овоз мефиристад (ниг. ChannelCapabilities) — Composer тугмаи
+    // скрепка/микрофонро ҳамин байрақҳо асос карда пинҳон мекунад, на бо навъи канал hardcode.
+    bool CanSendMedia,
+    bool CanSendVoice);
 
 public record MessageDto(
     Guid Id,
@@ -64,6 +69,10 @@ public record MessageDto(
     string? MediaDownloadError,
     IReadOnlyList<double>? WaveformPeaks,
     string? FailureReason,
+    // Ҷавоби хоми Meta Graph API — танҳо вақте FailureReason аз MetaErrorTranslator омадааст.
+    // Frontend инро дар details/tooltip-и пӯшида нишон медиҳад, барои debug; FailureReason худ
+    // ҳамеша матни инсонфаҳм аст, ин майдон ҳеҷ гоҳ дар ҳубоб мустақим чоп намешавад.
+    string? FailureDetail,
     // Пайванди воқеии Reel/Post/Story-и мубодилашуда (ниг. Message.ExternalContentUrl) — на
     // дар матн, майдони алоҳида барои frontend, то "Кушодан дар Instagram" боэътимод кор кунад.
     string? ExternalContentUrl,
@@ -83,7 +92,7 @@ public record MessageDto(
         m.MediaDeletedAt, m.MediaDownloadError,
         // 0-100 дар DB (smallint[], фишурда) → 0-1 дар DTO (тавре ки frontend интизор аст).
         m.WaveformPeaks?.Select(p => p / 100.0).ToList(),
-        m.FailureReason, m.ExternalContentUrl, m.ExternalContentKind);
+        m.FailureReason, m.FailureDetail, m.ExternalContentUrl, m.ExternalContentKind);
 }
 
 public record ConversationAssignmentEventDto(

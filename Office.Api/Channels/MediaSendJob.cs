@@ -44,6 +44,25 @@ public class MediaSendJob(
 
         var conversation = message.Conversation;
         var channel = conversation.Channel;
+
+        // Ин канал ҳозир ин навъи файлро тамоман намефиристад (ниг. ChannelCapabilities — барои
+        // Instagram/Facebook феълан ҳамеша) — санҷиши ин ҷо, ПЕШ АЗ ҳар кӯшиши воқеӣ, кофтуков ба
+        // Meta-и бефоидаро (ва 3 такрори Hangfire-и он) пешгирӣ мекунад, хатои возеҳ фавран медиҳад.
+        var canSendThisType = isVoiceNote ? ChannelCapabilities.CanSendVoice(channel.Type) : ChannelCapabilities.CanSendMedia(channel.Type);
+        if (!canSendThisType)
+        {
+            message.DeliveryStatus = MessageDeliveryStatus.Failed;
+            message.FailureReason = isVoiceNote
+                ? $"{channel.Type}: фиристодани voice note ҳозир дастрас нест."
+                : $"{channel.Type}: фиристодани медиа ҳозир дастрас нест.";
+            logger.LogWarning(
+                "MediaSendJob: {ChannelType} метавонад {Kind} нафиристад — паёми {MessageId} рад шуд, ба Meta намерасонам.",
+                channel.Type, isVoiceNote ? "voice note" : "медиа", messageId);
+            await db.SaveChangesAsync(ct);
+            await PublishAsync(channel.Id, conversation.AssignedTo, message, ct);
+            return;
+        }
+
         var provider = factory.GetProvider(channel.Type);
         var rootPath = UploadsPathResolver.ResolveRootPath(configuration, env);
 
@@ -115,6 +134,19 @@ public class MediaSendJob(
             await db.SaveChangesAsync(ct);
             await PublishAsync(channel.Id, conversation.AssignedTo, message, ct);
             return;
+        }
+        catch (GraphApiException ex)
+        {
+            // ex.Message аллакай тарҷумашудааст (MetaErrorTranslator, дар провайдер) — на JSON-и
+            // хом. RawResponseBody фақат барои debug (FailureDetail → frontend-и пӯшида) захира
+            // мешавад, ҳеҷ гоҳ дар ҳубоб мустақим чоп намешавад.
+            message.DeliveryStatus = MessageDeliveryStatus.Failed;
+            message.FailureReason = ex.Message;
+            message.FailureDetail = ex.RawResponseBody.Length > 4000 ? ex.RawResponseBody[..4000] : ex.RawResponseBody;
+            logger.LogError(ex, "MediaSendJob: Meta Graph API рад кард — паёми {MessageId}.", messageId);
+            await db.SaveChangesAsync(ct);
+            await PublishAsync(channel.Id, conversation.AssignedTo, message, ct);
+            throw;
         }
         catch (Exception ex)
         {

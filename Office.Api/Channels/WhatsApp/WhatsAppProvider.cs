@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Office.Api.Auth;
+using Office.Api.Channels;
 using Office.Api.Data;
 using Office.Api.Data.Entities;
 using Office.Api.Realtime;
@@ -260,7 +261,7 @@ public class WhatsAppProvider(
         logger.LogError(
             "WhatsApp Graph API хатогӣ: {StatusCode} {Body} | rate-limit сарлавҳаҳо: {RateLimitHeaders}",
             (int)response.StatusCode, responseBody, MetaRateLimitHeaders.Describe(response.Headers) ?? "(нест)");
-        throw new InvalidOperationException($"WhatsApp Graph API хатогӣ: {responseBody}");
+        throw new GraphApiException(MetaErrorTranslator.Translate(responseBody), responseBody);
     }
 
     private async Task NotifyOwnersAsync(string message, CancellationToken ct)

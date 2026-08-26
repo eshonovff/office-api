@@ -100,6 +100,30 @@ public class WhatsAppSendJob(
             message.FailureReason = ex.Message;
             logger.LogWarning(ex, "WhatsAppSendJob: тирезаи 24-соата баста барои паёми {MessageId}.", messageId);
         }
+        catch (GraphApiException ex)
+        {
+            // ex.Message аллакай тарҷумашудааст (MetaErrorTranslator, дар провайдер) — на JSON-и
+            // хом (ки пеш аз ин мустақим дар ҳубоб чоп мешуд ва тредро уфуқӣ мегардонд).
+            message.DeliveryStatus = MessageDeliveryStatus.Failed;
+            message.FailureReason = ex.Message;
+            message.FailureDetail = ex.RawResponseBody.Length > 4000 ? ex.RawResponseBody[..4000] : ex.RawResponseBody;
+            logger.LogError(ex, "WhatsAppSendJob: Meta Graph API рад кард — паёми {MessageId}.", messageId);
+            await db.SaveChangesAsync(ct);
+            await PublishAsync(channel.Id, conversation.AssignedTo, message, ct);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // Пеш аз ин ин ҷо ҳеҷ catch набуд — хатои умумӣ (масалан шабака) хомӯшона Hangfire-ро
+            // такрор мекард, бе ҳеҷ FailureReason-е дар паём: оператор "абадан Pending" медид, бе
+            // ҳеҷ нишонае, ки чизе вайрон шуд.
+            message.DeliveryStatus = MessageDeliveryStatus.Failed;
+            message.FailureReason = ex.Message.Length > 500 ? ex.Message[..500] : ex.Message;
+            logger.LogError(ex, "WhatsAppSendJob: кӯшиши фиристодани паёми {MessageId} ноком шуд.", messageId);
+            await db.SaveChangesAsync(ct);
+            await PublishAsync(channel.Id, conversation.AssignedTo, message, ct);
+            throw;
+        }
 
         await db.SaveChangesAsync(ct);
         await PublishAsync(channel.Id, conversation.AssignedTo, message, ct);
@@ -119,9 +143,35 @@ public class WhatsAppSendJob(
         }
 
         var messageTag = mode == MessengerSendMode.Tag ? MessengerTags.HumanAgent : null;
-        message.ExternalId = await provider.SendMessageAsync(channel, conversation.ExternalId, message.Body ?? string.Empty, messageTag, ct);
-        message.DeliveryStatus = MessageDeliveryStatus.Sent;
-        conversation.LastMessageAt = message.CreatedAt;
+
+        try
+        {
+            message.ExternalId = await provider.SendMessageAsync(channel, conversation.ExternalId, message.Body ?? string.Empty, messageTag, ct);
+            message.DeliveryStatus = MessageDeliveryStatus.Sent;
+            conversation.LastMessageAt = message.CreatedAt;
+        }
+        catch (GraphApiException ex)
+        {
+            message.DeliveryStatus = MessageDeliveryStatus.Failed;
+            message.FailureReason = ex.Message;
+            message.FailureDetail = ex.RawResponseBody.Length > 4000 ? ex.RawResponseBody[..4000] : ex.RawResponseBody;
+            logger.LogError(ex, "WhatsAppSendJob: Meta Graph API рад кард (messenger) — паёми {MessageId}.", message.Id);
+            await db.SaveChangesAsync(ct);
+            await PublishAsync(channel.Id, conversation.AssignedTo, message, ct);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // Пеш аз ин ин ҷо (Instagram/Facebook-и матн) ҳеҷ catch набуд — исботшуда: Instagram
+            // ҳозир message_attachments-и media-ро тамоман рад мекунад (500, то App Review), вале
+            // ин роҳи МАТН аст, на media — гап дар бораи ҳар хатои дигари шабака/Meta.
+            message.DeliveryStatus = MessageDeliveryStatus.Failed;
+            message.FailureReason = ex.Message.Length > 500 ? ex.Message[..500] : ex.Message;
+            logger.LogError(ex, "WhatsAppSendJob: кӯшиши фиристодани паёми messenger {MessageId} ноком шуд.", message.Id);
+            await db.SaveChangesAsync(ct);
+            await PublishAsync(channel.Id, conversation.AssignedTo, message, ct);
+            throw;
+        }
 
         await db.SaveChangesAsync(ct);
         await PublishAsync(channel.Id, conversation.AssignedTo, message, ct);

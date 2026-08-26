@@ -124,21 +124,50 @@ public class MediaSendJobTests
         Assert.Null(reloaded.FailureReason); // cleared on the successful retry
     }
 
-    [Fact]
-    public async Task SendAsync_InstagramVoiceNote_TranscodesToAacNotOgg()
+    // SendAsync_InstagramVoiceNote_TranscodesToAacNotOgg was retired 2026-08-25: the new
+    // ChannelCapabilities.CanSendVoice guard (see SendAsync_InstagramVoiceNote_RejectedByCapabilityGuard_
+    // BeforeAnyTranscodeOrUpload below) now rejects every Instagram voice note before SendAsync ever
+    // reaches TranscodeVoiceNoteAsync, so the aac/m4a-not-ogg behavior it verified is unreachable
+    // through this entry point for as long as that flag is false. The transcode logic itself is
+    // untouched (see TranscodeVoiceNoteAsync's own comment for the aac/m4a-vs-ogg/opus finding) —
+    // this coverage should come back once CanSendVoice(Instagram) flips true post-App-Review.
+
+    [Theory]
+    [InlineData(ChannelType.Instagram)]
+    [InlineData(ChannelType.Facebook)]
+    public async Task SendAsync_ChannelCannotSendMedia_RejectsWithoutCallingProviderAndDoesNotRethrow(ChannelType channelType)
     {
-        // Confirmed live: Instagram's message_attachments rejected our ogg/opus voice notes with
-        // a generic OAuthException (code 1, "An unknown error has occurred") — Meta's own docs
-        // list aac/m4a/wav/mp4 as the supported audio formats for this endpoint, not ogg/opus.
-        var (db, message) = SeedVoiceNote(channelType: ChannelType.Instagram);
+        // The regression this closes: before this guard, a media send to Instagram/Facebook hit
+        // Meta's Send API (which App-Review-gates it), got a real HTTP 500, and Hangfire retried
+        // it three times (30s/300s/1800s) — a slow, noisy way to fail at something we already
+        // know is impossible. Now it's rejected immediately, no network call, no retry.
+        var (db, message) = SeedVoiceNote(mimeType: "image/jpeg", channelType: channelType);
         var provider = new FakeProvider();
 
-        await MakeJob(db, provider).SendAsync(message.Id, isVoiceNote: true, CancellationToken.None);
+        var exception = await Record.ExceptionAsync(() => MakeJob(db, provider).SendAsync(message.Id, isVoiceNote: false, CancellationToken.None));
 
+        Assert.Null(exception); // terminal, not transient — Hangfire must not retry
+        Assert.Equal(0, provider.UploadCallCount);
+        Assert.Equal(0, provider.SendMediaCallCount);
         var reloaded = await db.Messages.SingleAsync();
-        Assert.EndsWith(".m4a", reloaded.MediaUrl);
-        Assert.Equal("audio/mp4", reloaded.MimeType);
-        Assert.Equal(MessageDeliveryStatus.Sent, reloaded.DeliveryStatus);
+        Assert.Equal(MessageDeliveryStatus.Failed, reloaded.DeliveryStatus);
+        Assert.Contains(channelType.ToString(), reloaded.FailureReason);
+    }
+
+    [Fact]
+    public async Task SendAsync_InstagramVoiceNote_RejectedByCapabilityGuard_BeforeAnyTranscodeOrUpload()
+    {
+        var (db, message) = SeedVoiceNote(channelType: ChannelType.Instagram);
+        var provider = new FakeProvider();
+        var transcodeCounter = new CountingMediaProcessor();
+
+        await MakeJob(db, provider, transcodeCounter).SendAsync(message.Id, isVoiceNote: true, CancellationToken.None);
+
+        Assert.Equal(0, transcodeCounter.TranscodeCallCount);
+        Assert.Equal(0, provider.UploadCallCount);
+        var reloaded = await db.Messages.SingleAsync();
+        Assert.Equal(MessageDeliveryStatus.Failed, reloaded.DeliveryStatus);
+        Assert.Contains("Instagram", reloaded.FailureReason);
     }
 
     [Fact]
@@ -162,6 +191,8 @@ public class MediaSendJobTests
     {
         public Exception? UploadException;
         public Exception? SendException;
+        public int UploadCallCount;
+        public int SendMediaCallCount;
 
         public bool VerifyWebhookToken(string verifyToken) => throw new NotSupportedException();
         public string? ExtractChannelExternalId(System.Text.Json.JsonElement payload) => throw new NotSupportedException();
@@ -174,13 +205,19 @@ public class MediaSendJobTests
         public Task<ContactProfile> GetContactProfileAsync(Channel channel, string contactExternalId, CancellationToken ct) => throw new NotSupportedException();
         public Task<IReadOnlyList<WhatsAppTemplateInfo>> GetApprovedTemplatesAsync(Channel channel, CancellationToken ct) => throw new NotSupportedException();
 
-        public Task<string> UploadMediaAsync(Channel channel, Stream content, string mimeType, string fileName, CancellationToken ct) =>
-            UploadException is not null ? throw UploadException : Task.FromResult("attachment-id-1");
+        public Task<string> UploadMediaAsync(Channel channel, Stream content, string mimeType, string fileName, CancellationToken ct)
+        {
+            UploadCallCount++;
+            return UploadException is not null ? throw UploadException : Task.FromResult("attachment-id-1");
+        }
 
         public Task<string?> SendMediaMessageAsync(
             Channel channel, string conversationExternalId, string mediaExternalId, MessageType type,
-            string? caption, bool isVoiceNote, string? messageTag, CancellationToken ct) =>
-            SendException is not null ? throw SendException : Task.FromResult<string?>("wamid-1");
+            string? caption, bool isVoiceNote, string? messageTag, CancellationToken ct)
+        {
+            SendMediaCallCount++;
+            return SendException is not null ? throw SendException : Task.FromResult<string?>("wamid-1");
+        }
     }
 
     private sealed class SingleProviderFactory(IChannelProvider provider) : IChannelProviderFactory

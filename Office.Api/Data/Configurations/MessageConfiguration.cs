@@ -33,6 +33,7 @@ public class MessageConfiguration : IEntityTypeConfiguration<Message>
         builder.Property(m => m.TemplateLanguage).HasMaxLength(20);
         builder.Property(m => m.TemplateParametersJson).HasColumnType("jsonb");
         builder.Property(m => m.FailureReason).HasMaxLength(500);
+        builder.Property(m => m.FailureDetail).HasMaxLength(4000);
 
         builder.HasOne(m => m.Conversation)
             .WithMany(c => c.Messages)
