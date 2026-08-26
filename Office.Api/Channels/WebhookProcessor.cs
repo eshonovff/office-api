@@ -1,7 +1,9 @@
 using System.Text.Json;
+using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using Office.Api.Data;
 using Office.Api.Data.Entities;
+using Office.Api.Features.Conversations;
 using Office.Api.Realtime;
 
 namespace Office.Api.Channels;
@@ -9,14 +11,13 @@ namespace Office.Api.Channels;
 /// <summary>
 /// Job-и Hangfire барои коркарди webhook-и сабтшуда: parse → идентификатсияи
 /// канал → идентификатсияи conversation → идемпотентии паём → upsert →
-/// навсозии статус → нусхабардории media → огоҳии realtime.
+/// навсозии статус → enqueue-и боркунии media → огоҳии realtime.
 /// </summary>
 public class WebhookProcessor(
     AppDbContext db,
     IChannelProviderFactory factory,
     IInboxEventPublisher events,
-    IConfiguration configuration,
-    IWebHostEnvironment env,
+    IBackgroundJobClient backgroundJobs,
     ILogger<WebhookProcessor> logger)
 {
     public async Task ProcessAsync(Guid webhookLogId, CancellationToken ct)
@@ -90,28 +91,16 @@ public class WebhookProcessor(
 
         var savedMessages = new List<(Message Message, Conversation Conversation, string? MediaExternalId)>();
         foreach (var group in newMessages.GroupBy(m => m.ConversationExternalId))
-            savedMessages.AddRange(await UpsertConversationWithMessagesAsync(channel, group.Key, group.ToList(), ct));
+            savedMessages.AddRange(await UpsertConversationWithMessagesAsync(channel, provider, group.Key, group.ToList(), ct));
 
         await db.SaveChangesAsync(ct);
 
         foreach (var (message, conversation, mediaExternalId) in savedMessages)
         {
-            var payload = new
-            {
-                message.Id,
-                message.ConversationId,
-                Direction = message.Direction.ToString(),
-                Type = message.Type.ToString(),
-                message.Body,
-                message.MediaUrl,
-                message.ExternalId,
-                DeliveryStatus = message.DeliveryStatus.ToString(),
-                message.CreatedAt,
-            };
-            await events.MessageReceivedAsync(channel.Id, conversation.AssignedTo, payload, ct);
+            await events.MessageReceivedAsync(channel.Id, conversation.AssignedTo, MessageDto.FromEntity(message), ct);
 
             if (mediaExternalId is not null)
-                await DownloadAndStoreMediaAsync(channel, provider, message, mediaExternalId, ct);
+                backgroundJobs.Enqueue<MediaDownloadJob>(j => j.DownloadAsync(message.Id, mediaExternalId, CancellationToken.None));
         }
     }
 
@@ -122,54 +111,39 @@ public class WebhookProcessor(
             return;
 
         var externalIds = updates.Select(u => u.MessageExternalId).ToList();
+        // SentByUserName is a persisted snapshot on Message itself — no need to
+        // Include(SentByUser) just to resolve the display name for FromEntity below.
         var messages = await db.Messages
+            .Include(m => m.Conversation)
             .Where(m => m.ExternalId != null && externalIds.Contains(m.ExternalId))
             .ToDictionaryAsync(m => m.ExternalId!, ct);
 
+        var changedMessages = new List<Message>();
         foreach (var update in updates)
         {
             if (messages.TryGetValue(update.MessageExternalId, out var message) && update.Status > message.DeliveryStatus)
+            {
                 message.DeliveryStatus = update.Status;
+                changedMessages.Add(message);
+            }
         }
-    }
 
-    private async Task DownloadAndStoreMediaAsync(
-        Channel channel, IChannelProvider provider, Message message, string mediaExternalId, CancellationToken ct)
-    {
-        try
+        if (changedMessages.Count == 0)
+            return;
+
+        await db.SaveChangesAsync(ct);
+
+        // sent/delivered/read/failed — тамоми "тик"-ҳое, ки WhatsApp UI нишон медиҳад,
+        // на танҳо delivered/read; коди зерин фарқ намекунад, пас ҳама якхела ирсол мешаванд.
+        foreach (var message in changedMessages)
         {
-            await using var stream = await provider.DownloadMediaAsync(channel, mediaExternalId, ct);
-
-            var mediaFolder = Path.Combine(ResolveRootPath(), "whatsapp-media", channel.Id.ToString());
-            Directory.CreateDirectory(mediaFolder);
-
-            var storedFileName = Guid.CreateVersion7().ToString();
-            var fullPath = Path.Combine(mediaFolder, storedFileName);
-
-            await using (var fileStream = File.Create(fullPath))
-                await stream.CopyToAsync(fileStream, ct);
-
-            message.MediaUrl = Path.Combine("whatsapp-media", channel.Id.ToString(), storedFileName);
-            await db.SaveChangesAsync(ct);
+            await events.MessageSentAsync(
+                channel.Id, message.Conversation.AssignedTo, MessageDto.FromEntity(message), ct);
         }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Нусхабардории media {MediaExternalId} барои паёми {MessageId} ноком шуд", mediaExternalId, message.Id);
-        }
-    }
-
-    private string ResolveRootPath()
-    {
-        var configured = configuration["Uploads:RootPath"];
-        var basePath = configured is { Length: > 0 }
-            ? (Path.IsPathRooted(configured) ? configured : Path.Combine(env.ContentRootPath, configured))
-            : Path.Combine(env.ContentRootPath, "uploads");
-
-        return Path.GetFullPath(basePath);
     }
 
     private async Task<List<(Message Message, Conversation Conversation, string? MediaExternalId)>> UpsertConversationWithMessagesAsync(
-        Channel channel, string conversationExternalId, List<ParsedWebhookMessage> messages, CancellationToken ct)
+        Channel channel, IChannelProvider provider, string conversationExternalId, List<ParsedWebhookMessage> messages, CancellationToken ct)
     {
         var savedMessages = new List<(Message, Conversation, string?)>();
 
@@ -178,13 +152,25 @@ public class WebhookProcessor(
 
         if (conversation is null)
         {
+            // WhatsApp номро дар худи webhook медиҳад (ParsedWebhookMessage.ContactName) — ин ҷо
+            // ҳатто дархост намезанад (GetContactProfileAsync-и он ҳамеша Empty). Facebook/Instagram
+            // намедиҳанд — як дархости алоҳида, танҳо як маротиба барои ҳамин мижоз (на барои
+            // ҳар паём), ҳангоми сохтани conversation.
+            var profile = messages[0].ContactName is null
+                ? await provider.GetContactProfileAsync(channel, conversationExternalId, ct)
+                : ContactProfile.Empty;
+
             conversation = new Conversation
             {
                 Id = Guid.CreateVersion7(),
                 ChannelId = channel.Id,
                 ExternalId = conversationExternalId,
-                ContactName = messages[0].ContactName,
-                ContactAvatarUrl = messages[0].ContactAvatarUrl,
+                ContactName = messages[0].ContactName ?? profile.Name,
+                ContactAvatarUrl = messages[0].ContactAvatarUrl ?? profile.AvatarUrl,
+                ContactUsername = profile.Username,
+                // Танҳо вақте ки воқеан кӯшиш кардем (WhatsApp ҳеҷ гоҳ, чунки боло аллакай
+                // ContactName дорад) — ниг. InstagramContactProfileBackfillJob барои сабаб.
+                ContactProfileFetchedAt = messages[0].ContactName is null ? DateTimeOffset.UtcNow : null,
                 Status = ConversationStatus.New,
                 CreatedAt = DateTimeOffset.UtcNow,
             };
@@ -205,6 +191,10 @@ public class WebhookProcessor(
                 Type = parsed.Type,
                 Body = parsed.Body,
                 MediaUrl = parsed.MediaUrl,
+                MimeType = parsed.MimeType,
+                OriginalFileName = parsed.OriginalFileName,
+                ExternalContentUrl = parsed.ExternalContentUrl,
+                ExternalContentKind = parsed.ExternalContentKind,
                 ExternalId = parsed.MessageExternalId,
                 DeliveryStatus = parsed.Direction == MessageDirection.Inbound
                     ? MessageDeliveryStatus.Delivered

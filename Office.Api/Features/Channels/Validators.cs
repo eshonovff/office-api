@@ -31,3 +31,13 @@ public class SetChannelMembersRequestValidator : AbstractValidator<SetChannelMem
         RuleFor(x => x.UserIds).NotNull();
     }
 }
+
+public class ConnectChannelRequestValidator : AbstractValidator<ConnectChannelRequest>
+{
+    public ConnectChannelRequestValidator()
+    {
+        RuleFor(x => x.ConnectionId).NotEmpty();
+        RuleFor(x => x.ExternalId).NotEmpty().MaximumLength(200);
+        RuleFor(x => x.Name).NotEmpty().MaximumLength(200);
+    }
+}

@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using Office.Api.Auth;
 using Office.Api.Channels;
@@ -22,18 +23,33 @@ public static class ChannelsEndpoints
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden);
 
+        group.MapGet("/mine", ListMineAsync)
+            .RequirePermission(Permissions.Inbox.View)
+            .WithSummary("Рӯйхати каналҳое, ки корбар дар Inbox сӯҳбат дорад (филтр) — ҳар кадом бо joinable барои SignalR JoinChannel")
+            .Produces<IEnumerable<ChannelSummary>>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden);
+
         group.MapGet("/{id:guid}", GetAsync)
-            .RequirePermission(Permissions.Channels.Manage)
-            .WithSummary("Маълумоти пурраи канал бо аъзо (бе credentials)")
+            .RequirePermission(Permissions.Inbox.Assign)
+            .WithSummary("Маълумоти пурраи канал бо аъзо (бе credentials) — барои assign-by-drag дар /inbox")
             .Produces<ChannelDetail>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapGet("/{id:guid}/whatsapp-templates", GetWhatsAppTemplatesAsync)
-            .RequirePermission(Permissions.Channels.Manage)
+            .RequirePermission(Permissions.Inbox.Reply)
             .WithSummary("Рӯйхати шаблонҳои тасдиқшудаи WhatsApp аз Meta")
             .Produces<IEnumerable<WhatsAppTemplateInfo>>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        group.MapGet("/{id:guid}/assignable-users", ListAssignableUsersAsync)
+            .RequirePermission(Permissions.Inbox.Assign)
+            .WithSummary("Корбароне, ки метавонанд ба сӯҳбатҳои ин канал таъин шаванд (узв + Owner/Admin) — барои филтри «Ответственный»-и inbox")
+            .Produces<IEnumerable<AssignableUserDto>>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound);
@@ -86,8 +102,20 @@ public static class ChannelsEndpoints
         return Results.Ok(channels.Select(ToListItem));
     }
 
-    private static async Task<IResult> GetAsync(Guid id, AppDbContext db, CancellationToken ct)
+    private static async Task<IResult> ListMineAsync(
+        ClaimsPrincipal principal, AppDbContext db, IChannelAccessGuard access, CancellationToken ct)
     {
+        var (query, joinable) = await access.ApplyChannelAccessFilterAsync(db.Channels.AsNoTracking(), principal, ct);
+        var channels = await query.OrderBy(c => c.Name).ToListAsync(ct);
+        return Results.Ok(channels.Select(c => ToSummary(c, joinable)));
+    }
+
+    private static async Task<IResult> GetAsync(
+        Guid id, ClaimsPrincipal principal, AppDbContext db, IChannelAccessGuard access, CancellationToken ct)
+    {
+        if (!await access.CanAccessChannelAsync(principal, id, ct))
+            return Results.NotFound();
+
         var channel = await db.Channels.AsNoTracking()
             .Include(c => c.Members).ThenInclude(m => m.User)
             .FirstOrDefaultAsync(c => c.Id == id, ct);
@@ -96,8 +124,11 @@ public static class ChannelsEndpoints
     }
 
     private static async Task<IResult> GetWhatsAppTemplatesAsync(
-        Guid id, AppDbContext db, IChannelProviderFactory factory, CancellationToken ct)
+        Guid id, ClaimsPrincipal principal, AppDbContext db, IChannelAccessGuard access, IChannelProviderFactory factory, CancellationToken ct)
     {
+        if (!await access.CanAccessChannelAsync(principal, id, ct))
+            return Results.NotFound();
+
         var channel = await db.Channels.AsNoTracking().FirstOrDefaultAsync(c => c.Id == id, ct);
         if (channel is null)
             return Results.NotFound();
@@ -105,6 +136,20 @@ public static class ChannelsEndpoints
         var provider = factory.GetProvider(channel.Type);
         var templates = await provider.GetApprovedTemplatesAsync(channel, ct);
         return Results.Ok(templates);
+    }
+
+    private static async Task<IResult> ListAssignableUsersAsync(
+        Guid id, ClaimsPrincipal principal, AppDbContext db, IChannelAccessGuard access, CancellationToken ct)
+    {
+        if (!await access.CanAccessChannelAsync(principal, id, ct))
+            return Results.NotFound();
+
+        var users = await access.ApplyAssignableUsersFilter(db.Users.AsNoTracking(), id)
+            .OrderBy(u => u.FullName)
+            .Select(u => new AssignableUserDto(u.Id, u.FullName, u.Username))
+            .ToListAsync(ct);
+
+        return Results.Ok(users);
     }
 
     private static async Task<IResult> CreateAsync(
@@ -149,7 +194,12 @@ public static class ChannelsEndpoints
         channel.IsActive = request.IsActive;
 
         if (!string.IsNullOrEmpty(request.Credentials))
+        {
             channel.CredentialsEncrypted = protector.Protect(request.Credentials);
+            // Дастӣ гузоштани credentials-и нав (WhatsApp) — ҳамон "пайвастшавӣ лозим"-ро тоза
+            // мекунад, ки OAuth-и Facebook/Instagram дар ChannelOAuthEndpoints.ConnectAsync мекунад.
+            channel.RequiresReconnect = false;
+        }
 
         await db.SaveChangesAsync(ct);
         return Results.Ok(ToDetail(channel));
@@ -193,14 +243,21 @@ public static class ChannelsEndpoints
     }
 
     private static ChannelListItem ToListItem(Channel channel) => new(
-        channel.Id, channel.Type.ToString(), channel.Name, channel.ExternalId, channel.IsActive, channel.CreatedAt);
+        channel.Id, channel.Type.ToString(), channel.Name, channel.ExternalId, channel.IsActive, channel.CreatedAt,
+        channel.RequiresReconnect, channel.WebhookSetupWarning, channel.CredentialsExpiresAt);
 
-    private static ChannelDetail ToDetail(Channel channel) => new(
+    private static ChannelSummary ToSummary(Channel channel, bool joinable) => new(
+        channel.Id, channel.Type.ToString(), channel.Name, channel.IsActive, joinable);
+
+    internal static ChannelDetail ToDetail(Channel channel) => new(
         channel.Id,
         channel.Type.ToString(),
         channel.Name,
         channel.ExternalId,
         channel.IsActive,
         channel.CreatedAt,
+        channel.RequiresReconnect,
+        channel.WebhookSetupWarning,
+        channel.CredentialsExpiresAt,
         channel.Members.Select(m => new ChannelMemberDto(m.UserId, m.User.FullName, m.User.Username)).ToList());
 }

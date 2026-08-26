@@ -29,6 +29,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<ChannelMember> ChannelMembers => Set<ChannelMember>();
     public DbSet<Conversation> Conversations => Set<Conversation>();
     public DbSet<Message> Messages => Set<Message>();
+    public DbSet<ConversationAssignmentEvent> ConversationAssignmentEvents => Set<ConversationAssignmentEvent>();
     public DbSet<MessageTemplate> MessageTemplates => Set<MessageTemplate>();
     public DbSet<WebhookLog> WebhookLogs => Set<WebhookLog>();
 

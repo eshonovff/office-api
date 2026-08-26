@@ -17,4 +17,12 @@ public static class ConversationWindowCalculator
 
         return lastInboundAt is not null ? lastInboundAt.Value.AddHours(24) : currentExpiresAt;
     }
+
+    /// <summary>
+    /// Барои паёми ирсоли таъхиршуда (item 5): тиреза метавонад маҳз дар давоми таъхир баста
+    /// шавад — санҷиши пешакӣ, на танҳо такя ба хатои Meta. Шаблон новобаста аз тиреза кор
+    /// мекунад — ин санҷиш ба шаблон ҳеҷ гоҳ таъсир намерасонад.
+    /// </summary>
+    public static bool IsWindowClosed(bool isTemplate, DateTimeOffset? windowExpiresAt, DateTimeOffset now) =>
+        !isTemplate && windowExpiresAt is not null && windowExpiresAt <= now;
 }

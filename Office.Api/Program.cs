@@ -3,6 +3,7 @@ using System.Threading.RateLimiting;
 using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -12,12 +13,17 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.OpenApi;
 using Office.Api.Auth;
 using Office.Api.Channels;
+using Office.Api.Channels.Facebook;
+using Office.Api.Channels.Instagram;
+using Office.Api.Channels.Meta;
 using Office.Api.Channels.WhatsApp;
 using Office.Api.Common;
 using Office.Api.Data;
+using Office.Api.Media;
 using Office.Api.Features.Auth;
 using Office.Api.Features.Channels;
 using Office.Api.Features.Conversations;
+using Office.Api.Features.Jobs;
 using Office.Api.Features.Legal;
 using Office.Api.Features.Notifications;
 using Office.Api.Features.Projects;
@@ -90,10 +96,39 @@ builder.Services.AddHangfire(config => config
     .UsePostgreSqlStorage(options => options.UseNpgsqlConnection(hangfireConnectionString)));
 builder.Services.AddHangfireServer();
 
+// Коркарди медиа (transcode/thumbnail — CPU вазнин) дар навбати ҷудогонаи
+// маҳдуд, то якчанд боркунии ҳамзамон CPU-и серверро банд накунад. Танҳо
+// MediaDownloadJob/MediaSendJob — job-ҳое ки мижози зинда мунтазир аст (URL-и
+// CDN-и Facebook/Instagram зуд мӯҳлаташ мегузарад, ниг. MediaContentTypeValidator).
+builder.Services.AddHangfireServer(options =>
+{
+    options.ServerName = "media-worker";
+    options.Queues = ["media"];
+    options.WorkerCount = 2;
+});
+
+// Job-ҳои backfill/тозакунӣ (WaveformBackfillJob, HtmlMediaCleanupJob) — на мижози зинда
+// мунтазир аст, метавонанд дақиқаҳо тӯл кашанд (сад-ҳо файл). Навбати ҷудогона: агар онҳо
+// дар "media" мебуданд, метавонистанд боркунии медиаи ТОЗАро ба таъхир андозанд, то URL-и
+// CDN мӯҳлаташ гузарад — маҳз ҳамин 2026-08-21 рӯй дод.
+builder.Services.AddHangfireServer(options =>
+{
+    options.ServerName = "media-maintenance-worker";
+    options.Queues = ["media-maintenance"];
+    options.WorkerCount = 1;
+});
+
+var corsAllowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>();
+if (corsAllowedOrigins is not { Length: > 0 })
+    throw new InvalidOperationException("Cors:AllowedOrigins танзим нашудааст.");
+
 builder.Services.AddCors(options =>
 {
+    // Ҳеҷ гоҳ AllowAnyOrigin — AllowCredentials фаъол аст, ва wildcard бо credentials
+    // сӯрохи амниятии воқеӣ мешавад. Origin-ҳо аз конфигуратсия (appsettings/env), на
+    // hardcode — то dev/tunnel/prod бе тағйири код кор кунанд.
     options.AddPolicy(FrontendCorsPolicy, policy => policy
-        .WithOrigins("http://localhost:3000", "https://office.nizom.tj")
+        .WithOrigins(corsAllowedOrigins)
         .AllowAnyHeader()
         .AllowAnyMethod()
         .AllowCredentials());
@@ -171,12 +206,41 @@ builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddHostedService<DeadlineNotificationBackgroundService>();
 
 builder.Services.AddSingleton<IChannelCredentialsProtector, ChannelCredentialsProtector>();
-builder.Services.AddScoped<PlaceholderChannelProvider>();
+builder.Services.AddSingleton<IMediaProcessor, FfmpegMediaProcessor>();
 builder.Services.AddHttpClient<WhatsAppProvider>();
+// 2026-08-24: се рӯз "text/html ба ҷои медиа" — сабаб ин буд, на URL-и мӯҳлатгузашта.
+// HttpClient-и .NET бе User-Agent ҳеҷ сарлавҳа намефиристад; lookaside.fbsbx.com (Meta-и
+// media CDN-и Facebook/Instagram) ба дархости бе User-Agent бо 302 → facebook.com/unsupportedbrowser
+// ҷавоб медиҳад, ки HttpClient-и пешфарз (AllowAutoRedirect=true) худаш пайгирӣ мекунад — натиҷа: 200
+// OK бо Content-Type: text/html, тасдиқшуда бо curl (бе UA → ҳамон саҳифа; бо UA → 200 video/mp4 воқеӣ).
+// graph.facebook.com/graph.instagram.com (Send/Graph API) ин сарлавҳаро рад намекунанд, пас ҳамин
+// клиенти якхела барои ҳарду истифода бехатар аст.
+const string BrowserUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+builder.Services.AddHttpClient<FacebookProvider>(client => client.DefaultRequestHeaders.UserAgent.ParseAdd(BrowserUserAgent));
+builder.Services.AddHttpClient<InstagramProvider>(client => client.DefaultRequestHeaders.UserAgent.ParseAdd(BrowserUserAgent));
 builder.Services.AddScoped<IChannelProviderFactory, ChannelProviderFactory>();
+// RemoveAllLoggers(): URL-и дархостҳо ба Meta code/token-ро дар query string доранд —
+// logging handler-и пешфарзи HttpClientFactory набояд онҳоро ба log бароварад.
+// BrowserUserAgent: ig_exchange_token (graph.instagram.com) ҳамон CDN-и Meta-и оилавист, ки
+// бе User-Agent 302-ро пайгирӣ карда, ба ҷои хатои auth-и возеҳ бо HTML-и "unsupportedbrowser"
+// ҷавоб медод — эҳтимол сабаби воқеии "ig_exchange_token ҳеҷ гоҳ кор накард".
+builder.Services.AddHttpClient<FacebookOAuthConnector>(client => client.DefaultRequestHeaders.UserAgent.ParseAdd(BrowserUserAgent)).RemoveAllLoggers();
+builder.Services.AddHttpClient<InstagramOAuthConnector>(client => client.DefaultRequestHeaders.UserAgent.ParseAdd(BrowserUserAgent)).RemoveAllLoggers();
+builder.Services.AddScoped<IChannelOAuthConnectorFactory, ChannelOAuthConnectorFactory>();
+builder.Services.AddSingleton<IOAuthNonceTracker, OAuthNonceTracker>();
+builder.Services.AddSingleton<IOAuthConnectionStore, OAuthConnectionStore>();
 builder.Services.AddScoped<WebhookProcessor>();
 builder.Services.AddScoped<WebhookLogCleanupJob>();
 builder.Services.AddScoped<WhatsAppSendJob>();
+builder.Services.AddScoped<MediaDownloadJob>();
+builder.Services.AddScoped<MediaSendJob>();
+builder.Services.AddScoped<MediaRetentionCleanupJob>();
+builder.Services.AddScoped<WaveformBackfillJob>();
+builder.Services.AddScoped<ConversationAutoReleaseJob>();
+builder.Services.AddScoped<HtmlMediaCleanupJob>();
+builder.Services.AddScoped<InstagramTokenRefreshJob>();
+builder.Services.AddHttpClient<InstagramTokenRefreshJob>(client => client.DefaultRequestHeaders.UserAgent.ParseAdd(BrowserUserAgent));
+builder.Services.AddScoped<InstagramContactProfileBackfillJob>();
 
 builder.Services.AddHttpClient<ISmsSender, OsonSmsSender>();
 
@@ -184,16 +248,30 @@ var app = builder.Build();
 
 app.UseExceptionHandler(exceptionHandlerApp => exceptionHandlerApp.Run(async context =>
 {
+    var error = context.Features.Get<IExceptionHandlerFeature>()?.Error;
+    var isClientInputError = error is not null && ClientErrorClassifier.IsClientInputError(error);
+
+    context.Response.StatusCode = isClientInputError
+        ? StatusCodes.Status400BadRequest
+        : StatusCodes.Status500InternalServerError;
+
     var problemDetailsService = context.RequestServices.GetRequiredService<IProblemDetailsService>();
     await problemDetailsService.WriteAsync(new ProblemDetailsContext
     {
         HttpContext = context,
-        ProblemDetails =
-        {
-            Title = "Хатогии сервер",
-            Detail = "Дар сервер хатогии дохилӣ рӯй дод.",
-            Status = StatusCodes.Status500InternalServerError,
-        },
+        ProblemDetails = isClientInputError
+            ? new()
+            {
+                Title = "Дархости нодуруст",
+                Detail = "Формати маълумоти фиристодашуда нодуруст аст.",
+                Status = StatusCodes.Status400BadRequest,
+            }
+            : new()
+            {
+                Title = "Хатогии сервер",
+                Detail = "Дар сервер хатогии дохилӣ рӯй дод.",
+                Status = StatusCodes.Status500InternalServerError,
+            },
     });
 }));
 
@@ -227,9 +305,12 @@ app.MapAttachmentsEndpoints();
 app.MapActivityEndpoints();
 app.MapNotificationsEndpoints();
 app.MapChannelsEndpoints();
+app.MapChannelOAuthEndpoints();
 app.MapWebhookEndpoints();
 app.MapLegalEndpoints();
 app.MapConversationsEndpoints();
+app.MapMessagesEndpoints();
+app.MapJobsEndpoints();
 
 app.MapHub<BoardHub>("/hubs/board");
 app.MapHub<InboxHub>("/hubs/inbox");
@@ -241,6 +322,31 @@ app.UseHangfireDashboard("/hangfire", new DashboardOptions
 
 RecurringJob.AddOrUpdate<WebhookLogCleanupJob>(
     "webhook-log-cleanup", job => job.RunAsync(CancellationToken.None), Cron.Daily);
+
+RecurringJob.AddOrUpdate<MediaRetentionCleanupJob>(
+    "media-retention-cleanup", job => job.RunAsync(CancellationToken.None), Cron.Daily);
+
+RecurringJob.AddOrUpdate<WaveformBackfillJob>(
+    "waveform-backfill", job => job.RunAsync(CancellationToken.None), Cron.Daily);
+
+RecurringJob.AddOrUpdate<ConversationAutoReleaseJob>(
+    "conversation-auto-release", job => job.RunAsync(CancellationToken.None), Cron.MinuteInterval(15));
+
+// Тозакунии як маротиба (2026-08-21: 52 файли HTML-и канали Instagram) — recurring, вале пас
+// аз тозакунии якум ҳамеша холӣ бармегардонад. Дар Hangfire dashboard (/hangfire → Recurring
+// Jobs) бо "Trigger now" фавран иҷро кунед, интизори Cron.Daily лозим нест.
+RecurringJob.AddOrUpdate<HtmlMediaCleanupJob>(
+    "html-media-cleanup", job => job.RunAsync(CancellationToken.None), Cron.Daily);
+
+// Instagram ig_exchange_token/ig_refresh_token-и дарозмуддат ~60 рӯз аст — ин job ҳар рӯз
+// каналҳои ба анҷом наздикро худкор нав мекунад (ниг. InstagramTokenRefreshPolicy).
+RecurringJob.AddOrUpdate<InstagramTokenRefreshJob>(
+    "instagram-token-refresh", job => job.RunAsync(CancellationToken.None), Cron.Daily);
+
+// Бозгашти якдафъаина (2026-08-25: чатҳои Instagram-и пеш аз ContactUsername сохта шуда буданд) —
+// recurring, вале пас аз пур шудани ҳама холӣ бармегардонад. Аз "Trigger now" фавран иҷро мешавад.
+RecurringJob.AddOrUpdate<InstagramContactProfileBackfillJob>(
+    "instagram-contact-profile-backfill", job => job.RunAsync(CancellationToken.None), Cron.Daily);
 
 // Development: ҳамеша иҷро шавад. Production: танҳо агар RUN_MIGRATIONS=true.
 var runMigrations = app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("RUN_MIGRATIONS");

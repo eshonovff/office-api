@@ -40,4 +40,19 @@ public class SendMessageRequestValidatorTests
         var result = _validator.Validate(new SendMessageRequest(new string('a', 4097), null, null, null));
         Assert.False(result.IsValid);
     }
+
+    [Fact]
+    public void Validate_InternalNoteWithBody_IsValid()
+    {
+        var result = _validator.Validate(new SendMessageRequest("Ёддошти дохилӣ барои ҳамкорон", null, null, null, IsInternalNote: true));
+        Assert.True(result.IsValid);
+    }
+
+    [Fact]
+    public void Validate_InternalNoteWithTemplateName_IsInvalid()
+    {
+        // Ёддошт ба мижоз намерасад — шаблон барои он маъно надорад.
+        var result = _validator.Validate(new SendMessageRequest(null, "order_ready", "en_US", null, IsInternalNote: true));
+        Assert.False(result.IsValid);
+    }
 }

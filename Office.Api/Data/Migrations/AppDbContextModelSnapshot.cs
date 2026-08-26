@@ -69,6 +69,10 @@ namespace Office.Api.Data.Migrations
                         .HasColumnType("text")
                         .HasColumnName("credentials_encrypted");
 
+                    b.Property<DateTimeOffset?>("CredentialsExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("credentials_expires_at");
+
                     b.Property<string>("ExternalId")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -85,11 +89,20 @@ namespace Office.Api.Data.Migrations
                         .HasColumnType("character varying(200)")
                         .HasColumnName("name");
 
+                    b.Property<bool>("RequiresReconnect")
+                        .HasColumnType("boolean")
+                        .HasColumnName("requires_reconnect");
+
                     b.Property<string>("Type")
                         .IsRequired()
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)")
                         .HasColumnName("type");
+
+                    b.Property<string>("WebhookSetupWarning")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("webhook_setup_warning");
 
                     b.HasKey("Id");
 
@@ -140,6 +153,15 @@ namespace Office.Api.Data.Migrations
                         .HasColumnType("character varying(200)")
                         .HasColumnName("contact_name");
 
+                    b.Property<DateTimeOffset?>("ContactProfileFetchedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("contact_profile_fetched_at");
+
+                    b.Property<string>("ContactUsername")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("contact_username");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
@@ -179,6 +201,56 @@ namespace Office.Api.Data.Migrations
                     b.HasIndex("ChannelId", "Status", "LastMessageAt");
 
                     b.ToTable("conversations");
+                });
+
+            modelBuilder.Entity("Office.Api.Data.Entities.ConversationAssignmentEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("ConversationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("conversation_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("FromUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("from_user_id");
+
+                    b.Property<string>("FromUserName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("from_user_name");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("reason");
+
+                    b.Property<Guid?>("ToUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("to_user_id");
+
+                    b.Property<string>("ToUserName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("to_user_name");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FromUserId");
+
+                    b.HasIndex("ToUserId");
+
+                    b.HasIndex("ConversationId", "CreatedAt");
+
+                    b.ToTable("conversation_assignment_events");
                 });
 
             modelBuilder.Entity("Office.Api.Data.Entities.Label", b =>
@@ -242,28 +314,105 @@ namespace Office.Api.Data.Migrations
                         .HasColumnType("character varying(20)")
                         .HasColumnName("direction");
 
+                    b.Property<string>("ExternalContentKind")
+                        .HasColumnType("text")
+                        .HasColumnName("external_content_kind");
+
+                    b.Property<string>("ExternalContentUrl")
+                        .HasColumnType("text")
+                        .HasColumnName("external_content_url");
+
                     b.Property<string>("ExternalId")
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)")
                         .HasColumnName("external_id");
 
+                    b.Property<string>("FailureDetail")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)")
+                        .HasColumnName("failure_detail");
+
+                    b.Property<string>("FailureReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("failure_reason");
+
                     b.Property<bool>("IsInternalNote")
                         .HasColumnType("boolean")
                         .HasColumnName("is_internal_note");
+
+                    b.Property<DateTimeOffset?>("MediaDeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("media_deleted_at");
+
+                    b.Property<string>("MediaDownloadError")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("media_download_error");
+
+                    b.Property<string>("MediaExternalId")
+                        .HasColumnType("text")
+                        .HasColumnName("media_external_id");
 
                     b.Property<string>("MediaUrl")
                         .HasColumnType("text")
                         .HasColumnName("media_url");
 
+                    b.Property<string>("MimeType")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("mime_type");
+
+                    b.Property<string>("OriginalFileName")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("original_file_name");
+
                     b.Property<Guid?>("SentByUserId")
                         .HasColumnType("uuid")
                         .HasColumnName("sent_by_user_id");
+
+                    b.Property<string>("SentByUserName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("sent_by_user_name");
+
+                    b.Property<long?>("SizeBytes")
+                        .HasColumnType("bigint")
+                        .HasColumnName("size_bytes");
+
+                    b.Property<string>("TemplateLanguage")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("template_language");
+
+                    b.Property<string>("TemplateName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("template_name");
+
+                    b.Property<string>("TemplateParametersJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("template_parameters_json");
+
+                    b.Property<string>("ThumbnailUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("thumbnail_url");
 
                     b.Property<string>("Type")
                         .IsRequired()
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)")
                         .HasColumnName("type");
+
+                    b.Property<int?>("VoiceDurationSeconds")
+                        .HasColumnType("integer")
+                        .HasColumnName("voice_duration_seconds");
+
+                    b.PrimitiveCollection<short[]>("WaveformPeaks")
+                        .HasColumnType("smallint[]")
+                        .HasColumnName("waveform_peaks");
 
                     b.HasKey("Id");
 
@@ -657,8 +806,8 @@ namespace Office.Api.Data.Migrations
                         .HasColumnType("text")
                         .HasColumnName("description");
 
-                    b.Property<DateTimeOffset?>("DueDate")
-                        .HasColumnType("timestamp with time zone")
+                    b.Property<DateOnly?>("DueDate")
+                        .HasColumnType("date")
                         .HasColumnName("due_date");
 
                     b.Property<double>("Position")
@@ -933,12 +1082,33 @@ namespace Office.Api.Data.Migrations
                     b.HasOne("Office.Api.Data.Entities.Channel", "Channel")
                         .WithMany("Conversations")
                         .HasForeignKey("ChannelId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.Navigation("Assignee");
 
                     b.Navigation("Channel");
+                });
+
+            modelBuilder.Entity("Office.Api.Data.Entities.ConversationAssignmentEvent", b =>
+                {
+                    b.HasOne("Office.Api.Data.Entities.Conversation", "Conversation")
+                        .WithMany()
+                        .HasForeignKey("ConversationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Office.Api.Data.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("FromUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Office.Api.Data.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("ToUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Conversation");
                 });
 
             modelBuilder.Entity("Office.Api.Data.Entities.Label", b =>

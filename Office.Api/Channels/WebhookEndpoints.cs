@@ -1,6 +1,7 @@
 using Hangfire;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Office.Api.Channels.Meta;
 using Office.Api.Data;
 using Office.Api.Data.Entities;
 
@@ -55,7 +56,7 @@ public static class WebhookEndpoints
         IBackgroundJobClient backgroundJobs,
         CancellationToken ct)
     {
-        if (!Enum.TryParse<ChannelType>(provider, ignoreCase: true, out _))
+        if (!Enum.TryParse<ChannelType>(provider, ignoreCase: true, out var type))
             return Results.NotFound();
 
         request.EnableBuffering();
@@ -65,8 +66,12 @@ public static class WebhookEndpoints
         request.Body.Position = 0;
 
         var signature = request.Headers["X-Hub-Signature-256"].ToString();
-        var appSecret = configuration["Webhooks:AppSecret"]
-            ?? throw new InvalidOperationException("Webhooks:AppSecret танзим нашудааст.");
+
+        // Instagram API with Instagram Login app-и АЛОҲИДА аст (ниг. MetaOAuthConfig) — webhook-и
+        // он бо App Secret-и худи он имзо мешавад, на бо secret-и app-и асосӣ (WhatsApp/Facebook).
+        var appSecret = WebhookAppSecretSelector.UseInstagramAppSecret(type)
+            ? MetaOAuthConfig.GetAppSecret(configuration, ChannelType.Instagram)
+            : configuration["Webhooks:AppSecret"] ?? throw new InvalidOperationException("Webhooks:AppSecret танзим нашудааст.");
 
         if (!WebhookSignature.IsValid(rawBody, signature, appSecret))
         {

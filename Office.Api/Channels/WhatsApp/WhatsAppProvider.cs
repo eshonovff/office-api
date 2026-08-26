@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Office.Api.Auth;
+using Office.Api.Channels;
 using Office.Api.Data;
 using Office.Api.Data.Entities;
 using Office.Api.Realtime;
@@ -39,7 +40,8 @@ public class WhatsAppProvider(
     public Task<IReadOnlyList<ParsedStatusUpdate>> ParseStatusUpdatesAsync(Channel channel, JsonElement payload, CancellationToken ct) =>
         Task.FromResult(WhatsAppPayloadParser.ParseStatusUpdates(payload));
 
-    public async Task SendMessageAsync(Channel channel, string conversationExternalId, string body, CancellationToken ct)
+    // messageTag: WhatsApp мафҳуми тег надорад (шаблон дорад) — ҳамеша null, нодида гирифта мешавад.
+    public async Task<string?> SendMessageAsync(Channel channel, string conversationExternalId, string body, string? messageTag, CancellationToken ct)
     {
         var credentials = GetCredentials(channel);
         var payload = new
@@ -51,10 +53,11 @@ public class WhatsAppProvider(
             text = new { body },
         };
 
-        await PostToGraphApiAsync(credentials, $"{credentials.PhoneNumberId}/messages", payload, ct);
+        var responseBody = await PostToGraphApiAsync(channel, credentials, $"{credentials.PhoneNumberId}/messages", payload, ct);
+        return WhatsAppPayloadParser.ExtractSentMessageId(responseBody);
     }
 
-    public async Task SendTemplateAsync(
+    public async Task<string?> SendTemplateAsync(
         Channel channel, string conversationExternalId, string templateName, string languageCode,
         IReadOnlyList<string> parameters, CancellationToken ct)
     {
@@ -78,7 +81,8 @@ public class WhatsAppProvider(
             },
         };
 
-        await PostToGraphApiAsync(credentials, $"{credentials.PhoneNumberId}/messages", payload, ct);
+        var responseBody = await PostToGraphApiAsync(channel, credentials, $"{credentials.PhoneNumberId}/messages", payload, ct);
+        return WhatsAppPayloadParser.ExtractSentMessageId(responseBody);
     }
 
     public async Task MarkAsReadAsync(Channel channel, string messageExternalId, CancellationToken ct)
@@ -86,10 +90,10 @@ public class WhatsAppProvider(
         var credentials = GetCredentials(channel);
         var payload = new { messaging_product = "whatsapp", status = "read", message_id = messageExternalId };
 
-        await PostToGraphApiAsync(credentials, $"{credentials.PhoneNumberId}/messages", payload, ct);
+        await PostToGraphApiAsync(channel, credentials, $"{credentials.PhoneNumberId}/messages", payload, ct);
     }
 
-    public async Task<Stream> DownloadMediaAsync(Channel channel, string mediaExternalId, CancellationToken ct)
+    public async Task<DownloadedMedia> DownloadMediaAsync(Channel channel, string mediaExternalId, CancellationToken ct)
     {
         var credentials = GetCredentials(channel);
 
@@ -101,6 +105,8 @@ public class WhatsAppProvider(
         using var metaDoc = JsonDocument.Parse(await metaResponse.Content.ReadAsStreamAsync(ct));
         var mediaUrl = metaDoc.RootElement.GetProperty("url").GetString()!;
 
+        // Бар хилофи Facebook/Instagram: URL-и муваққатии WhatsApp ҳанӯз Bearer-ро талаб мекунад
+        // (пеш аз-имзошуда нест — санадноми расмии Cloud API).
         using var downloadRequest = new HttpRequestMessage(HttpMethod.Get, mediaUrl);
         downloadRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credentials.AccessToken);
         var downloadResponse = await httpClient.SendAsync(downloadRequest, ct);
@@ -109,7 +115,63 @@ public class WhatsAppProvider(
         var buffer = new MemoryStream();
         await downloadResponse.Content.CopyToAsync(buffer, ct);
         buffer.Position = 0;
-        return buffer;
+        return new DownloadedMedia(buffer, downloadResponse.Content.Headers.ContentType?.MediaType);
+    }
+
+    public async Task<string> UploadMediaAsync(Channel channel, Stream content, string mimeType, string fileName, CancellationToken ct)
+    {
+        var credentials = GetCredentials(channel);
+
+        using var form = new MultipartFormDataContent();
+        using var streamContent = new StreamContent(content);
+        streamContent.Headers.ContentType = new MediaTypeHeaderValue(mimeType);
+        form.Add(streamContent, "file", fileName);
+        form.Add(new StringContent("whatsapp"), "messaging_product");
+        form.Add(new StringContent(mimeType), "type");
+
+        using var request = new HttpRequestMessage(
+            HttpMethod.Post, $"{GraphApiBaseUrl}/{GraphApiVersion}/{credentials.PhoneNumberId}/media")
+        {
+            Content = form,
+        };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credentials.AccessToken);
+
+        var response = await httpClient.SendAsync(request, ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            var responseBody = await response.Content.ReadAsStringAsync(ct);
+            logger.LogError("WhatsApp media upload хатогӣ: {StatusCode} {Body}", (int)response.StatusCode, responseBody);
+            throw new InvalidOperationException($"WhatsApp media upload хатогӣ: {responseBody}");
+        }
+
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStreamAsync(ct));
+        return doc.RootElement.GetProperty("id").GetString()!;
+    }
+
+    public async Task<string?> SendMediaMessageAsync(
+        Channel channel, string conversationExternalId, string mediaExternalId, MessageType type,
+        string? caption, bool isVoiceNote, string? messageTag, CancellationToken ct)
+    {
+        var credentials = GetCredentials(channel);
+        var waType = ToWhatsAppMediaType(type);
+
+        object mediaObject = waType == "audio"
+            ? new { id = mediaExternalId, voice = isVoiceNote }
+            : caption is { Length: > 0 }
+                ? new { id = mediaExternalId, caption }
+                : new { id = mediaExternalId };
+
+        var payload = new Dictionary<string, object?>
+        {
+            ["messaging_product"] = "whatsapp",
+            ["recipient_type"] = "individual",
+            ["to"] = conversationExternalId,
+            ["type"] = waType,
+            [waType] = mediaObject,
+        };
+
+        var responseBody = await PostToGraphApiAsync(channel, credentials, $"{credentials.PhoneNumberId}/messages", payload, ct);
+        return WhatsAppPayloadParser.ExtractSentMessageId(responseBody);
     }
 
     public async Task<IReadOnlyList<WhatsAppTemplateInfo>> GetApprovedTemplatesAsync(Channel channel, CancellationToken ct)
@@ -156,6 +218,11 @@ public class WhatsAppProvider(
         return result;
     }
 
+    // WhatsApp номи мижозро дар худи webhook медиҳад (contacts[].profile.name) — дархости
+    // иловагӣ ҳеҷ гоҳ лозим нест.
+    public Task<ContactProfile> GetContactProfileAsync(Channel channel, string contactExternalId, CancellationToken ct) =>
+        Task.FromResult(ContactProfile.Empty);
+
     private WhatsAppCredentials GetCredentials(Channel channel)
     {
         if (string.IsNullOrEmpty(channel.CredentialsEncrypted))
@@ -164,7 +231,7 @@ public class WhatsAppProvider(
         return WhatsAppCredentials.Parse(protector.Unprotect(channel.CredentialsEncrypted));
     }
 
-    private async Task PostToGraphApiAsync(WhatsAppCredentials credentials, string path, object payload, CancellationToken ct)
+    private async Task<string> PostToGraphApiAsync(Channel channel, WhatsAppCredentials credentials, string path, object payload, CancellationToken ct)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, $"{GraphApiBaseUrl}/{GraphApiVersion}/{path}")
         {
@@ -174,7 +241,7 @@ public class WhatsAppProvider(
 
         var response = await httpClient.SendAsync(request, ct);
         if (response.IsSuccessStatusCode)
-            return;
+            return await response.Content.ReadAsStringAsync(ct);
 
         var responseBody = await response.Content.ReadAsStringAsync(ct);
         var errorCode = TryGetErrorCode(responseBody);
@@ -183,12 +250,18 @@ public class WhatsAppProvider(
             throw new WhatsAppWindowClosedException("Тирезаи 24-соата вайрон шудааст — танҳо шаблон фиристода мешавад.");
 
         if (errorCode == TokenExpiredErrorCode)
+        {
+            channel.RequiresReconnect = true;
+            await db.SaveChangesAsync(ct);
             await NotifyOwnersAsync("WhatsApp: токени дастрасӣ эътибор надорад ё тамом шудааст. Каналро санҷед.", ct);
+        }
         else if (errorCode is RateLimitErrorCode or BusinessRateLimitErrorCode)
             await NotifyOwnersAsync("WhatsApp: маҳдудияти дархост (rate limit) расид. Каналро санҷед.", ct);
 
-        logger.LogError("WhatsApp Graph API хатогӣ: {StatusCode} {Body}", (int)response.StatusCode, responseBody);
-        throw new InvalidOperationException($"WhatsApp Graph API хатогӣ: {responseBody}");
+        logger.LogError(
+            "WhatsApp Graph API хатогӣ: {StatusCode} {Body} | rate-limit сарлавҳаҳо: {RateLimitHeaders}",
+            (int)response.StatusCode, responseBody, MetaRateLimitHeaders.Describe(response.Headers) ?? "(нест)");
+        throw new GraphApiException(MetaErrorTranslator.Translate(responseBody), responseBody);
     }
 
     private async Task NotifyOwnersAsync(string message, CancellationToken ct)
@@ -201,6 +274,15 @@ public class WhatsAppProvider(
         foreach (var ownerId in ownerIds)
             await notificationService.PushAsync(ownerId, "whatsapp_error", new { message }, ct);
     }
+
+    private static string ToWhatsAppMediaType(MessageType type) => type switch
+    {
+        MessageType.Image => "image",
+        MessageType.Video => "video",
+        MessageType.Audio => "audio",
+        MessageType.File => "document",
+        _ => throw new ArgumentOutOfRangeException(nameof(type), type, "Ин навъи паём медиа надорад."),
+    };
 
     private static int? TryGetErrorCode(string responseBody)
     {

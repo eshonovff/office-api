@@ -16,6 +16,16 @@ public static class WhatsAppPayloadParser
             ? idEl.GetString()
             : null;
 
+    /// <summary>Wamid аз response-и `POST /messages` (матн, шаблон ё медиа) — то навсозиҳои статус (delivered/read) ба паём мувофиқ оянд.</summary>
+    public static string? ExtractSentMessageId(string responseBody)
+    {
+        using var doc = JsonDocument.Parse(responseBody);
+        return doc.RootElement.TryGetProperty("messages", out var messagesEl) && messagesEl.ValueKind == JsonValueKind.Array &&
+               messagesEl.GetArrayLength() > 0 && messagesEl[0].TryGetProperty("id", out var idEl)
+            ? idEl.GetString()
+            : null;
+    }
+
     public static IReadOnlyList<ParsedWebhookMessage> ParseMessages(JsonElement payload)
     {
         var result = new List<ParsedWebhookMessage>();
@@ -48,7 +58,7 @@ public static class WhatsAppPayloadParser
             var sentAt = DateTimeOffset.FromUnixTimeSeconds(long.Parse(message.GetProperty("timestamp").GetString()!));
             var typeStr = message.GetProperty("type").GetString()!;
 
-            var (type, body, mediaExternalId) = MapMessageContent(typeStr, message);
+            var (type, body, mediaExternalId, mimeType, fileName) = MapMessageContent(typeStr, message);
 
             result.Add(new ParsedWebhookMessage(
                 ConversationExternalId: from,
@@ -60,7 +70,9 @@ public static class WhatsAppPayloadParser
                 Body: body,
                 MediaUrl: null,
                 SentAt: sentAt,
-                MediaExternalId: mediaExternalId));
+                MediaExternalId: mediaExternalId,
+                MimeType: mimeType,
+                OriginalFileName: fileName));
         }
 
         return result;
@@ -97,17 +109,19 @@ public static class WhatsAppPayloadParser
         return result;
     }
 
-    private static (MessageType Type, string? Body, string? MediaExternalId) MapMessageContent(string typeStr, JsonElement message) =>
+    private static (MessageType Type, string? Body, string? MediaExternalId, string? MimeType, string? FileName) MapMessageContent(
+        string typeStr, JsonElement message) =>
         typeStr switch
         {
-            "text" => (MessageType.Text, message.GetProperty("text").GetProperty("body").GetString(), null),
-            "image" => (MessageType.Image, GetCaption(message, "image"), GetMediaId(message, "image")),
-            "video" => (MessageType.Video, GetCaption(message, "video"), GetMediaId(message, "video")),
-            "audio" => (MessageType.Audio, null, GetMediaId(message, "audio")),
-            "document" => (MessageType.File, GetCaption(message, "document"), GetMediaId(message, "document")),
-            "location" => (MessageType.Location, FormatLocation(message), null),
-            "contacts" => (MessageType.Contact, FormatContacts(message), null),
-            _ => (MessageType.Text, $"[Навъи дастгирӣнашуда: {typeStr}]", null),
+            "text" => (MessageType.Text, message.GetProperty("text").GetProperty("body").GetString(), null, null, null),
+            "image" => (MessageType.Image, GetCaption(message, "image"), GetMediaId(message, "image"), GetMimeType(message, "image"), null),
+            "video" => (MessageType.Video, GetCaption(message, "video"), GetMediaId(message, "video"), GetMimeType(message, "video"), null),
+            "audio" => (MessageType.Audio, null, GetMediaId(message, "audio"), GetMimeType(message, "audio"), null),
+            "document" => (MessageType.File, GetCaption(message, "document"), GetMediaId(message, "document"),
+                GetMimeType(message, "document"), GetFileName(message)),
+            "location" => (MessageType.Location, FormatLocation(message), null, null, null),
+            "contacts" => (MessageType.Contact, FormatContacts(message), null, null, null),
+            _ => (MessageType.Text, $"[Навъи дастгирӣнашуда: {typeStr}]", null, null, null),
         };
 
     private static string? GetCaption(JsonElement message, string field) =>
@@ -118,6 +132,16 @@ public static class WhatsAppPayloadParser
     private static string? GetMediaId(JsonElement message, string field) =>
         message.TryGetProperty(field, out var el) && el.TryGetProperty("id", out var idEl)
             ? idEl.GetString()
+            : null;
+
+    private static string? GetMimeType(JsonElement message, string field) =>
+        message.TryGetProperty(field, out var el) && el.TryGetProperty("mime_type", out var mimeEl)
+            ? mimeEl.GetString()
+            : null;
+
+    private static string? GetFileName(JsonElement message) =>
+        message.TryGetProperty("document", out var el) && el.TryGetProperty("filename", out var nameEl)
+            ? nameEl.GetString()
             : null;
 
     private static string FormatLocation(JsonElement message)

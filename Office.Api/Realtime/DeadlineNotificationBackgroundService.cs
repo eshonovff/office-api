@@ -36,12 +36,10 @@ public class DeadlineNotificationBackgroundService(
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var notifications = scope.ServiceProvider.GetRequiredService<INotificationService>();
 
-        var utcNow = DateTimeOffset.UtcNow;
-        var tomorrow = new DateTimeOffset(utcNow.Year, utcNow.Month, utcNow.Day, 0, 0, 0, TimeSpan.Zero).AddDays(1);
-        var dayAfter = tomorrow.AddDays(1);
+        var tomorrow = DateOnly.FromDateTime(DateTimeOffset.UtcNow.UtcDateTime).AddDays(1);
 
         var dueTasks = await db.Tasks
-            .Where(t => t.AssigneeId != null && t.DueDate >= tomorrow && t.DueDate < dayAfter)
+            .Where(t => t.AssigneeId != null && t.DueDate == tomorrow)
             .Select(t => new { t.Id, t.Title, AssigneeId = t.AssigneeId!.Value })
             .ToListAsync(ct);
 

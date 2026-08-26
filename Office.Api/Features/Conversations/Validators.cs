@@ -11,6 +11,11 @@ public class SendMessageRequestValidator : AbstractValidator<SendMessageRequest>
             .Must(x => !string.IsNullOrWhiteSpace(x.Body) || !string.IsNullOrWhiteSpace(x.TemplateName))
             .WithMessage("Ё матн (body), ё номи шаблон (templateName) лозим аст.");
 
+        // Ёддошти дохилӣ ба мижоз намерасад — шаблон барои он маъно надорад.
+        RuleFor(x => x)
+            .Must(x => !x.IsInternalNote || string.IsNullOrEmpty(x.TemplateName))
+            .WithMessage("Ёддошти дохилӣ (isInternalNote) бо шаблон якҷоя буда наметавонад.");
+
         RuleFor(x => x.Body).MaximumLength(4096);
         RuleFor(x => x.TemplateName).MaximumLength(200);
         RuleFor(x => x.TemplateLanguage).MaximumLength(20);

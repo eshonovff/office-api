@@ -24,6 +24,31 @@ public class WhatsAppPayloadParserTests
     }
 
     [Fact]
+    public void ExtractSentMessageId_ValidSendResponse_ReturnsWamid()
+    {
+        const string responseBody = """
+            {"messaging_product":"whatsapp","contacts":[{"input":"992706666149","wa_id":"992706666149"}],
+             "messages":[{"id":"wamid.HBgMOTkyNzA2NjY2MTQ5FQIAERgSOUU1NEEzNjg0RURGRDczQzhBAA=="}]}
+            """;
+
+        Assert.Equal("wamid.HBgMOTkyNzA2NjY2MTQ5FQIAERgSOUU1NEEzNjg0RURGRDczQzhBAA==", WhatsAppPayloadParser.ExtractSentMessageId(responseBody));
+    }
+
+    [Fact]
+    public void ExtractSentMessageId_EmptyMessagesArray_ReturnsNull()
+    {
+        const string responseBody = """{"messaging_product":"whatsapp","contacts":[],"messages":[]}""";
+        Assert.Null(WhatsAppPayloadParser.ExtractSentMessageId(responseBody));
+    }
+
+    [Fact]
+    public void ExtractSentMessageId_NoMessagesField_ReturnsNull()
+    {
+        const string responseBody = """{"messaging_product":"whatsapp"}""";
+        Assert.Null(WhatsAppPayloadParser.ExtractSentMessageId(responseBody));
+    }
+
+    [Fact]
     public void ParseMessages_TextMessage_ReturnsSingleMessage()
     {
         using var doc = JsonDocument.Parse("""
@@ -62,6 +87,59 @@ public class WhatsAppPayloadParserTests
         Assert.Equal(MessageType.Image, message.Type);
         Assert.Equal("Look", message.Body);
         Assert.Equal("media123", message.MediaExternalId);
+    }
+
+    [Fact]
+    public void ParseMessages_ImageMessage_CapturesMimeType()
+    {
+        using var doc = JsonDocument.Parse("""
+            {"entry":[{"changes":[{"value":{
+              "messages":[{"from":"17863559966","id":"wamid.IMG","timestamp":"1758254144","type":"image",
+                "image":{"id":"media123","mime_type":"image/jpeg","caption":"Look"}}]
+            }}]}]}
+            """);
+
+        var result = WhatsAppPayloadParser.ParseMessages(doc.RootElement);
+
+        var message = Assert.Single(result);
+        Assert.Equal("image/jpeg", message.MimeType);
+        Assert.Null(message.OriginalFileName);
+    }
+
+    [Fact]
+    public void ParseMessages_DocumentMessage_CapturesMimeTypeAndFileName()
+    {
+        using var doc = JsonDocument.Parse("""
+            {"entry":[{"changes":[{"value":{
+              "messages":[{"from":"1","id":"wamid.DOC","timestamp":"1758254144","type":"document",
+                "document":{"id":"media456","mime_type":"application/pdf","filename":"contract.pdf"}}]
+            }}]}]}
+            """);
+
+        var result = WhatsAppPayloadParser.ParseMessages(doc.RootElement);
+
+        var message = Assert.Single(result);
+        Assert.Equal(MessageType.File, message.Type);
+        Assert.Equal("media456", message.MediaExternalId);
+        Assert.Equal("application/pdf", message.MimeType);
+        Assert.Equal("contract.pdf", message.OriginalFileName);
+    }
+
+    [Fact]
+    public void ParseMessages_AudioMessage_CapturesMimeType()
+    {
+        using var doc = JsonDocument.Parse("""
+            {"entry":[{"changes":[{"value":{
+              "messages":[{"from":"1","id":"wamid.AUD","timestamp":"1758254144","type":"audio",
+                "audio":{"id":"media789","mime_type":"audio/ogg; codecs=opus","voice":true}}]
+            }}]}]}
+            """);
+
+        var result = WhatsAppPayloadParser.ParseMessages(doc.RootElement);
+
+        var message = Assert.Single(result);
+        Assert.Equal(MessageType.Audio, message.Type);
+        Assert.Equal("audio/ogg; codecs=opus", message.MimeType);
     }
 
     [Fact]
