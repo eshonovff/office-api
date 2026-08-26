@@ -42,20 +42,27 @@ public static class FacebookPayloadParser
 
             if (messagingEvent.TryGetProperty("message", out var messageEl))
             {
-                // Эхои паёми худи мо (агар Page аз чанд ҷо идора шавад ҳам webhook мефиристад) —
-                // набояд ҳамчун паёми воридотии мижоз сабт шавад.
-                if (messageEl.TryGetProperty("is_echo", out var echoEl) && echoEl.ValueKind == JsonValueKind.True)
-                    continue;
+                // Эхои паёме, ки худи мо мустақим аз барномаи Facebook/Page Inbox фиристодаем (на
+                // тавассути ин платформа) — Meta онро низ ҳамчун webhook мефиристад (is_echo=true).
+                // Бояд ҳамчун Outbound сабт шавад, на партофта: вагарна дар UI гум мешавад. sender
+                // дар ин ҳолат худи Page аст, на мижоз — пас чат бояд ба recipient (мижоз) алоқаманд
+                // шавад, вагарна чати такрорӣ бо ID-и худи Page сохта мешавад.
+                var isEcho = messageEl.TryGetProperty("is_echo", out var echoEl) && echoEl.ValueKind == JsonValueKind.True;
+                var conversationExternalId = isEcho
+                    ? messagingEvent.GetProperty("recipient").GetProperty("id").GetString()!
+                    : senderId;
 
                 var mid = messageEl.GetProperty("mid").GetString()!;
                 var (type, body, mediaUrl) = MapMessageContent(messageEl);
 
                 result.Add(new ParsedWebhookMessage(
-                    ConversationExternalId: senderId,
+                    ConversationExternalId: conversationExternalId,
                     ContactName: null,
                     ContactAvatarUrl: null,
                     MessageExternalId: mid,
-                    Direction: MessageDirection.Inbound,
+                    // sent_by_user_id холӣ мемонад (агенти мо не буд) — UI бо Direction/пуррагии он
+                    // "аз Facebook" нишон медиҳад, ниг. MessageBubble.tsx.
+                    Direction: isEcho ? MessageDirection.Outbound : MessageDirection.Inbound,
                     Type: type,
                     Body: body,
                     MediaUrl: null,

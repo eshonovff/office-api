@@ -114,6 +114,54 @@ public class InstagramOAuthConnector(HttpClient httpClient, IConfiguration confi
         return [new ConnectableAccount(accountId, username, credentialsJson, expiresAt)];
     }
 
+    // Барои Instagram "message_echoes" майдони алоҳида НЕСТ (бар хилофи Facebook) — Meta онҳоро
+    // худи "messages" дохил мекунад (ниг. developers.facebook.com, тасдиқшуда 2026-08-25).
+    private const string RequiredWebhookField = "messages";
+
+    /// <summary>
+    /// Обуна ба webhook-и Page-и Instagram, баъд ТАСДИҚ бо GET (на танҳо такя ба POST-и 200) —
+    /// ҳамон эҳтиёте, ки барои Facebook лозим шуд (ниг. FacebookOAuthConnector.EnsureWebhookSubscriptionAsync
+    /// барои сабаб). Диққат: сатҳи App (App Dashboard-и Instagram)-ро аз ин ҷо тасдиқ карда
+    /// НАМЕТАВОНЕМ — graph.facebook.com ва graph.instagram.com ҳарду барои ин намуди app access
+    /// token (app-id|app-secret) хато медиҳанд (санҷида шуд 2026-08-25). Дар production ҳоло кор
+    /// мекунад (муштарӣ хабар медиҳад — ниг. webhook_logs), вале агар канали НАВ бо ҳамин сабаб (сатҳи
+    /// App нопурра) вайрон шавад, ин функсия онро дида наметавонад — танҳо сатҳи Page.
+    /// null = сатҳи Page тасдиқ шуд; вагарна сабаби мушаххас.
+    /// </summary>
+    public async Task<string?> EnsureWebhookSubscriptionAsync(string instagramAccountId, string accessToken, CancellationToken ct)
+    {
+        var url = $"https://graph.instagram.com/{GraphApiVersion}/{instagramAccountId}/subscribed_apps" +
+                  $"?subscribed_fields={RequiredWebhookField}&access_token={Uri.EscapeDataString(accessToken)}";
+        try
+        {
+            using var postRequest = new HttpRequestMessage(HttpMethod.Post, url);
+            var postResponse = await httpClient.SendAsync(postRequest, ct);
+            await EnsureSuccessAsync(postRequest, postResponse, "Instagram subscribed_apps", ct);
+
+            var getUrl = $"https://graph.instagram.com/{GraphApiVersion}/{instagramAccountId}/subscribed_apps" +
+                         $"?fields=subscribed_fields&access_token={Uri.EscapeDataString(accessToken)}";
+            using var getRequest = new HttpRequestMessage(HttpMethod.Get, getUrl);
+            var getResponse = await httpClient.SendAsync(getRequest, ct);
+            await EnsureSuccessAsync(getRequest, getResponse, "Instagram subscribed_apps (тасдиқ)", ct);
+
+            using var doc = JsonDocument.Parse(await getResponse.Content.ReadAsStreamAsync(ct));
+            var hasMessages = doc.RootElement.TryGetProperty("data", out var dataEl) && dataEl.GetArrayLength() > 0 &&
+                               dataEl[0].TryGetProperty("subscribed_fields", out var fieldsEl) &&
+                               fieldsEl.EnumerateArray().Any(f => f.GetString() == RequiredWebhookField);
+
+            if (hasMessages)
+                return null;
+
+            logger.LogWarning("Instagram: обунаи webhook пас аз POST боз ҳам нопурра аст (Account {AccountId})", instagramAccountId);
+            return "Майдони 'messages' фаъол нест — паёмҳо намерасанд.";
+        }
+        catch (MetaOAuthException ex)
+        {
+            logger.LogError(ex, "Instagram: обунаи webhook ба Meta нарасид (Account {AccountId})", instagramAccountId);
+            return $"Обунаи webhook ба Meta нарасид: {ex.Context} (HTTP {ex.StatusCode}).";
+        }
+    }
+
     /// <summary>
     /// Response-и step 1 ду шакл дошта метавонад: ҳуҷҷати ҳозираи Meta (Business Login)
     /// <c>{"data":[{"access_token":...,"user_id":...}]}</c> тасвир мекунад, вале баъзе

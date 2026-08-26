@@ -238,8 +238,9 @@ public class InstagramPayloadParserTests
         }
         """;
 
-    // Далели аввалини (санҷиданашудаи) карусел — якчанд attachment дар як паём. Шакли воқеии
-    // payload-и Meta барои карусел ҳанӯз дида нашудааст, ниг. InstagramPayloadParser барои сабаб.
+    // Синтетикӣ — на воқеӣ. 11 payload-и воқеии production (2026-08-20 то 2026-08-25, аз ҷумла
+    // пости каруселии воқеӣ) ҳамеша якдона attachments доранд; ин фикстура танҳо рафтори ДИФОЪИРО
+    // санҷад агар Meta рӯзе якчанд attachment фиристад — ниг. InstagramPayloadParser барои далел.
     private const string CarouselPostAttachmentPayload = """
         {
           "object": "instagram",
@@ -490,9 +491,17 @@ public class InstagramPayloadParserTests
     }
 
     [Fact]
-    public void ParseMessages_Echo_IsSkipped()
+    public void ParseMessages_Echo_MapsToOutboundOnTheCustomersConversation()
     {
-        Assert.Empty(InstagramPayloadParser.ParseMessages(Parse(EchoPayload)));
+        var message = Assert.Single(InstagramPayloadParser.ParseMessages(Parse(EchoPayload)));
+
+        // sender дар echo худи аккаунти IG-и мо аст (17841400000000000) — чат бояд ба
+        // recipient (мижоз, 1254001234567890) алоқаманд шавад, на ба худи аккаунти мо.
+        Assert.Equal("1254001234567890", message.ConversationExternalId);
+        Assert.Equal("aWdfZAG1ECHO", message.MessageExternalId);
+        Assert.Equal(MessageDirection.Outbound, message.Direction);
+        Assert.Equal(MessageType.Text, message.Type);
+        Assert.Equal("reply from the account itself", message.Body);
     }
 
     [Fact]
@@ -584,16 +593,17 @@ public class InstagramPayloadParserTests
     }
 
     [Fact]
-    public void ParseMessages_CarouselPost_UsesFirstItemAndFlagsTheRest()
+    public void ParseMessages_MultipleAttachmentsOnAPost_UsesFirstItemOnlyNoFabricatedCountMarker()
     {
-        // Only attachments[0] is used, same as every other type here — but for a carousel that's
-        // a real, visible gap (not silent): the "(+N боз)" marker is the evidence trail for the
-        // day a real carousel payload's shape gets confirmed and this can be done properly.
+        // Дифоъӣ: агар Meta рӯзе якчанд attachment фиристад ҳам, боз ҳам танҳо аввалин истифода
+        // мешавад — бе ягон "(+N боз)"-и монанд, чунки ин ваъдаи иҷрошавандаро дуруғ мегуфт (11
+        // payload-и воқеии production — аз ҷумла пости каруселии воқеӣ — ҳамеша якдона буданд,
+        // ниг. InstagramPayloadParser барои далел).
         var messages = InstagramPayloadParser.ParseMessages(Parse(CarouselPostAttachmentPayload));
 
         var message = Assert.Single(messages);
         Assert.Equal(MessageType.Video, message.Type);
-        Assert.Equal("[Post] trip (+1 боз)", message.Body);
+        Assert.Equal("[Post] trip", message.Body);
         Assert.Equal("https://lookaside.fbsbx.com/ig_messaging_cdn/?asset_id=1", message.MediaExternalId);
     }
 

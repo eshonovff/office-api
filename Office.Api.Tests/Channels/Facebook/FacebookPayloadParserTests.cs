@@ -347,11 +347,17 @@ public class FacebookPayloadParserTests
     }
 
     [Fact]
-    public void ParseMessages_Echo_IsSkipped()
+    public void ParseMessages_Echo_MapsToOutboundOnTheCustomersConversation()
     {
-        var messages = FacebookPayloadParser.ParseMessages(Parse(EchoPayload));
+        var message = Assert.Single(FacebookPayloadParser.ParseMessages(Parse(EchoPayload)));
 
-        Assert.Empty(messages);
+        // sender дар echo худи Page аст (1234567890) — чат бояд ба recipient (мижоз,
+        // 1000000000000001) алоқаманд шавад, на ба худи Page.
+        Assert.Equal("1000000000000001", message.ConversationExternalId);
+        Assert.Equal("mid.ECHO", message.MessageExternalId);
+        Assert.Equal(MessageDirection.Outbound, message.Direction);
+        Assert.Equal(MessageType.Text, message.Type);
+        Assert.Equal("reply from the page itself", message.Body);
     }
 
     [Fact]

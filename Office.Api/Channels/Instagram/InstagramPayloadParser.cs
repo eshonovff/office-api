@@ -43,19 +43,27 @@ public static class InstagramPayloadParser
 
             if (messagingEvent.TryGetProperty("message", out var messageEl))
             {
-                // Эхои паёми худи мо — набояд ҳамчун паёми воридотии мижоз сабт шавад.
-                if (messageEl.TryGetProperty("is_echo", out var echoEl) && echoEl.ValueKind == JsonValueKind.True)
-                    continue;
+                // Эхои паёме, ки худи мо мустақим аз барномаи Instagram фиристодаем (на тавассути
+                // ин платформа) — Meta онро низ ҳамчун webhook мефиристад (is_echo=true). Бояд
+                // ҳамчун Outbound сабт шавад, на партофта: вагарна дар UI гум мешавад. sender дар
+                // ин ҳолат худи аккаунти IG-и мо аст, на мижоз — пас чат бояд ба recipient (мижоз)
+                // алоқаманд шавад, вагарна чати такрорӣ бо ID-и худи аккаунти мо сохта мешавад.
+                var isEcho = messageEl.TryGetProperty("is_echo", out var echoEl) && echoEl.ValueKind == JsonValueKind.True;
+                var conversationExternalId = isEcho
+                    ? messagingEvent.GetProperty("recipient").GetProperty("id").GetString()!
+                    : senderId;
 
                 var mid = messageEl.GetProperty("mid").GetString()!;
                 var (type, body, mediaUrl, externalContentUrl, externalContentKind) = MapMessageContent(messageEl);
 
                 result.Add(new ParsedWebhookMessage(
-                    ConversationExternalId: senderId,
+                    ConversationExternalId: conversationExternalId,
                     ContactName: null,
                     ContactAvatarUrl: null,
                     MessageExternalId: mid,
-                    Direction: MessageDirection.Inbound,
+                    // sent_by_user_id холӣ мемонад (агенти мо не буд) — UI бо Direction/пуррагии он
+                    // "аз Instagram" нишон медиҳад, ниг. MessageBubble.tsx.
+                    Direction: isEcho ? MessageDirection.Outbound : MessageDirection.Inbound,
                     Type: type,
                     Body: body,
                     MediaUrl: null,
@@ -233,13 +241,13 @@ public static class InstagramPayloadParser
                     ? titleEl.GetString()
                     : null;
                 var caption = string.IsNullOrEmpty(title) ? "[Post]" : $"[Post] {title}";
-                // Каруселро (якчанд сурат/видео дар як пост) ҳанӯз ҷудо намекунем — payload-и
-                // воқеии карусел санҷида нашудааст (танҳо якдонагӣ дар production дида шудааст,
-                // ниг. report). Агар Meta якчанд attachment дар як паём фиристад, ин ҳамчун далел
-                // дар матн сабт мешавад (InstagramProvider инро низ log мекунад, ниг. поён) — то
-                // дафъаи аввали воқеан дидани карусел бидонем, шакли он чӣ гуна аст.
-                if (attachmentsEl.GetArrayLength() > 1)
-                    caption += $" (+{attachmentsEl.GetArrayLength() - 1} боз)";
+                // Тасдиқшуда бо 11 payload-и воқеии production (2026-08-20 то 2026-08-25, аз ҷумла
+                // каруселҳои воқеӣ, ки муштарӣ такроран фиристодааст — ниг. report): message.
+                // attachments ҳамеша якдона аст, ва payload ҳамеша якхела — {url, title,
+                // ig_post_media_id}, ҳеҷ гоҳ рӯйхати элементҳо/сурат. Барои пости каруселӣ ҳам Meta
+                // танҳо як url (сурати аввал/муқова) медиҳад — сурату видеоҳои дигари он пост
+                // тавассути ин webhook дастнорас аст, роҳи дигар низ ёфт нашуд. Аз ин рӯ ваъдаи
+                // "(+N боз)" бардошта шуд — чунин ваъда дуруғ мебуд.
                 return (MessageType.Video, caption, url, url, url is null ? null : "Post");
             }
 

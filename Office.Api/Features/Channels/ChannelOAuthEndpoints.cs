@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Office.Api.Auth;
 using Office.Api.Channels;
 using Office.Api.Channels.Facebook;
+using Office.Api.Channels.Instagram;
 using Office.Api.Channels.Meta;
 using Office.Api.Common;
 using Office.Api.Data;
@@ -153,6 +154,7 @@ public static class ChannelOAuthEndpoints
         ClaimsPrincipal principal,
         IOAuthConnectionStore connectionStore,
         FacebookOAuthConnector facebookConnector,
+        InstagramOAuthConnector instagramConnector,
         AppDbContext db,
         IChannelCredentialsProtector protector,
         CancellationToken ct)
@@ -204,21 +206,23 @@ public static class ChannelOAuthEndpoints
 
         await db.SaveChangesAsync(ct);
 
+        // Мизоҷ ба App Dashboard дастрасӣ надорад — агар обуна нашавад, набояд хомӯш монад: канал
+        // боз ҳам сохта/пайваст мешавад (SaveChangesAsync боло аллакай захира кард), вале бо сабаби
+        // мушаххас қайд мешавад, то дар UI намоён бошад (ниг. Channel.WebhookSetupWarning). 2026-08-25:
+        // маҳз ҳамин хомӯшӣ буд, ки "Facebook паём намерасад"-ро рӯзҳо пинҳон нигоҳ дошт.
         if (type == ChannelType.Facebook)
         {
             var facebookCredentials = FacebookCredentials.Parse(account.CredentialsJson);
-            try
-            {
-                await facebookConnector.SubscribePageAsync(facebookCredentials.PageId, facebookCredentials.PageAccessToken, ct);
-            }
-            catch (InvalidOperationException)
-            {
-                return Results.Problem(
-                    title: "Канал сохта шуд, вале обуна ба webhook нашуд",
-                    detail: "Канал дар база сабт шуд, аммо обунаи Page ба webhook-и messages муваффақ нашуд. " +
-                            "Дубора 'Пайваст' пахш кунед — канал аллакай мавҷуд аст, connect такрор пайваст мекунад.",
-                    statusCode: StatusCodes.Status502BadGateway);
-            }
+            channel.WebhookSetupWarning = await facebookConnector.EnsureWebhookSubscriptionAsync(
+                facebookCredentials.PageId, facebookCredentials.PageAccessToken, ct);
+            await db.SaveChangesAsync(ct);
+        }
+        else if (type == ChannelType.Instagram)
+        {
+            var instagramCredentials = InstagramCredentials.Parse(account.CredentialsJson);
+            channel.WebhookSetupWarning = await instagramConnector.EnsureWebhookSubscriptionAsync(
+                instagramCredentials.InstagramAccountId, instagramCredentials.AccessToken, ct);
+            await db.SaveChangesAsync(ct);
         }
 
         return existing is null

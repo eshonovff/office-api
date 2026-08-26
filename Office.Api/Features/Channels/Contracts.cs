@@ -12,6 +12,9 @@ public record ChannelListItem(
     // Meta бо хатои токен ҷавоб дод (ё нав кардани худкор ноком шуд) — пайвастшавии дастӣ/OAuth
     // дубора лозим аст. Ниг. Channel.RequiresReconnect.
     bool RequiresReconnect,
+    // Facebook/Instagram: обунаи webhook пас аз /connect тасдиқ нашуд — сабаб (на булии хомӯш).
+    // Ниг. Channel.WebhookSetupWarning.
+    string? WebhookSetupWarning,
     // Танҳо Instagram (ig_exchange_token/refresh медиҳад) — дигарон null.
     DateTimeOffset? CredentialsExpiresAt);
 
@@ -30,6 +33,7 @@ public record ChannelDetail(
     bool IsActive,
     DateTimeOffset CreatedAt,
     bool RequiresReconnect,
+    string? WebhookSetupWarning,
     DateTimeOffset? CredentialsExpiresAt,
     IReadOnlyList<ChannelMemberDto> Members);
 

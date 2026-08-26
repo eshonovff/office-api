@@ -244,7 +244,7 @@ public static class ChannelsEndpoints
 
     private static ChannelListItem ToListItem(Channel channel) => new(
         channel.Id, channel.Type.ToString(), channel.Name, channel.ExternalId, channel.IsActive, channel.CreatedAt,
-        channel.RequiresReconnect, channel.CredentialsExpiresAt);
+        channel.RequiresReconnect, channel.WebhookSetupWarning, channel.CredentialsExpiresAt);
 
     private static ChannelSummary ToSummary(Channel channel, bool joinable) => new(
         channel.Id, channel.Type.ToString(), channel.Name, channel.IsActive, joinable);
@@ -257,6 +257,7 @@ public static class ChannelsEndpoints
         channel.IsActive,
         channel.CreatedAt,
         channel.RequiresReconnect,
+        channel.WebhookSetupWarning,
         channel.CredentialsExpiresAt,
         channel.Members.Select(m => new ChannelMemberDto(m.UserId, m.User.FullName, m.User.Username)).ToList());
 }

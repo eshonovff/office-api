@@ -64,5 +64,18 @@ public static class PermissionEndpointExtensions
         return builder.RequireAuthorization($"{PermissionPolicyPrefix}{permission}");
     }
 
+    /// <summary>
+    /// Худи RoleKeys.Owner — сахттар аз RequirePermission (он ба ҳар permission Owner-ро худкор
+    /// иҷозат медиҳад, вале касе ки танҳо ин permission-ро дорад ҳам мегузарад). Барои чизе ки
+    /// бояд дуруст ҳамон дари OwnerOnlyDashboardAuthFilter (/hangfire)-ро такрор кунад.
+    /// </summary>
+    public static TBuilder RequireOwner<TBuilder>(this TBuilder builder)
+        where TBuilder : IEndpointConventionBuilder
+    {
+        return builder.RequireAuthorization(policy => policy
+            .RequireAuthenticatedUser()
+            .RequireRole(RoleKeys.Owner));
+    }
+
     private const string PermissionPolicyPrefix = "perm:";
 }
