@@ -143,6 +143,10 @@ public class MediaSendJob(
             message.DeliveryStatus = MessageDeliveryStatus.Failed;
             message.FailureReason = ex.Message;
             message.FailureDetail = ex.RawResponseBody.Length > 4000 ? ex.RawResponseBody[..4000] : ex.RawResponseBody;
+            message.FailureCode = MetaErrorCodeExtractor.Extract(channel.Type, ex.RawResponseBody);
+            // А2: коди ношинос — то дафъаи оянда маълумот дошта бошем (на боз "як маротиба").
+            if (message.FailureCode is not null && !FailureCodeLabels.IsKnown(message.FailureCode))
+                logger.LogWarning("MediaSendJob: failure_code ношинос {FailureCode} — payload: {RawResponseBody}", message.FailureCode, ex.RawResponseBody);
             logger.LogError(ex, "MediaSendJob: Meta Graph API рад кард — паёми {MessageId}.", messageId);
             await db.SaveChangesAsync(ct);
             await PublishAsync(channel.Id, conversation.AssignedTo, message, ct);

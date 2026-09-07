@@ -23,6 +23,7 @@ using Office.Api.Media;
 using Office.Api.Features.Auth;
 using Office.Api.Features.Channels;
 using Office.Api.Features.Conversations;
+using Office.Api.Features.Dashboard;
 using Office.Api.Features.Jobs;
 using Office.Api.Features.Legal;
 using Office.Api.Features.Notifications;
@@ -175,6 +176,9 @@ builder.Services
 builder.Services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();
 builder.Services.AddSingleton<IAuthorizationHandler, PermissionAuthorizationHandler>();
 builder.Services.AddAuthorization();
+// GET /api/dashboard — 60-сонияи кэш дар хотира (аввалин истифодаи IMemoryCache дар ин лоиҳа),
+// калидаш аз userId+нақшҳо, ниг. DashboardEndpoints.
+builder.Services.AddMemoryCache();
 
 builder.Services.AddRateLimiter(options =>
 {
@@ -200,6 +204,8 @@ builder.Services.AddScoped<ProjectAccessGuard>();
 builder.Services.AddScoped<IProjectAccessGuard>(sp => sp.GetRequiredService<ProjectAccessGuard>());
 builder.Services.AddScoped<ChannelAccessGuard>();
 builder.Services.AddScoped<IChannelAccessGuard>(sp => sp.GetRequiredService<ChannelAccessGuard>());
+builder.Services.AddScoped<DashboardQueryService>();
+builder.Services.AddScoped<DashboardStatsQueryService>();
 builder.Services.AddScoped<IBoardEventPublisher, BoardEventPublisher>();
 builder.Services.AddScoped<IInboxEventPublisher, InboxEventPublisher>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
@@ -310,6 +316,8 @@ app.MapWebhookEndpoints();
 app.MapLegalEndpoints();
 app.MapConversationsEndpoints();
 app.MapMessagesEndpoints();
+app.MapDashboardEndpoints();
+app.MapDashboardStatsEndpoints();
 app.MapJobsEndpoints();
 
 app.MapHub<BoardHub>("/hubs/board");

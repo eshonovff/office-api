@@ -77,5 +77,14 @@ public static class PermissionEndpointExtensions
             .RequireRole(RoleKeys.Owner));
     }
 
+    /// <summary>Ҳамон дари ChannelAccessGuard.CanSeeAllChannels — RequireRole бо якчанд нақш = OR.</summary>
+    public static TBuilder RequireOwnerOrAdmin<TBuilder>(this TBuilder builder)
+        where TBuilder : IEndpointConventionBuilder
+    {
+        return builder.RequireAuthorization(policy => policy
+            .RequireAuthenticatedUser()
+            .RequireRole(RoleKeys.Owner, RoleKeys.Admin));
+    }
+
     private const string PermissionPolicyPrefix = "perm:";
 }

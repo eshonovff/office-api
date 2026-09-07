@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Office.Api.Data;
@@ -11,9 +12,11 @@ using Office.Api.Data;
 namespace Office.Api.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260826085920_AddDashboardIndexes")]
+    partial class AddDashboardIndexes
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -331,11 +334,6 @@ namespace Office.Api.Data.Migrations
                         .HasColumnType("character varying(200)")
                         .HasColumnName("external_id");
 
-                    b.Property<string>("FailureCode")
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
-                        .HasColumnName("failure_code");
-
                     b.Property<string>("FailureDetail")
                         .HasMaxLength(4000)
                         .HasColumnType("character varying(4000)")
@@ -430,8 +428,6 @@ namespace Office.Api.Data.Migrations
                     b.HasIndex("ExternalId")
                         .IsUnique()
                         .HasFilter("external_id IS NOT NULL");
-
-                    b.HasIndex("FailureCode");
 
                     b.HasIndex("SentByUserId");
 
