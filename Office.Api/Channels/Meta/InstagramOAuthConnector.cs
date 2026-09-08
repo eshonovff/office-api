@@ -168,18 +168,33 @@ public class InstagramOAuthConnector(HttpClient httpClient, IConfiguration confi
     /// интеграцияҳо (ва эҳтимол endpoint-и худи Meta низ ҳанӯз) шакли кӯҳнаи flat
     /// <c>{"access_token":...,"user_id":...}</c>-ро мегардонанд. Ҳарду кӯшиш мешаванд.
     /// </summary>
-    private static (string Token, string? UserId) ExtractTokenAndUserId(JsonElement root)
+    public static (string Token, string? UserId) ExtractTokenAndUserId(JsonElement root)
     {
         if (root.TryGetProperty("data", out var dataEl) && dataEl.ValueKind == JsonValueKind.Array && dataEl.GetArrayLength() > 0 &&
             dataEl[0].TryGetProperty("access_token", out var nestedTokenEl))
         {
-            var nestedUserId = dataEl[0].TryGetProperty("user_id", out var nestedUserIdEl) ? nestedUserIdEl.GetString() : null;
-            return (nestedTokenEl.GetString()!, nestedUserId);
+            return (nestedTokenEl.GetString()!, ExtractUserId(dataEl[0]));
         }
 
         var token = root.GetProperty("access_token").GetString()!;
-        var userId = root.TryGetProperty("user_id", out var userIdEl) ? userIdEl.GetString() : null;
-        return (token, userId);
+        return (token, ExtractUserId(root));
+    }
+
+    // 2026-09-08: production се маротиба афтод бо
+    // "The requested operation requires an element of type 'String', but the target
+    // element has type 'Number'" — Meta баъзан user_id-ро ҳамчун JSON number
+    // бармегардонад (на string, тавре ки ҳуҷҷат нишон медиҳад). Ҳарду шаклро қабул мекунем.
+    private static string? ExtractUserId(JsonElement parent)
+    {
+        if (!parent.TryGetProperty("user_id", out var userIdEl))
+            return null;
+
+        return userIdEl.ValueKind switch
+        {
+            JsonValueKind.String => userIdEl.GetString(),
+            JsonValueKind.Number => userIdEl.GetInt64().ToString(),
+            _ => null,
+        };
     }
 
     /// <summary>
