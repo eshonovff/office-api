@@ -70,4 +70,29 @@ public class InstagramOAuthConnectorTests
 
         Assert.Throws<KeyNotFoundException>(() => InstagramOAuthConnector.ExtractTokenAndUserId(doc.RootElement));
     }
+
+    // 2026-09-09 production: канал бо external_id=27208597255483913 (майдони "id"-и /me) сохта
+    // шуд, вале webhook entry[0].id=17841437397996064 мефиристод — канал ҳеҷ гоҳ ёфт намешуд.
+    // Fixture-и воқеӣ, айнан аз curl-и зинда (GET /me?fields=id,user_id,username).
+    private const string RealMeFixture =
+        """{"id":"27208597255483913","user_id":"17841437397996064","username":"crmnizom.tj"}""";
+
+    [Fact]
+    public void ExtractBusinessAccountId_RealFixture_ReturnsUserIdFieldNotIdField()
+    {
+        using var doc = JsonDocument.Parse(RealMeFixture);
+
+        var businessAccountId = InstagramOAuthConnector.ExtractBusinessAccountId(doc.RootElement);
+
+        Assert.Equal("17841437397996064", businessAccountId);
+        Assert.NotEqual(doc.RootElement.GetProperty("id").GetString(), businessAccountId);
+    }
+
+    [Fact]
+    public void ExtractBusinessAccountId_MissingUserIdField_ReturnsNull()
+    {
+        using var doc = JsonDocument.Parse("""{"id":"27208597255483913","username":"crmnizom.tj"}""");
+
+        Assert.Null(InstagramOAuthConnector.ExtractBusinessAccountId(doc.RootElement));
+    }
 }

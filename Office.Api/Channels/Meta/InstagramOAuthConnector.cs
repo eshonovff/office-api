@@ -53,10 +53,11 @@ public class InstagramOAuthConnector(HttpClient httpClient, IConfiguration confi
         var (shortLivedToken, userIdFromStep1) = ExtractTokenAndUserId(tokenDoc.RootElement);
 
         // Токен воқеӣ будани он аллакай тасдиқ шуд (дарозӣ=211, як бор бо curl санҷида шуд) —
-        // арзиши пурра дигар ба лог намеравад. userId ин ҷо log мешавад, то бо id-и /me
-        // (қадами 3, поён) муқоиса карда шавад — бо webhook кадомаш мувофиқ меояд.
+        // арзиши пурра дигар ба лог намеравад. userId танҳо барои ташхис log мешавад — ин ID
+        // БАРОИ external_id истифода НАМЕШАВАД (ниг. БОГ дар қадами 3, поён: ин ҳамон ID-и
+        // app-scoped-и нодуруст аст, на Business Account ID).
         logger.LogInformation(
-            "Instagram step 1: shortLivedToken дарозӣ={Length}, user_id={UserId}", shortLivedToken.Length, userIdFromStep1);
+            "Instagram step 1: shortLivedToken дарозӣ={Length}, user_id (ташхис, истифода намешавад)={UserId}", shortLivedToken.Length, userIdFromStep1);
 
         // ҚАДАМИ 2: short-lived → long-lived. URL-и ҷудогона, host-и ҷудогона (graph.instagram.com,
         // на api.instagram.com), параметрҳо дар QUERY STRING — ин ва ФАҚАТ ин дархост
@@ -85,27 +86,31 @@ public class InstagramOAuthConnector(HttpClient httpClient, IConfiguration confi
             ? DateTimeOffset.UtcNow.AddSeconds(expiresInSeconds)
             : (DateTimeOffset?)null;
 
-        // ҚАДАМИ 3: маълумоти account бо токени дарозмуддат.
+        // ҚАДАМИ 3: маълумоти account бо токени дарозмуддат. Диққат: fields=id,user_id,username —
+        // на танҳо id,username.
         using var meRequest = new HttpRequestMessage(
             HttpMethod.Get,
-            $"https://graph.instagram.com/{GraphApiVersion}/me?fields=id,username&access_token={Uri.EscapeDataString(longLivedToken)}");
+            $"https://graph.instagram.com/{GraphApiVersion}/me?fields=id,user_id,username&access_token={Uri.EscapeDataString(longLivedToken)}");
         var meResponse = await httpClient.SendAsync(meRequest, ct);
         await EnsureSuccessAsync(meRequest, meResponse, "Instagram /me (step 3: маълумоти account)", ct);
         using var meDoc = JsonDocument.Parse(await meResponse.Content.ReadAsStreamAsync(ct));
         var meId = meDoc.RootElement.GetProperty("id").GetString()!;
         var username = meDoc.RootElement.GetProperty("username").GetString()!;
 
-        // БОГ (2026-08-19): /me-и қадами 3 id-и app-scoped бармегардонад (масалан 28625914253673240) —
-        // на ID-е, ки webhook чун entry[].id мефиристад (17841438754823969, Instagram Business
-        // Account ID). Санҷиши зинда инро тасдиқ кард: канали бо id-и /me сохташуда ҳеҷ webhook
-        // намеёфт ("Канал ёфт нашуд"). Ҳуҷҷати расмии Meta барои step 1 (Business Login) майдони
-        // user_id-ро дар паҳлӯи access_token медиҳад — маҳз барои ҳамин мақсад номгузорӣ шудааст.
-        // Онро истифода мебарем; агар набошад (шакли flat-и кӯҳна), ба id-и /me бармегардем —
-        // беҳтар аз партофтани канал, вале log возеҳ мегӯяд кадомаш истифода шуд.
-        var accountId = userIdFromStep1 ?? meId;
+        // БОГ #2 (2026-09-09, ислоҳи БОГ #1-и 2026-08-19): фарзияи қаблӣ — ки user_id-и step 1
+        // (майдони ҳамроҳи access_token дар "oauth/access_token") Business Account ID-и webhook
+        // аст — НОДУРУСТ буд. Санҷиши зиндаи production тасдиқ кард: step1.user_id ВА ин ҷо
+        // майдони "id" ҳарду ҳамон қиймати ЯКХЕЛАРО медиҳанд (масалан 27208597255483913) — ин ID-и
+        // app-scoped/Instagram-scoped аст, на webhook-мувофиқ. ID-и дуруст (тасдиқшуда бо curl-и
+        // зинда ВА бо Meta App Dashboard, 2026-09-09) майдони АЛОҲИДАИ "user_id"-и ҲАМИН дархости
+        // /me аст (номаш бо step1.user_id якхела — маҳз ҳамин омехтагӣ сабаби ду тахмини нодуруст
+        // буд), масалан 17841437397996064. Агар аз сабабе набошад (версияи кӯҳнаи Graph API?), ба
+        // id-и /me бармегардем — беҳтар аз партофтани канал, вале log возеҳ мегӯяд кадомаш истифода шуд.
+        var businessAccountId = ExtractBusinessAccountId(meDoc.RootElement);
+        var accountId = businessAccountId ?? meId;
         logger.LogInformation(
-            "Instagram step 3: /me id={MeId}, ExternalId-и интихобшуда={ChosenId} (сарчашма={Source})",
-            meId, accountId, userIdFromStep1 is not null ? "step1.user_id" : "step3./me.id (захира)");
+            "Instagram step 3: /me id={MeId}, user_id={BusinessAccountId}, ExternalId-и интихобшуда={ChosenId} (сарчашма={Source})",
+            meId, businessAccountId, accountId, businessAccountId is not null ? "step3./me.user_id" : "step3./me.id (захира)");
 
         // Instagram Login (бар хилофи Facebook Pages) як account-и бизнеси якрангаро иҷозат
         // медиҳад — на рӯйхати чандто барои интихоб. Барои шакли якхела бо Facebook (то /connect
@@ -179,6 +184,17 @@ public class InstagramOAuthConnector(HttpClient httpClient, IConfiguration confi
         var token = root.GetProperty("access_token").GetString()!;
         return (token, ExtractUserId(root));
     }
+
+    /// <summary>
+    /// Санҷиши зинда (2026-09-09, ниг. report): <c>GET /me?fields=id,user_id,username</c> майдони
+    /// "user_id"-ро медиҳад, ки БАРХИЛОФИ майдони "id" (ва барҳилофи user_id-и step 1), Instagram
+    /// Business Account ID-и воқеӣ аст — ҳамон ID-е, ки webhook чун <c>entry[].id</c> мефиристад.
+    /// Ҳарду майдони "id" ва step1.user_id ID-и app-scoped медиҳанд (ҳамон қиймат, тасдиқшуда бо
+    /// curl) — барои мувофиқат бо webhook НОКОР. Агар "user_id" дар посух набошад (масалан
+    /// версияи кӯҳнаи Graph API), null бармегардад — занги ExchangeCodeAsync ба id-и /me бармегардад.
+    /// </summary>
+    public static string? ExtractBusinessAccountId(JsonElement meRoot) =>
+        meRoot.TryGetProperty("user_id", out var userIdEl) ? userIdEl.GetString() : null;
 
     // 2026-09-08: production се маротиба афтод бо
     // "The requested operation requires an element of type 'String', but the target
