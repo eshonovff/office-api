@@ -134,13 +134,14 @@ public class MediaSendJobTests
 
     [Theory]
     [InlineData(ChannelType.Instagram)]
-    [InlineData(ChannelType.Facebook)]
     public async Task SendAsync_ChannelCannotSendMedia_RejectsWithoutCallingProviderAndDoesNotRethrow(ChannelType channelType)
     {
-        // The regression this closes: before this guard, a media send to Instagram/Facebook hit
-        // Meta's Send API (which App-Review-gates it), got a real HTTP 500, and Hangfire retried
-        // it three times (30s/300s/1800s) — a slow, noisy way to fail at something we already
-        // know is impossible. Now it's rejected immediately, no network call, no retry.
+        // The regression this closes: before this guard, a media send to Instagram hit Meta's
+        // Send API (which App-Review-gates it), got a real HTTP 500, and Hangfire retried it
+        // three times (30s/300s/1800s) — a slow, noisy way to fail at something we already know
+        // is impossible. Now it's rejected immediately, no network call, no retry. Facebook is NOT
+        // in this list — confirmed working live 2026-08-26 (5/5 real Graph API sends succeeded
+        // with the exact production code path, see ChannelCapabilities for the evidence).
         var (db, message) = SeedVoiceNote(mimeType: "image/jpeg", channelType: channelType);
         var provider = new FakeProvider();
 

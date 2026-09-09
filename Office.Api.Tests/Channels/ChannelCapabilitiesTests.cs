@@ -5,34 +5,35 @@ namespace Office.Api.Tests.Channels;
 
 public class ChannelCapabilitiesTests
 {
-    [Fact]
-    public void CanSendMedia_WhatsApp_ReturnsTrue()
+    [Theory]
+    [InlineData(ChannelType.WhatsApp)]
+    [InlineData(ChannelType.Facebook)]
+    public void CanSendMedia_WhatsAppAndFacebook_ReturnsTrue(ChannelType channelType)
     {
-        Assert.True(ChannelCapabilities.CanSendMedia(ChannelType.WhatsApp));
+        // Facebook: тасдиқшуда зинда 2026-08-26 — ниг. ChannelCapabilities барои далел
+        // (5 такрори мустақил, ҳама 200).
+        Assert.True(ChannelCapabilities.CanSendMedia(channelType));
     }
 
-    [Theory]
-    [InlineData(ChannelType.Instagram)]
-    [InlineData(ChannelType.Facebook)]
-    public void CanSendMedia_MessengerChannels_ReturnsFalse(ChannelType channelType)
+    [Fact]
+    public void CanSendMedia_Instagram_ReturnsFalse()
     {
         // Instagram: confirmed live 2026-08-25 (message_attachments 200s, POST /messages with
-        // attachment_id always 500s until App Review). Facebook: NOT confirmed broken — set
-        // false anyway per explicit owner instruction, see the TODO on ChannelCapabilities.
-        Assert.False(ChannelCapabilities.CanSendMedia(channelType));
-    }
-
-    [Fact]
-    public void CanSendVoice_WhatsApp_ReturnsTrue()
-    {
-        Assert.True(ChannelCapabilities.CanSendVoice(ChannelType.WhatsApp));
+        // attachment_id always 500s until App Review).
+        Assert.False(ChannelCapabilities.CanSendMedia(ChannelType.Instagram));
     }
 
     [Theory]
-    [InlineData(ChannelType.Instagram)]
+    [InlineData(ChannelType.WhatsApp)]
     [InlineData(ChannelType.Facebook)]
-    public void CanSendVoice_MessengerChannels_ReturnsFalse(ChannelType channelType)
+    public void CanSendVoice_WhatsAppAndFacebook_ReturnsTrue(ChannelType channelType)
     {
-        Assert.False(ChannelCapabilities.CanSendVoice(channelType));
+        Assert.True(ChannelCapabilities.CanSendVoice(channelType));
+    }
+
+    [Fact]
+    public void CanSendVoice_Instagram_ReturnsFalse()
+    {
+        Assert.False(ChannelCapabilities.CanSendVoice(ChannelType.Instagram));
     }
 }

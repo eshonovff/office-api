@@ -3,27 +3,27 @@
 > Агент: ин файлро баъди ҳар фаза нав кун. Манбаи ҳақиқат — `git log` ва код,
 > на ин файл.
 
-## Ҳолати имрӯза (2026-08-18)
+## Ҳолати имрӯза (2026-08-26)
 
 **Тамом:** Фаза 0 (Setup), 1 (Auth), 2 (Проект/таск), 3 (Realtime), 4 (Инфраструктураи каналҳо).
 
-**Ҳастем дар:** Фазаи 6 (Инбокс), дар паҳлӯи ислоҳи хатоҳои Фаза 2/4 ва васеъшавии Фаза 5.
-Аз рӯйхати аслии 6.1-6.18 монданд: **6.2** (cursor pagination — ҳоло offset),
-**6.5** (board/Kanban-и чатҳо), **6.11** (тег), **6.15-6.16** (CRUD-и
-`message_templates`). 6.7 (notes) дар байн иҷро шуд. Илова бар ин, аз
-2026-08-11 то 2026-08-13 якчанд вазифаи иловагӣ (берун аз 6.1-6.18) рафтанд:
-claim-on-reply, read-only барои ғайри-масъул + takeover, auto-release,
-delayed-send (45с) бо undo, assignment-history. Аз 2026-08-13 то имрӯз коммит нест.
-Фаза 5 (WhatsApp) воқеан бо рақами тестии Meta дар сервери воқеӣ (office.nizom.tj)
-санҷида шуд — фиристодан/қабул/статус/media тасдиқ шуд. Фаза 7 (IG+FB) ҳанӯз
-`PlaceholderChannelProvider`, воқеӣ нашудааст. Фаза 8 (Deploy) расман наомадааст,
-вале артефактҳои деплой (Dockerfile, docker-compose.prod.yml, nginx, runbook)
-аллакай сохта ва санҷида шудаанд — танҳо барои санҷиши WhatsApp-и зинда.
+**Ҳастем дар:** Фазаи 9 (Дашборд, ҳар се блок тамом — ниг. `docs/phases/phase-9-dashboard.md`),
+дар паҳлӯи Фазаи 6 (Инбокс, ҳанӯз тартиб намонда) ва Фазаи 7 (Instagram+Facebook, ҳоло
+воқеан кор мекунад — на placeholder).
+
+> ⚠️ Сатрҳои 2026-08-13 то 2026-08-25 дар ҷадвали поён **сабт НАШУДААНД** (кор дар як чат
+> дигар давом ёфт, ин файл нав нашуд — маҳз ин "кӯҳна шудан" буд). Ҳолати фазаҳои поён
+> аз коди ҷорӣ дуруст аст, вале рӯйхати "чӣ/чаро"-и ҳаррӯза барои он давра нест.
+> Хулосаи фишурда: Meta OAuth (Facebook Login for Business + Instagram API with Instagram
+> Login, ду app-и ҷудогона), webhook (imзо, обунаи худкори Page/App сатҳ дар `/connect`),
+> паём/media дар ҳарду самт барои Instagram/Facebook, echo-и is_echo (Outbound, на партофта),
+> token refresh, backfill-и профили мижоз, ва як бор ислоҳи tunnel-и cloudflared (сабаби
+> "ҳар се канал якбора хомӯш" — ниг. `docs/diag-2026-08-25-three-channels-down.md`).
 
 **Се қадами навбатӣ:**
-1. 6.11 (тег) ё 6.5 (board/Kanban-и чатҳо) — кадомашро корбар аввал хоҳад
-2. Рақами воқеии WhatsApp ва пайвасти Instagram/Facebook Page (масъалаҳои кушода дар поён) — бе ин Фаза 7 оғоз шуда наметавонад
-3. CRUD-и `message_templates` (6.15-6.16) — то ҳол фақат фиристодани шаблони тасдиқшудаи Meta кор мекунад, идоракунии рӯйхат нест
+1. Frontend: диаграммаҳои Блоки 3 (`dashboard/stats/route.tsx` то ҳол `<div />`-и холист, тибқи нақша), гузариш ба `canSeeStats`-и бэкенд ба ҷои `isOwnerOrAdmin(roles)`-и такрории frontend
+2. 6.11 (тег), 6.5 (board/Kanban-и чатҳо), CRUD-и `message_templates` (6.15-6.16) — ҳанӯз аз рӯйхати 6.1-6.18 намондаанд
+3. Фаза 8 (Deploy) — деплойи расмии тамоми система (Instagram/Facebook аллакай воқеӣ шуданд, деплой то ҳол танҳо барои WhatsApp-и санҷишӣ буд)
 
 ## Ҳолати фазаҳо
 
@@ -35,9 +35,10 @@ delayed-send (45с) бо undo, assignment-history. Аз 2026-08-13 то имрӯ
 | 3 | Realtime | ✅ тамом |
 | 4 | Инфраструктураи каналҳо | ✅ тамом |
 | 5 | WhatsApp | 🟡 фиристодан/қабул/статус/media бо WhatsApp-и воқеӣ дар сервер тасдиқ шуд; рақами доимӣ (на тестии Meta) ҳанӯз не |
-| 6 | Инбокс | 🟡 асосӣ (list/get/messages/reply/status/assign/read/доступ/media/notes/delayed-send/takeover/assignment-history) тамом; board, tags, cursor pagination, CRUD-и шаблон намонда |
-| 7 | Instagram + Facebook | ⬜ нашуда — танҳо placeholder-провайдер |
-| 8 | Deploy | 🟡 артефактҳо (Docker/nginx/runbook) сохта ва як маротиба барои санҷиши WhatsApp истифода шуд, вале деплойи расмии тамоми система нест |
+| 6 | Инбокс | 🟡 асосӣ тамом; board, tags, cursor pagination, CRUD-и шаблон намонда |
+| 7 | Instagram + Facebook | 🟡 воқеан кор мекунад (OAuth, webhook, паём/media дар ҳарду самт, echo) — вале фиристодани media-и Instagram то App Review-и Meta нагузарад бастааст (`ChannelCapabilities.CanSendMedia`), ниг. `docs/PROGRESS.md`-и таърихӣ дар `git log` барои тафсил |
+| 8 | Deploy | 🟡 артефактҳо сохта, як маротиба барои WhatsApp истифода шуд — деплойи расмии IG/FB нест |
+| 9 | Дашборд | 🟡 Backend-и ҳар се блок (`actionRequired`, `myWork`, `GET /api/dashboard/stats`) тамом ва тасдиқшуда; диаграммаҳои frontend-и Блоки 3 намонда — ниг. `docs/phases/phase-9-dashboard.md` |
 
 Ҳолатҳо: ⬜ нашуда · 🟡 дар кор · ✅ тамом · ⛔ басташуда
 
@@ -142,3 +143,11 @@ takeover, assignment-history, media/voice-note/thumbnail, auth+refresh) —
 | 2026-08-12 | Delayed send (45с, `Inbox:DelayedSendSeconds`) бо cancel: паём фавран `Pending` сабт мешавад, баъд бо таъхир ба провайдер меравад — `POST .../messages/{messageId}/cancel` дар ин тиреза бекор мекунад | Имкони "undo" пеш аз расидан ба мижоз — хатои таппиш/матни нодуруст қобили ислоҳ |
 | 2026-08-12 | Internal note (`isInternalNote` дар `SendMessageRequest`) — ба мижоз намеравад ҳеҷ гоҳ (`InternalNoteGuard.CanDispatchToProvider` дар худи `WhatsAppSendJob`, на танҳо дар endpoint), claim намекунад, unread/тиреза-24с таъсир намекунад | 6.7-и қаблӣ; сутуни `messages.is_internal_note` дар DB буд, вале ҳеҷ роҳе барои танзими он набуд — маълумоти мурда буд |
 | 2026-08-13 | `GET /api/conversations/{id}/assignment-history` илова шуд — рӯйхати воқеаҳои таъин (`ClaimedOnReply`/`Takeover`/`Reassigned`/`AutoReleased`) | Барои шаффофият: кӣ, кай ва чаро чатро гирифт/супурд |
+| 2026-08-13 то 2026-08-25 | *(сабт нашуд — ин файл дар ин давра нав нашуд)* Фаза 7 (Instagram+Facebook) воқеан сохта шуд: Meta OAuth, webhook (имзо/обуна), паём/media дар ҳарду самт, echo, token refresh, backfill-и профил, ислоҳи tunnel | Тафсил дар `git log`, `docs/diag-2026-08-25-three-channels-down.md` |
+| 2026-08-26 | `GET /api/dashboard` — Блоки 1 (`actionRequired`): closingWindows/unassigned/failedMessages/channelIssues/overdueTasks, ҳама аз SQL (CountAsync/Take), `IChannelAccessGuard`/`ProjectAccessGuard`-и мавҷуда, кэши 60с (`IMemoryCache`-и аввалин дар лоиҳа), 4 индекси нав | Тартиби корӣ: Блоки 1 аввал, тасдиқ, баъд Блоки 2/3 — ниг. `docs/phases/phase-9-dashboard.md` |
+| 2026-08-26 | `ChannelCapabilities.CanSendMedia/CanSendVoice(Facebook)` → true — санҷиши зинда бо скрипти мустақил (бе Hangfire, токени production): 5/5 маротиба (сурати хурд, audio/mp4-и ба андозаи voice note, PNG-и калон) message_attachments+POST/messages ҳарду 200 доданд. 3 хатои DB-ии subcode 2018074 хулосаи "banди Meta" НАБУД — механизм 100% кор мекунад, ду аз се хато 3 сония аз ҳам дур буданд (ҳодисаи муваққатии тарафи Meta) | Гипотезаи "URL, на bytes" рад шуд (код аллакай bytes мефиристод); Instagram-и банди тасдиқшуда бо ин омехта нашавад |
+| 2026-08-26 | `messages.failure_code` (нав, "{PROVIDER}_{code}[_{subcode}]", `MetaErrorCodeExtractor`-и pure) — дашборди `failedMessages` акнун аз рӯи он GROUP BY мекунад (`14×IG_2, 3×FB_100_2018074, 2×WA_131030, 1×IG_1`), на 20 сатри JSON-и "беном" | `fbtrace_id` дар ҳар дархост ягона аст — GROUP BY бар FailureReason/Detail бефоида буд. Backfill — як UPDATE-и якхела (PL/pgSQL-и муваққатӣ), тайёр барои ҳаҷми калон |
+| 2026-08-26 | А1: тасдиқшуда бо код — паёми Failed баъди retry-и муваффақ ба Sent бармегардад (се ҷои коркарди хато, ҳама се). Дашборд ислоҳ лозим надошт. А2: `IG_1` аз харитаи "маълум" бардошта шуд (як маротиба дида шудааст) — акнун коди ношинос логи Warning бо payload-и пурра мегузорад | Дашборд набояд дар бораи чизи худҳалшуда огоҳ кунад; барои коди ношинос бори дигар маълумот лозим |
+| 2026-08-26 | Дашборд Блоки 2 (`myWork`): myConversations/myUnread/myTasksToday/myTasksOverdue — ҳамеша шахсӣ (ҳатто Owner). `OfficeLocalDate` (UTC+5) илова шуд — `overdueTasks`-и Блоки 1 низ ба он гузашт (пеш UTC-и хом буд) | Ҳамон `accessibleConversations`-и Блоки 1 аз нав истифода шуд — дархости нави only_assigned нест; "имрӯз" бояд дар ҳарду блок якхела бошад |
+| 2026-08-26 | А1: `FailedMessageGroup.Label` аз API бардошта шуд (фронт бисёрзабона аст, тарҷума дар он ҷо). А2: `is_active` аз `channelIssues` бардошта шуд — 5 канали тестии хомӯшкардашуда дигар "мушкил" нишон намедиҳанд (5→0 бо маълумоти воқеӣ). А3: `canSeeStats` ба `/api/dashboard` илова шуд (=`CanSeeAllChannels`) | Дашборд бисёрзабона аст, на танҳо tg; канали қасдан ғайрифаъол мушкил нест; фронт набояд мантиқи RoleKeys-ро такрор нависад |
+| 2026-08-26 | `GET /api/dashboard/stats` (Блоки 3, Owner/Admin танҳо, 403 барои дигарон, кэши 5 дақ) — ҳашт диаграмма (volumeByDay, byChannel, operatorLoad, hourlyHeatmap, responseTimeBuckets, messageStatus, failureBreakdown, funnel) аз 6 round-trip. Ҳар диаграмма `sampleSize`/`sufficient` дорад — 2 аз 8 (operatorLoad, responseTimeBuckets) ҳоло "маълумот кам" мегӯянд бо маълумоти воқеии production | `RequireOwnerOrAdmin()` (нав) — ҳамон дари `ChannelAccessGuard.CanSeeAllChannels`; `OfficeLocalDate.AddHours(5)` дар дохили LINQ санҷида шуд, ки ба Npgsql SQL тарҷума мешавад |

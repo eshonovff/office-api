@@ -34,6 +34,7 @@ public class MessageConfiguration : IEntityTypeConfiguration<Message>
         builder.Property(m => m.TemplateParametersJson).HasColumnType("jsonb");
         builder.Property(m => m.FailureReason).HasMaxLength(500);
         builder.Property(m => m.FailureDetail).HasMaxLength(4000);
+        builder.Property(m => m.FailureCode).HasMaxLength(50);
 
         builder.HasOne(m => m.Conversation)
             .WithMany(c => c.Messages)
@@ -47,5 +48,12 @@ public class MessageConfiguration : IEntityTypeConfiguration<Message>
 
         builder.HasIndex(m => new { m.ConversationId, m.CreatedAt });
         builder.HasIndex(m => m.ExternalId).IsUnique().HasFilter("external_id IS NOT NULL");
+        // Дашборд (GET /api/dashboard): volumeByDay/hourlyHeatmap-и оянда бар рӯи ҳамаи чатҳо
+        // (на як chat) кор мекунад — индекси боло ба conversation_id баста аст, инҷо не.
+        builder.HasIndex(m => new { m.CreatedAt, m.Direction });
+        // Дашборд: failedMessages — "DeliveryStatus = Failed, 7 рӯзи охир".
+        builder.HasIndex(m => m.DeliveryStatus);
+        // Дашборд: гурӯҳбандии failedMessages аз рӯи навъи воқеии хато (FB_100_2018074 ва ғ.).
+        builder.HasIndex(m => m.FailureCode);
     }
 }

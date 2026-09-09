@@ -58,6 +58,13 @@ public class Message
     public string? FailureReason { get; set; }
 
     /// <summary>
+    /// Шакли сохторӣ: "{PROVIDER}_{code}[_{subcode}]" (масалан FB_100_2018074) — ниг.
+    /// MetaErrorCodeExtractor. Барои GROUP BY (дашборд) — fbtrace_id-и дохили FailureDetail
+    /// ягона аст, ин майдон не.
+    /// </summary>
+    public string? FailureCode { get; set; }
+
+    /// <summary>
     /// Ҷавоби хоми Meta Graph API (JSON), фақат вақте FailureReason аз GraphApiException омадааст —
     /// барои debug дар frontend (details/tooltip-и пӯшида), FailureReason-и худ ҳамеша матни
     /// инсонфаҳм мемонад (ниг. MetaErrorTranslator).
