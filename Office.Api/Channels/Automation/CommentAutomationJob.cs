@@ -1,0 +1,78 @@
+using System.Text.Json;
+using Hangfire;
+using Microsoft.EntityFrameworkCore;
+using Office.Api.Channels.Instagram;
+using Office.Api.Data;
+using Office.Api.Data.Entities;
+
+namespace Office.Api.Channels.Automation;
+
+/// <summary>
+/// Иҷрои воқеии як AutomationRun: ҷавоби ҷамъиятӣ ба коментарий, баъд DM (private reply).
+/// Ҳар кадом мустақилона хато сабт мекунад — нокомии яке дигареро блок намекунад (масалан
+/// public reply муваффақ, вале DM аз сабаби гузаштани 7-рӯза ноком шавад). Хатогиҳои Graph API
+/// қасдан ба берун партофта НАМЕШАВАНД (catch дар ҳамин ҷо) — вагарна [AutomaticRetry]-и поён
+/// кӯшиши дуюм мекард ва ҷавоби ҷамъиятии АЛЛАКАЙ фиристодашударо такрор мефиристод.
+/// [AutomaticRetry] танҳо барои хатогиҳои беруни ин ду catch (DB/JSON) боқӣ мемонад.
+/// </summary>
+[AutomaticRetry(Attempts = 3, DelaysInSeconds = [30, 300, 1800])]
+public class CommentAutomationJob(AppDbContext db, InstagramProvider instagramProvider, ILogger<CommentAutomationJob> logger)
+{
+    public async Task RunAsync(Guid automationRunId, CancellationToken ct)
+    {
+        var run = await db.AutomationRuns.Include(r => r.Rule).ThenInclude(rule => rule.Channel)
+            .FirstOrDefaultAsync(r => r.Id == automationRunId, ct);
+        if (run is null)
+            return;
+
+        var channel = run.Rule.Channel;
+        AutomationActionConfig actionConfig;
+        try
+        {
+            actionConfig = JsonSerializer.Deserialize<AutomationActionConfig>(run.Rule.ActionConfigJson) ??
+                throw new JsonException("null");
+        }
+        catch (JsonException ex)
+        {
+            logger.LogError(ex, "AutomationRun {RunId}: action_config вайрон аст", run.Id);
+            run.CommentReplyStatus = AutomationRunStatus.Failed;
+            run.DmStatus = AutomationRunStatus.Failed;
+            run.Error = "action_config вайрон аст: " + ex.Message;
+            await db.SaveChangesAsync(ct);
+            return;
+        }
+
+        // Round-robin аз рӯи шумораи run-ҳои қаблии ин rule (пеш аз ин run сохта шудаанд) —
+        // ниг. CommentReplySelector: детерминистӣ, ниёз ба сутуни иловагӣ надорад.
+        var priorRunCount = await db.AutomationRuns.CountAsync(r => r.RuleId == run.RuleId && r.CreatedAt < run.CreatedAt, ct);
+        var replyText = CommentReplySelector.Select(actionConfig.CommentReplies, priorRunCount);
+
+        try
+        {
+            await instagramProvider.ReplyToCommentAsync(channel, run.TriggerExternalId, replyText, ct);
+            run.CommentReplyStatus = AutomationRunStatus.Sent;
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "AutomationRun {RunId}: ҷавоби ҷамъиятӣ ноком шуд", run.Id);
+            run.CommentReplyStatus = AutomationRunStatus.Failed;
+            run.Error = ex.Message;
+        }
+
+        try
+        {
+            await instagramProvider.SendPrivateReplyAsync(channel, run.TriggerExternalId, actionConfig.DmText, ct);
+            run.DmStatus = AutomationRunStatus.Sent;
+        }
+        catch (Exception ex)
+        {
+            // Маъмултарин сабаб: 7 рӯз гузаштааст ё private reply аллакай як бор фиристода
+            // шудааст — Meta бо хатои возеҳ рад мекунад (ниг. шарҳи SendPrivateReplyAsync).
+            logger.LogError(ex, "AutomationRun {RunId}: DM (private reply) ноком шуд", run.Id);
+            run.DmStatus = AutomationRunStatus.Failed;
+            run.Error = run.Error is null ? ex.Message : $"{run.Error} | DM: {ex.Message}";
+        }
+
+        await db.SaveChangesAsync(ct);
+    }
+}

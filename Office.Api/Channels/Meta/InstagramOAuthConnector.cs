@@ -121,7 +121,12 @@ public class InstagramOAuthConnector(HttpClient httpClient, IConfiguration confi
 
     // Барои Instagram "message_echoes" майдони алоҳида НЕСТ (бар хилофи Facebook) — Meta онҳоро
     // худи "messages" дохил мекунад (ниг. developers.facebook.com, тасдиқшуда 2026-08-25).
-    private const string RequiredWebhookField = "messages";
+    // "comments" барои Фазаи 10 (автоматизатсияи коментарий) илова шуд — ниг.
+    // phase-10-instagram-automation.md. Каналҳои ПЕШ аз ин пайвастшуда обунаи "comments"
+    // надоранд то CommentAutomationEndpoints.CreateAsync ин методро бори дигар даъват кунад
+    // (ҳангоми сохтани аввалин rule-и фаъол).
+    private static readonly string[] RequiredWebhookFields = ["messages", "comments"];
+    private const string RequiredWebhookFieldsParam = "messages,comments";
 
     /// <summary>
     /// Обуна ба webhook-и Page-и Instagram, баъд ТАСДИҚ бо GET (на танҳо такя ба POST-и 200) —
@@ -136,7 +141,7 @@ public class InstagramOAuthConnector(HttpClient httpClient, IConfiguration confi
     public async Task<string?> EnsureWebhookSubscriptionAsync(string instagramAccountId, string accessToken, CancellationToken ct)
     {
         var url = $"https://graph.instagram.com/{GraphApiVersion}/{instagramAccountId}/subscribed_apps" +
-                  $"?subscribed_fields={RequiredWebhookField}&access_token={Uri.EscapeDataString(accessToken)}";
+                  $"?subscribed_fields={RequiredWebhookFieldsParam}&access_token={Uri.EscapeDataString(accessToken)}";
         try
         {
             using var postRequest = new HttpRequestMessage(HttpMethod.Post, url);
@@ -150,15 +155,19 @@ public class InstagramOAuthConnector(HttpClient httpClient, IConfiguration confi
             await EnsureSuccessAsync(getRequest, getResponse, "Instagram subscribed_apps (тасдиқ)", ct);
 
             using var doc = JsonDocument.Parse(await getResponse.Content.ReadAsStreamAsync(ct));
-            var hasMessages = doc.RootElement.TryGetProperty("data", out var dataEl) && dataEl.GetArrayLength() > 0 &&
-                               dataEl[0].TryGetProperty("subscribed_fields", out var fieldsEl) &&
-                               fieldsEl.EnumerateArray().Any(f => f.GetString() == RequiredWebhookField);
+            var subscribedFields = doc.RootElement.TryGetProperty("data", out var dataEl) && dataEl.GetArrayLength() > 0 &&
+                                    dataEl[0].TryGetProperty("subscribed_fields", out var fieldsEl)
+                ? fieldsEl.EnumerateArray().Select(f => f.GetString()).ToHashSet()
+                : [];
+            var missingFields = RequiredWebhookFields.Where(f => !subscribedFields.Contains(f)).ToList();
 
-            if (hasMessages)
+            if (missingFields.Count == 0)
                 return null;
 
-            logger.LogWarning("Instagram: обунаи webhook пас аз POST боз ҳам нопурра аст (Account {AccountId})", instagramAccountId);
-            return "Майдони 'messages' фаъол нест — паёмҳо намерасанд.";
+            logger.LogWarning(
+                "Instagram: обунаи webhook пас аз POST боз ҳам нопурра аст (Account {AccountId}, гумшуда: {MissingFields})",
+                instagramAccountId, string.Join(",", missingFields));
+            return $"Майдони '{string.Join("', '", missingFields)}' фаъол нест.";
         }
         catch (MetaOAuthException ex)
         {

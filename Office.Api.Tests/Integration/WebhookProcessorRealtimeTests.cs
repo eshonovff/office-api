@@ -4,6 +4,7 @@ using Hangfire.States;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Office.Api.Channels;
+using Office.Api.Channels.Automation;
 using Office.Api.Channels.Facebook;
 using Office.Api.Channels.Instagram;
 using Office.Api.Channels.WhatsApp;
@@ -100,8 +101,11 @@ public class WebhookProcessorRealtimeTests
         await db.SaveChangesAsync();
 
         var events = new RecordingInboxEventPublisher();
+        var backgroundJobs = new NonFunctionalBackgroundJobClient();
         var processor = new WebhookProcessor(
-            db, new FakeChannelProviderFactory(), events, new NonFunctionalBackgroundJobClient(), NullLogger<WebhookProcessor>.Instance);
+            db, new FakeChannelProviderFactory(), events, backgroundJobs,
+            new CommentAutomationProcessor(db, backgroundJobs, NullLogger<CommentAutomationProcessor>.Instance),
+            NullLogger<WebhookProcessor>.Instance);
 
         await processor.ProcessAsync(log.Id, CancellationToken.None);
 
@@ -130,8 +134,11 @@ public class WebhookProcessorRealtimeTests
         await db.SaveChangesAsync();
 
         var events = new RecordingInboxEventPublisher();
+        var backgroundJobs = new NonFunctionalBackgroundJobClient();
         var processor = new WebhookProcessor(
-            db, new FakeChannelProviderFactory(), events, new NonFunctionalBackgroundJobClient(), NullLogger<WebhookProcessor>.Instance);
+            db, new FakeChannelProviderFactory(), events, backgroundJobs,
+            new CommentAutomationProcessor(db, backgroundJobs, NullLogger<CommentAutomationProcessor>.Instance),
+            NullLogger<WebhookProcessor>.Instance);
 
         await processor.ProcessAsync(log.Id, CancellationToken.None);
 
@@ -155,8 +162,11 @@ public class WebhookProcessorRealtimeTests
         await db.SaveChangesAsync();
 
         var events = new RecordingInboxEventPublisher();
+        var backgroundJobs = new NonFunctionalBackgroundJobClient();
         var processor = new WebhookProcessor(
-            db, new FakeChannelProviderFactory(), events, new NonFunctionalBackgroundJobClient(), NullLogger<WebhookProcessor>.Instance);
+            db, new FakeChannelProviderFactory(), events, backgroundJobs,
+            new CommentAutomationProcessor(db, backgroundJobs, NullLogger<CommentAutomationProcessor>.Instance),
+            NullLogger<WebhookProcessor>.Instance);
 
         await processor.ProcessAsync(log.Id, CancellationToken.None);
 

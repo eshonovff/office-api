@@ -1,6 +1,8 @@
 using System.Text.Json;
 using Hangfire;
 using Microsoft.EntityFrameworkCore;
+using Office.Api.Channels.Automation;
+using Office.Api.Channels.Instagram;
 using Office.Api.Data;
 using Office.Api.Data.Entities;
 using Office.Api.Features.Conversations;
@@ -18,6 +20,7 @@ public class WebhookProcessor(
     IChannelProviderFactory factory,
     IInboxEventPublisher events,
     IBackgroundJobClient backgroundJobs,
+    CommentAutomationProcessor commentAutomation,
     ILogger<WebhookProcessor> logger)
 {
     public async Task ProcessAsync(Guid webhookLogId, CancellationToken ct)
@@ -66,6 +69,15 @@ public class WebhookProcessor(
         if (channel is null)
         {
             log.Error = $"Канали '{channelExternalId}' (навъи {channelType}) ёфт нашуд.";
+            return;
+        }
+
+        // Шакли коментарии Instagram (entry[].changes[], field="comments") бо шакли паёми
+        // муқаррарӣ (entry[].messaging[]) комилан фарқ мекунад — InstagramPayloadParser.ParseMessages
+        // онро намефаҳмад (ва бехатарона холӣ бармегардонад), пас шохаи ҷудогона лозим аст.
+        if (channelType == ChannelType.Instagram && InstagramPayloadParser.TryParseCommentEvent(root, out var commentEvent))
+        {
+            await commentAutomation.ProcessAsync(channel, commentEvent, ct);
             return;
         }
 

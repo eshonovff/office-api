@@ -163,6 +163,96 @@ public class InstagramProvider(
     public Task<IReadOnlyList<WhatsAppTemplateInfo>> GetApprovedTemplatesAsync(Channel channel, CancellationToken ct) =>
         throw new NotSupportedException("Instagram шаблон надорад.");
 
+    /// <summary>
+    /// Ҷавоби ҷамъиятӣ ба коментарий: POST /{comment-id}/replies бо параметри "message" — ниёз
+    /// ба scope-и instagram_business_manage_comments (аллакай дархост шудааст, ниг.
+    /// InstagramOAuthConnector.Scopes). Тасдиқшуда бо ҳуҷҷати расмии Meta (Graph API — Comment
+    /// Moderation, 2026-09-14): ҳеҷ маҳдудияти шумора надорад (бар хилофи private reply поён).
+    /// </summary>
+    public async Task ReplyToCommentAsync(Channel channel, string commentId, string message, CancellationToken ct)
+    {
+        var credentials = GetCredentials(channel);
+        await PostToAbsoluteGraphApiPathAsync(channel, credentials, $"{commentId}/replies", new { message }, ct);
+    }
+
+    /// <summary>
+    /// Private reply дар DM: POST /{ig-id}/messages бо recipient.comment_id — ҳамон endpoint-и
+    /// SendMessageAsync (recipient.id), вале бо comment_id ба ҷои user id. Тасдиқшуда бо
+    /// ҳуҷҷати расмии Meta (Messenger Platform — Private Replies, 2026-09-14): (1) як бор барои
+    /// як коментарий (кӯшиши дуюм хато медиҳад), (2) танҳо дар давоми 7 РӮЗ пас аз сохта шудани
+    /// коментарий (барои пости оддӣ/reel — на Instagram Live, ки танҳо то анҷоми пахш кор мекунад).
+    /// Ин ду маҳдудиятро ин методи содда санҷида наметавонад (Meta худаш хато медиҳад, агар
+    /// вайрон шаванд) — CommentAutomationJob хатогиро сабт мекунад, дубора кӯшиш намекунад.
+    /// </summary>
+    public async Task<string?> SendPrivateReplyAsync(Channel channel, string commentId, string text, CancellationToken ct)
+    {
+        var credentials = GetCredentials(channel);
+        var payload = new { recipient = new { comment_id = commentId }, message = new { text } };
+        var responseBody = await PostToGraphApiAsync(channel, credentials, "messages", payload, ct);
+        return InstagramPayloadParser.ExtractSentMessageId(responseBody);
+    }
+
+    /// <summary>
+    /// Рӯйхати постҳои охирин — барои интихоби пост дар UI-и қоидаи автоматизатсия
+    /// (postScope=selected). VIDEO fields.media_url аксар вақт холист — thumbnail_url ҷои онро
+    /// мегирад, то фронтенд лозим набошад ду майдонро худаш фарқ кунад.
+    /// </summary>
+    public async Task<InstagramMediaPage> GetRecentMediaAsync(Channel channel, string? after, int limit, CancellationToken ct)
+    {
+        var credentials = GetCredentials(channel);
+        var url = $"{GraphApiBaseUrl}/{GraphApiVersion}/{credentials.InstagramAccountId}/media" +
+                  "?fields=id,media_type,media_url,thumbnail_url,permalink,caption,timestamp" +
+                  $"&limit={limit}" +
+                  (after is null ? "" : $"&after={Uri.EscapeDataString(after)}");
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credentials.AccessToken);
+
+        var response = await httpClient.SendAsync(request, ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync(ct);
+            var errorCode = TryGetErrorCode(body);
+            if (errorCode == TokenExpiredErrorCode)
+            {
+                channel.RequiresReconnect = true;
+                await db.SaveChangesAsync(ct);
+            }
+
+            logger.LogError("Instagram media GET хатогӣ: {StatusCode} {Body}", (int)response.StatusCode, body);
+            throw new GraphApiException(MetaErrorTranslator.Translate(body), body);
+        }
+
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStreamAsync(ct));
+        var items = new List<InstagramMediaItem>();
+        if (doc.RootElement.TryGetProperty("data", out var dataEl))
+        {
+            foreach (var item in dataEl.EnumerateArray())
+            {
+                var mediaType = item.TryGetProperty("media_type", out var typeEl) ? typeEl.GetString() : null;
+                var mediaUrl = item.TryGetProperty("media_url", out var urlEl) ? urlEl.GetString() : null;
+                var thumbnailUrl = item.TryGetProperty("thumbnail_url", out var thumbEl) ? thumbEl.GetString() : null;
+
+                items.Add(new InstagramMediaItem(
+                    Id: item.GetProperty("id").GetString()!,
+                    MediaType: mediaType,
+                    ImageUrl: mediaUrl ?? thumbnailUrl,
+                    Permalink: item.TryGetProperty("permalink", out var permalinkEl) ? permalinkEl.GetString() : null,
+                    Caption: item.TryGetProperty("caption", out var captionEl) ? captionEl.GetString() : null,
+                    Timestamp: item.TryGetProperty("timestamp", out var tsEl) ? tsEl.GetString() : null));
+            }
+        }
+
+        var nextCursor = doc.RootElement.TryGetProperty("paging", out var pagingEl) &&
+            pagingEl.TryGetProperty("cursors", out var cursorsEl) &&
+            cursorsEl.TryGetProperty("after", out var afterEl) &&
+            pagingEl.TryGetProperty("next", out _)
+            ? afterEl.GetString()
+            : null;
+
+        return new InstagramMediaPage(items, nextCursor);
+    }
+
     public async Task<ContactProfile> GetContactProfileAsync(Channel channel, string contactExternalId, CancellationToken ct)
     {
         var (profile, _) = await FetchContactProfileAsync(channel, contactExternalId, ct);
@@ -229,10 +319,17 @@ public class InstagramProvider(
         return InstagramCredentials.Parse(protector.Unprotect(channel.CredentialsEncrypted));
     }
 
-    private async Task<string> PostToGraphApiAsync(Channel channel, InstagramCredentials credentials, string path, object payload, CancellationToken ct)
+    private Task<string> PostToGraphApiAsync(Channel channel, InstagramCredentials credentials, string path, object payload, CancellationToken ct) =>
+        PostToAbsoluteGraphApiPathAsync(channel, credentials, $"{credentials.InstagramAccountId}/{path}", payload, ct);
+
+    /// <summary>
+    /// Ҳамон PostToGraphApiAsync, вале барои path-ҳое, ки ба account id-и худи мо асос НАЁфтаанд
+    /// (масалан "{comment-id}/replies" — comment id-и ягон корбар аст, на аккаунти мо).
+    /// </summary>
+    private async Task<string> PostToAbsoluteGraphApiPathAsync(Channel channel, InstagramCredentials credentials, string path, object payload, CancellationToken ct)
     {
         using var request = new HttpRequestMessage(
-            HttpMethod.Post, $"{GraphApiBaseUrl}/{GraphApiVersion}/{credentials.InstagramAccountId}/{path}")
+            HttpMethod.Post, $"{GraphApiBaseUrl}/{GraphApiVersion}/{path}")
         {
             Content = JsonContent.Create(payload),
         };

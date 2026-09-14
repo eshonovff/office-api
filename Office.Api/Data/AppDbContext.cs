@@ -32,6 +32,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<ConversationAssignmentEvent> ConversationAssignmentEvents => Set<ConversationAssignmentEvent>();
     public DbSet<MessageTemplate> MessageTemplates => Set<MessageTemplate>();
     public DbSet<WebhookLog> WebhookLogs => Set<WebhookLog>();
+    public DbSet<AutomationRule> AutomationRules => Set<AutomationRule>();
+    public DbSet<AutomationRun> AutomationRuns => Set<AutomationRun>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

@@ -733,4 +733,109 @@ public class InstagramPayloadParserTests
     {
         Assert.Empty(InstagramPayloadParser.ParseStatusUpdates(Parse(ReadPayload)));
     }
+
+    // Payload-и тасдиқшуда дар истеҳсол — ниг. phase-10-instagram-automation.md.
+    private const string CommentPayload = """
+        {
+          "object": "instagram",
+          "entry": [{
+            "id": "17841437397996064",
+            "changes": [{
+              "field": "comments",
+              "value": {
+                "id": "18069000008730547",
+                "from": { "id": "2169710770261037", "username": "eshonov.f1" },
+                "text": "🔥👏",
+                "media": { "id": "17977626660078004", "media_product_type": "FEED" }
+              }
+            }]
+          }]
+        }
+        """;
+
+    [Fact]
+    public void TryParseCommentEvent_RealProductionPayload_ExtractsAllFields()
+    {
+        var parsed = InstagramPayloadParser.TryParseCommentEvent(Parse(CommentPayload), out var evt);
+
+        Assert.True(parsed);
+        Assert.Equal("18069000008730547", evt.CommentId);
+        Assert.Equal("2169710770261037", evt.ActorExternalId);
+        Assert.Equal("eshonov.f1", evt.ActorUsername);
+        Assert.Equal("🔥👏", evt.Text);
+        Assert.Equal("17977626660078004", evt.MediaId);
+    }
+
+    [Fact]
+    public void TryParseCommentEvent_MessagingPayload_ReturnsFalse()
+    {
+        Assert.False(InstagramPayloadParser.TryParseCommentEvent(Parse(TextMessagePayload), out _));
+    }
+
+    [Fact]
+    public void TryParseCommentEvent_ChangesFieldNotComments_ReturnsFalse()
+    {
+        const string payload = """
+            {
+              "object": "instagram",
+              "entry": [{
+                "id": "17841437397996064",
+                "changes": [{ "field": "story_insights", "value": { "id": "1" } }]
+              }]
+            }
+            """;
+
+        Assert.False(InstagramPayloadParser.TryParseCommentEvent(Parse(payload), out _));
+    }
+
+    [Fact]
+    public void TryParseCommentEvent_MissingFromField_ReturnsFalse()
+    {
+        const string payload = """
+            {
+              "object": "instagram",
+              "entry": [{
+                "id": "17841437397996064",
+                "changes": [{
+                  "field": "comments",
+                  "value": { "id": "18069000008730547", "text": "hello" }
+                }]
+              }]
+            }
+            """;
+
+        Assert.False(InstagramPayloadParser.TryParseCommentEvent(Parse(payload), out _));
+    }
+
+    [Fact]
+    public void TryParseCommentEvent_EmptyEntryArray_ReturnsFalse()
+    {
+        const string payload = """{ "object": "instagram", "entry": [] }""";
+        Assert.False(InstagramPayloadParser.TryParseCommentEvent(Parse(payload), out _));
+    }
+
+    [Fact]
+    public void TryParseCommentEvent_NoTextField_DefaultsToEmptyString()
+    {
+        const string payload = """
+            {
+              "object": "instagram",
+              "entry": [{
+                "id": "17841437397996064",
+                "changes": [{
+                  "field": "comments",
+                  "value": {
+                    "id": "18069000008730547",
+                    "from": { "id": "2169710770261037" },
+                    "media": { "id": "17977626660078004" }
+                  }
+                }]
+              }]
+            }
+            """;
+
+        Assert.True(InstagramPayloadParser.TryParseCommentEvent(Parse(payload), out var evt));
+        Assert.Equal("", evt.Text);
+        Assert.Null(evt.ActorUsername);
+    }
 }
