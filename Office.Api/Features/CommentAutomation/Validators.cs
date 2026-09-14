@@ -25,6 +25,9 @@ public class AutomationActionConfigValidator : AbstractValidator<AutomationActio
         RuleFor(x => x.CommentReplies).NotEmpty().WithMessage("Ҳадди ақал як матни ҷавоб лозим аст.");
         RuleForEach(x => x.CommentReplies).NotEmpty();
         RuleFor(x => x.DmText).NotEmpty().WithMessage("Матни DM лозим аст.");
+        RuleFor(x => x.DmButtonTitle).NotEmpty().MaximumLength(20)
+            .When(x => !string.IsNullOrEmpty(x.DmButtonUrl))
+            .WithMessage("Агар пайванди тугма дода шавад, сарлавҳаи тугма ҳам лозим аст (то 20 ҳарф).");
     }
 }
 

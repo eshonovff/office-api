@@ -61,7 +61,8 @@ public class CommentAutomationJob(AppDbContext db, InstagramProvider instagramPr
 
         try
         {
-            await instagramProvider.SendPrivateReplyAsync(channel, run.TriggerExternalId, actionConfig.DmText, ct);
+            await instagramProvider.SendPrivateReplyAsync(
+                channel, run.TriggerExternalId, actionConfig.DmText, actionConfig.DmButtonUrl, actionConfig.DmButtonTitle, ct);
             run.DmStatus = AutomationRunStatus.Sent;
         }
         catch (Exception ex)

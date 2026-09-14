@@ -13,5 +13,8 @@ public record AutomationTriggerConfig(string MatchMode, string[] Keywords, strin
     public const string PostScopeSelected = "selected";
 }
 
-/// <summary>Шакли typed-и AutomationRule.ActionConfigJson.</summary>
-public record AutomationActionConfig(string[] CommentReplies, string DmText, string? DmButtonUrl);
+/// <summary>
+/// Шакли typed-и AutomationRule.ActionConfigJson. Агар DmButtonUrl дода шавад, DmButtonTitle
+/// низ ҳатмист — Instagram (Messenger Platform button template) бе сарлавҳа тугма қабул намекунад.
+/// </summary>
+public record AutomationActionConfig(string[] CommentReplies, string DmText, string? DmButtonUrl, string? DmButtonTitle = null);

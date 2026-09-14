@@ -184,10 +184,36 @@ public class InstagramProvider(
     /// Ин ду маҳдудиятро ин методи содда санҷида наметавонад (Meta худаш хато медиҳад, агар
     /// вайрон шаванд) — CommentAutomationJob хатогиро сабт мекунад, дубора кӯшиш намекунад.
     /// </summary>
-    public async Task<string?> SendPrivateReplyAsync(Channel channel, string commentId, string text, CancellationToken ct)
+    /// <summary>
+    /// Агар <paramref name="buttonUrl"/>/<paramref name="buttonTitle"/> дода шаванд, ба ҷои матни
+    /// оддӣ button template (Messenger Platform) фиристода мешавад — тасдиқшуда бо ҳуҷҷати расмии
+    /// Meta (2026-09-14): "text" то 640 ҳарф, то 3 тугма (мо танҳо якто мефиристем). Дарозии
+    /// сарлавҳаи тугма дар ҳуҷҷат возеҳ нест — 20 ҳарф (маҳдудияти маъмули Messenger Platform барои
+    /// тугмаҳо) дар frontend (`maxLength`) татбиқ шудааст; агар нодуруст бошад, Meta худаш бо
+    /// хатогии возеҳ рад мекунад (ниг. GraphApiException — сабт мешавад, дубора кӯшиш намешавад).
+    /// </summary>
+    public async Task<string?> SendPrivateReplyAsync(
+        Channel channel, string commentId, string text, string? buttonUrl, string? buttonTitle, CancellationToken ct)
     {
         var credentials = GetCredentials(channel);
-        var payload = new { recipient = new { comment_id = commentId }, message = new { text } };
+
+        object message = string.IsNullOrEmpty(buttonUrl) || string.IsNullOrEmpty(buttonTitle)
+            ? new { text }
+            : new
+            {
+                attachment = new
+                {
+                    type = "template",
+                    payload = new
+                    {
+                        template_type = "button",
+                        text,
+                        buttons = new[] { new { type = "web_url", url = buttonUrl, title = buttonTitle } },
+                    },
+                },
+            };
+
+        var payload = new { recipient = new { comment_id = commentId }, message };
         var responseBody = await PostToGraphApiAsync(channel, credentials, "messages", payload, ct);
         return InstagramPayloadParser.ExtractSentMessageId(responseBody);
     }
