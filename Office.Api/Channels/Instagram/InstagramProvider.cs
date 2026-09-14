@@ -233,10 +233,16 @@ public class InstagramProvider(
                 var mediaUrl = item.TryGetProperty("media_url", out var urlEl) ? urlEl.GetString() : null;
                 var thumbnailUrl = item.TryGetProperty("thumbnail_url", out var thumbEl) ? thumbEl.GetString() : null;
 
+                // Санҷидашуда зинда (2026-09-14, reel-и воқеӣ): барои VIDEO, media_url файли
+                // ХОМИ .mp4 аст (на расм) — Meta ба ин навъ ҳам media_url медиҳад (набудан-и он
+                // тахмин нодуруст буд), пас <img src> хомӯшона намебарояд. thumbnail_url бояд
+                // АВВАЛ санҷида шавад барои VIDEO/REELS; media_url танҳо барои IMAGE/CAROUSEL_ALBUM аст.
+                var imageUrl = mediaType == "VIDEO" ? thumbnailUrl ?? mediaUrl : mediaUrl ?? thumbnailUrl;
+
                 items.Add(new InstagramMediaItem(
                     Id: item.GetProperty("id").GetString()!,
                     MediaType: mediaType,
-                    ImageUrl: mediaUrl ?? thumbnailUrl,
+                    ImageUrl: imageUrl,
                     Permalink: item.TryGetProperty("permalink", out var permalinkEl) ? permalinkEl.GetString() : null,
                     Caption: item.TryGetProperty("caption", out var captionEl) ? captionEl.GetString() : null,
                     Timestamp: item.TryGetProperty("timestamp", out var tsEl) ? tsEl.GetString() : null));
