@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using Office.Api.Channels;
@@ -58,7 +59,7 @@ public class InstagramContactProfileBackfillJobTests
     {
         var provider = new InstagramProvider(
             new HttpClient(handler), new PassthroughProtector(), new ConfigurationBuilder().Build(),
-            db, new NoOpNotificationService(), NullLogger<InstagramProvider>.Instance);
+            db, new NoOpNotificationService(), new MemoryCache(new MemoryCacheOptions()), NullLogger<InstagramProvider>.Instance);
         return new InstagramContactProfileBackfillJob(db, provider, NullLogger<InstagramContactProfileBackfillJob>.Instance);
     }
 

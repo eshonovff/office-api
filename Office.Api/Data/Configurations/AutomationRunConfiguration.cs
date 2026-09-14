@@ -16,6 +16,7 @@ public class AutomationRunConfiguration : IEntityTypeConfiguration<AutomationRun
         builder.Property(r => r.MatchedKeyword).HasMaxLength(200);
         builder.Property(r => r.CommentReplyStatus).HasConversion<string>().HasMaxLength(20);
         builder.Property(r => r.DmStatus).HasConversion<string>().HasMaxLength(20);
+        builder.Property(r => r.FollowCheckResult).HasConversion<string>().HasMaxLength(20);
 
         builder.HasOne(r => r.Rule).WithMany(rule => rule.Runs).HasForeignKey(r => r.RuleId).OnDelete(DeleteBehavior.Cascade);
 

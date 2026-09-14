@@ -27,25 +27,38 @@ public class CommentAutomationJob(AppDbContext db, InstagramProvider instagramPr
 
         var channel = run.Rule.Channel;
         AutomationActionConfig actionConfig;
+        AutomationConditionConfig conditionConfig;
         try
         {
             actionConfig = JsonSerializer.Deserialize<AutomationActionConfig>(run.Rule.ActionConfigJson) ??
                 throw new JsonException("null");
+            conditionConfig = JsonSerializer.Deserialize<AutomationConditionConfig>(run.Rule.ConditionConfigJson) ??
+                throw new JsonException("null");
         }
         catch (JsonException ex)
         {
-            logger.LogError(ex, "AutomationRun {RunId}: action_config вайрон аст", run.Id);
+            logger.LogError(ex, "AutomationRun {RunId}: action_config/condition_config вайрон аст", run.Id);
             run.CommentReplyStatus = AutomationRunStatus.Failed;
             run.DmStatus = AutomationRunStatus.Failed;
-            run.Error = "action_config вайрон аст: " + ex.Message;
+            run.Error = "action_config/condition_config вайрон аст: " + ex.Message;
             await db.SaveChangesAsync(ct);
             return;
         }
 
+        // Фазаи 11: агар rule тасдиқи обунаро талаб кунад, пеш аз интихоби шоха тафтиш карда
+        // мешавад. Натиҷа (аз ҷумла Unknown — токен афтод ё Meta хато дод) дар run сабт мешавад,
+        // на танҳо истифода — то дар омор дида шавад. requiresFollow=false → null (тафтиш нашуд).
+        run.FollowCheckResult = conditionConfig.RequiresFollow
+            ? await instagramProvider.CheckFollowStatusAsync(channel, run.ActorExternalId, ct)
+            : null;
+
+        var branch = AutomationBranchSelector.Select(actionConfig, run.FollowCheckResult);
+
         // Round-robin аз рӯи шумораи run-ҳои қаблии ин rule (пеш аз ин run сохта шудаанд) —
-        // ниг. CommentReplySelector: детерминистӣ, ниёз ба сутуни иловагӣ надорад.
+        // ниг. CommentReplySelector: детерминистӣ, ниёз ба сутуни иловагӣ надорад. Ҳисоби
+        // умумии rule аст (на ҷудо барои ҳар шоха) — рӯи CommentReplies-и шохаи интихобшуда амал мекунад.
         var priorRunCount = await db.AutomationRuns.CountAsync(r => r.RuleId == run.RuleId && r.CreatedAt < run.CreatedAt, ct);
-        var replyText = CommentReplySelector.Select(actionConfig.CommentReplies, priorRunCount);
+        var replyText = CommentReplySelector.Select(branch.CommentReplies, priorRunCount);
 
         try
         {
@@ -62,7 +75,7 @@ public class CommentAutomationJob(AppDbContext db, InstagramProvider instagramPr
         try
         {
             await instagramProvider.SendPrivateReplyAsync(
-                channel, run.TriggerExternalId, actionConfig.DmText, actionConfig.DmButtonUrl, actionConfig.DmButtonTitle, ct);
+                channel, run.TriggerExternalId, branch.DmText, branch.DmButtonUrl, branch.DmButtonTitle, ct);
             run.DmStatus = AutomationRunStatus.Sent;
         }
         catch (Exception ex)

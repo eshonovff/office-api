@@ -18,9 +18,9 @@ public class AutomationTriggerConfigValidator : AbstractValidator<AutomationTrig
     }
 }
 
-public class AutomationActionConfigValidator : AbstractValidator<AutomationActionConfig>
+public class AutomationReplyActionValidator : AbstractValidator<AutomationReplyAction>
 {
-    public AutomationActionConfigValidator()
+    public AutomationReplyActionValidator()
     {
         RuleFor(x => x.CommentReplies).NotEmpty().WithMessage("Ҳадди ақал як матни ҷавоб лозим аст.");
         RuleForEach(x => x.CommentReplies).NotEmpty();
@@ -38,7 +38,16 @@ public class CreateAutomationRuleRequestValidator : AbstractValidator<CreateAuto
         RuleFor(x => x.Name).NotEmpty().MaximumLength(200);
         RuleFor(x => x.CooldownMinutes).GreaterThanOrEqualTo(0);
         RuleFor(x => x.TriggerConfig).NotNull().SetValidator(new AutomationTriggerConfigValidator());
-        RuleFor(x => x.ActionConfig).NotNull().SetValidator(new AutomationActionConfigValidator());
+        RuleFor(x => x.ConditionConfig).NotNull();
+        RuleFor(x => x.ActionConfig).NotNull().DependentRules(() =>
+        {
+            // DependentRules: ин лямбдаҳо ТАНҲО вақте иҷро мешаванд, ки NotNull() боло гузашт —
+            // бе он x.ActionConfig.OnMatch метавонист NullReferenceException партояд (500, на 400).
+            RuleFor(x => x.ActionConfig.OnMatch).NotNull().SetValidator(new AutomationReplyActionValidator());
+            RuleFor(x => x.ActionConfig.OnNotFollowing).NotNull().SetValidator(new AutomationReplyActionValidator()!)
+                .When(x => x.ConditionConfig is not null && x.ConditionConfig.RequiresFollow)
+                .WithMessage("Агар 'Танҳо барои обунашудагон' фаъол бошад, ҷавоб барои обунанашудагон ҳам лозим аст.");
+        });
     }
 }
 
@@ -49,7 +58,14 @@ public class UpdateAutomationRuleRequestValidator : AbstractValidator<UpdateAuto
         RuleFor(x => x.Name).NotEmpty().MaximumLength(200);
         RuleFor(x => x.CooldownMinutes).GreaterThanOrEqualTo(0);
         RuleFor(x => x.TriggerConfig).NotNull().SetValidator(new AutomationTriggerConfigValidator());
-        RuleFor(x => x.ActionConfig).NotNull().SetValidator(new AutomationActionConfigValidator());
+        RuleFor(x => x.ConditionConfig).NotNull();
+        RuleFor(x => x.ActionConfig).NotNull().DependentRules(() =>
+        {
+            RuleFor(x => x.ActionConfig.OnMatch).NotNull().SetValidator(new AutomationReplyActionValidator());
+            RuleFor(x => x.ActionConfig.OnNotFollowing).NotNull().SetValidator(new AutomationReplyActionValidator()!)
+                .When(x => x.ConditionConfig is not null && x.ConditionConfig.RequiresFollow)
+                .WithMessage("Агар 'Танҳо барои обунашудагон' фаъол бошад, ҷавоб барои обунанашудагон ҳам лозим аст.");
+        });
     }
 }
 

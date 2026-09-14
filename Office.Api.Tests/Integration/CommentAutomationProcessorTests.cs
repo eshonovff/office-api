@@ -39,7 +39,7 @@ public class CommentAutomationProcessorTests
         TriggerConfigJson = System.Text.Json.JsonSerializer.Serialize(
             new AutomationTriggerConfig(matchMode, ["нарх"], AutomationTriggerConfig.PostScopeAll, [])),
         ActionConfigJson = System.Text.Json.JsonSerializer.Serialize(
-            new AutomationActionConfig(["Ташаккур!"], "Салом дар DM", null)),
+            new AutomationActionConfig(new AutomationReplyAction(["Ташаккур!"], "Салом дар DM", null), null)),
         CooldownMinutes = cooldownMinutes,
         CreatedAt = DateTimeOffset.UtcNow,
     };

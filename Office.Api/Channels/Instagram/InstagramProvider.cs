@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Office.Api.Auth;
 using Office.Api.Channels;
 using Office.Api.Channels.WhatsApp;
@@ -22,6 +23,7 @@ public class InstagramProvider(
     IConfiguration configuration,
     AppDbContext db,
     INotificationService notificationService,
+    IMemoryCache cache,
     ILogger<InstagramProvider> logger) : IChannelProvider
 {
     private const string GraphApiVersion = "v23.0";
@@ -183,8 +185,6 @@ public class InstagramProvider(
     /// коментарий (барои пости оддӣ/reel — на Instagram Live, ки танҳо то анҷоми пахш кор мекунад).
     /// Ин ду маҳдудиятро ин методи содда санҷида наметавонад (Meta худаш хато медиҳад, агар
     /// вайрон шаванд) — CommentAutomationJob хатогиро сабт мекунад, дубора кӯшиш намекунад.
-    /// </summary>
-    /// <summary>
     /// Агар <paramref name="buttonUrl"/>/<paramref name="buttonTitle"/> дода шаванд, ба ҷои матни
     /// оддӣ button template (Messenger Platform) фиристода мешавад — тасдиқшуда бо ҳуҷҷати расмии
     /// Meta (2026-09-14): "text" то 640 ҳарф, то 3 тугма (мо танҳо якто мефиристем). Дарозии
@@ -216,6 +216,75 @@ public class InstagramProvider(
         var payload = new { recipient = new { comment_id = commentId }, message };
         var responseBody = await PostToGraphApiAsync(channel, credentials, "messages", payload, ct);
         return InstagramPayloadParser.ExtractSentMessageId(responseBody);
+    }
+
+    /// <summary>
+    /// Фазаи 11: GET /{user-id}?fields=username,is_user_follow_business — тасдиқшуда дар
+    /// истеҳсол (host: graph.instagram.com, на graph.facebook.com — токенҳои IGAB... дар
+    /// graph.facebook.com хатои 190 медиҳанд). value.from.id-и webhook-и коментарий мустақиман
+    /// ҳамчун user-id истифода мешавад — табдил лозим нест.
+    ///
+    /// ҲЕҶ ГОҲ истисно намепартояд — хатогии HTTP/JSON/токен ҳама ба Unknown мераванд (Warning,
+    /// на Error — ин ҳолати муқаррарӣ аст: муштарӣ бе ҷавоб намонад, амали асосӣ (OnMatch) иҷро
+    /// мешавад). Кэши 15-дақ (ҳам барои натиҷаи муваффақ, ҳам Unknown) — бе он ҳар коментарий як
+    /// дархости иловагӣ мешавад, ва лимити 200/соат-и апп зуд тамом мешавад.
+    /// </summary>
+    public async Task<FollowCheckResult> CheckFollowStatusAsync(Channel channel, string actorId, CancellationToken ct)
+    {
+        var cacheKey = $"ig-follow:{channel.Id}:{actorId}";
+        if (cache.TryGetValue(cacheKey, out FollowCheckResult cached))
+            return cached;
+
+        var result = await CheckFollowStatusUncachedAsync(channel, actorId, ct);
+        cache.Set(cacheKey, result, TimeSpan.FromMinutes(15));
+        return result;
+    }
+
+    private async Task<FollowCheckResult> CheckFollowStatusUncachedAsync(Channel channel, string actorId, CancellationToken ct)
+    {
+        InstagramCredentials credentials;
+        try
+        {
+            credentials = GetCredentials(channel);
+        }
+        catch (InvalidOperationException)
+        {
+            return FollowCheckResult.Unknown;
+        }
+
+        try
+        {
+            using var request = new HttpRequestMessage(
+                HttpMethod.Get, $"{GraphApiBaseUrl}/{GraphApiVersion}/{actorId}?fields=username,is_user_follow_business");
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credentials.AccessToken);
+
+            var response = await httpClient.SendAsync(request, ct);
+            if (!response.IsSuccessStatusCode)
+            {
+                var body = await response.Content.ReadAsStringAsync(ct);
+                var errorCode = TryGetErrorCode(body);
+                if (errorCode == TokenExpiredErrorCode)
+                {
+                    channel.RequiresReconnect = true;
+                    await db.SaveChangesAsync(ct);
+                }
+
+                logger.LogWarning(
+                    "Instagram follow-check {ActorId} ноком шуд: {StatusCode} {Body}", actorId, (int)response.StatusCode, body);
+                return FollowCheckResult.Unknown;
+            }
+
+            using var doc = JsonDocument.Parse(await response.Content.ReadAsStreamAsync(ct));
+            if (!doc.RootElement.TryGetProperty("is_user_follow_business", out var followEl))
+                return FollowCheckResult.Unknown;
+
+            return followEl.GetBoolean() ? FollowCheckResult.Following : FollowCheckResult.NotFollowing;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Instagram follow-check {ActorId}: истисно, Unknown ҳисоб карда шуд", actorId);
+            return FollowCheckResult.Unknown;
+        }
     }
 
     /// <summary>

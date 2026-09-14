@@ -11,6 +11,18 @@ public enum AutomationRunStatus
 }
 
 /// <summary>
+/// Натиҷаи GET /{user-id}?fields=is_user_follow_business (Фазаи 11). Unknown = API хато дод ё
+/// токен афтод — амали асосӣ (OnMatch) ҳамоно иҷро мешавад (муштарӣ бе ҷавоб намонад), вале
+/// барои омор ҷудо сабт мешавад.
+/// </summary>
+public enum FollowCheckResult
+{
+    Following,
+    NotFollowing,
+    Unknown,
+}
+
+/// <summary>
 /// Логи иҷрои қоидаи автоматизатсия — як сатр барои ҳар комментарии коркардшуда (аз ҷумла
 /// онҳое, ки cooldown партофт). ChannelId интихобан нест — тавассути Rule.ChannelId дастрас аст.
 /// </summary>
@@ -31,6 +43,10 @@ public class AutomationRun
     public string? TargetMediaExternalId { get; set; }
 
     public string? MatchedKeyword { get; set; }
+
+    /// <summary>null = rule.condition_config.requiresFollow набуд, тафтиш нашуд.</summary>
+    public FollowCheckResult? FollowCheckResult { get; set; }
+
     public AutomationRunStatus CommentReplyStatus { get; set; }
     public AutomationRunStatus DmStatus { get; set; }
     public string? Error { get; set; }

@@ -94,6 +94,7 @@ public static class CommentAutomationEndpoints
             IsActive = true,
             TriggerType = InstagramCommentTriggerType,
             TriggerConfigJson = JsonSerializer.Serialize(request.TriggerConfig),
+            ConditionConfigJson = JsonSerializer.Serialize(request.ConditionConfig),
             ActionConfigJson = JsonSerializer.Serialize(request.ActionConfig),
             CooldownMinutes = request.CooldownMinutes,
             CreatedAt = DateTimeOffset.UtcNow,
@@ -132,6 +133,7 @@ public static class CommentAutomationEndpoints
 
         rule.Name = request.Name;
         rule.TriggerConfigJson = JsonSerializer.Serialize(request.TriggerConfig);
+        rule.ConditionConfigJson = JsonSerializer.Serialize(request.ConditionConfig);
         rule.ActionConfigJson = JsonSerializer.Serialize(request.ActionConfig);
         rule.CooldownMinutes = request.CooldownMinutes;
 
@@ -154,10 +156,25 @@ public static class CommentAutomationEndpoints
         return Results.NoContent();
     }
 
-    private static IResult DryRunAsync(Guid channelId, DryRunAutomationRuleRequest request)
+    private static async Task<IResult> DryRunAsync(
+        Guid channelId, DryRunAutomationRuleRequest request, AppDbContext db, InstagramProvider instagramProvider, CancellationToken ct)
     {
         var match = CommentAutomationMatcher.Match(request.TriggerConfig, request.CommentText, request.MediaId);
-        return Results.Ok(new DryRunAutomationRuleResult(match.Matched, match.MatchedKeyword));
+        if (!match.Matched)
+            return Results.Ok(new DryRunAutomationRuleResult(false, null, null));
+
+        // Follow-check воқеан иҷро мешавад (хонданӣ, кэшдор — ниг. InstagramProvider.CheckFollowStatusAsync)
+        // танҳо агар корбар шарти обунаро фаъол карда БОШАД ва ID-и actor-ро дода бошад — майдони
+        // ихтиёрӣ (dry-run-и оддии калима бе он ҳам кор мекунад).
+        string? followCheckResult = null;
+        if (request.ConditionConfig?.RequiresFollow == true && !string.IsNullOrEmpty(request.ActorExternalId))
+        {
+            var channel = await db.Channels.FirstOrDefaultAsync(c => c.Id == channelId, ct);
+            if (channel is not null)
+                followCheckResult = (await instagramProvider.CheckFollowStatusAsync(channel, request.ActorExternalId, ct)).ToString();
+        }
+
+        return Results.Ok(new DryRunAutomationRuleResult(true, match.MatchedKeyword, followCheckResult));
     }
 
     private static async Task<IResult> ListInstagramMediaAsync(
@@ -186,6 +203,7 @@ public static class CommentAutomationEndpoints
         rule.IsActive,
         rule.TriggerType,
         JsonSerializer.Deserialize<AutomationTriggerConfig>(rule.TriggerConfigJson)!,
+        JsonSerializer.Deserialize<AutomationConditionConfig>(rule.ConditionConfigJson)!,
         JsonSerializer.Deserialize<AutomationActionConfig>(rule.ActionConfigJson)!,
         rule.CooldownMinutes,
         rule.CreatedAt,
