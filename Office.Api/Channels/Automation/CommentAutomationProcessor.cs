@@ -23,6 +23,13 @@ public class CommentAutomationProcessor(AppDbContext db, IBackgroundJobClient ba
         if (evt.ActorExternalId == channel.ExternalId)
             return;
 
+        // Идемпотентӣ: агар ин comment_id аллакай коркард шуда бошад (масалан Meta webhook-ро
+        // такрор фиристод — воқеаи маъмул ҳангоми таъхир дар ҷавоб), дубора накун. Ин ҳамчунин
+        // хатари follow-check/private-reply-и такрориро пешгирӣ мекунад (Meta барои як comment_id
+        // танҳо ЯК private reply иҷозат медиҳад — ниг. InstagramProvider.SendPrivateReplyAsync).
+        if (await db.AutomationRuns.AnyAsync(r => r.TriggerExternalId == evt.CommentId, ct))
+            return;
+
         var rules = await db.AutomationRules
             .Where(r => r.ChannelId == channel.Id && r.IsActive && r.TriggerType == "instagram_comment")
             .OrderBy(r => r.CreatedAt)

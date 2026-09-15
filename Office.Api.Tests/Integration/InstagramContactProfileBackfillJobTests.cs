@@ -59,7 +59,8 @@ public class InstagramContactProfileBackfillJobTests
     {
         var provider = new InstagramProvider(
             new HttpClient(handler), new PassthroughProtector(), new ConfigurationBuilder().Build(),
-            db, new NoOpNotificationService(), new MemoryCache(new MemoryCacheOptions()), NullLogger<InstagramProvider>.Instance);
+            db, new NoOpNotificationService(), new MemoryCache(new MemoryCacheOptions()),
+            new InstagramFollowCheckRateLimiter(), NullLogger<InstagramProvider>.Instance);
         return new InstagramContactProfileBackfillJob(db, provider, NullLogger<InstagramContactProfileBackfillJob>.Instance);
     }
 

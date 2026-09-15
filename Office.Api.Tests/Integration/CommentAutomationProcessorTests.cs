@@ -233,4 +233,38 @@ public class CommentAutomationProcessorTests
 
         Assert.Empty(await db.AutomationRuns.ToListAsync());
     }
+
+    [Fact]
+    public async Task ProcessAsync_CommentAlreadyProcessed_DoesNotCreateASecondRun()
+    {
+        // Meta метавонад ҳамон webhook-ро такрор фиристад (масалан ҷавоби мо дар вақти
+        // муайяншуда нарасид) — идемпотентии comment_id ҳимоя мекунад, то follow-check/private
+        // reply дубора иҷро нашавад (Meta барои як comment_id танҳо ЯК private reply иҷозат медиҳад).
+        await using var db = CreateDb();
+        var channel = MakeChannel("17841437397996064");
+        var rule = MakeRule(channel.Id);
+        db.Channels.Add(channel);
+        db.AutomationRules.Add(rule);
+        db.AutomationRuns.Add(new AutomationRun
+        {
+            Id = Guid.CreateVersion7(),
+            RuleId = rule.Id,
+            TriggerExternalId = "comment-1",
+            ActorExternalId = "actor-1",
+            TargetMediaExternalId = "media-1",
+            CommentReplyStatus = AutomationRunStatus.Sent,
+            DmStatus = AutomationRunStatus.Sent,
+            CreatedAt = DateTimeOffset.UtcNow,
+        });
+        await db.SaveChangesAsync();
+
+        var backgroundJobs = new RecordingBackgroundJobClient();
+        var processor = new CommentAutomationProcessor(db, backgroundJobs, NullLogger<CommentAutomationProcessor>.Instance);
+
+        var evt = new ParsedCommentEvent("comment-1", "actor-1", "someone", "🔥", "media-1");
+        await processor.ProcessAsync(channel, evt, CancellationToken.None);
+
+        Assert.Single(await db.AutomationRuns.ToListAsync());
+        Assert.Empty(backgroundJobs.EnqueuedMethods);
+    }
 }

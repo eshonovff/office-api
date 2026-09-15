@@ -251,6 +251,7 @@ builder.Services.AddHttpClient<InstagramTokenRefreshJob>(client => client.Defaul
 builder.Services.AddScoped<InstagramContactProfileBackfillJob>();
 builder.Services.AddScoped<CommentAutomationProcessor>();
 builder.Services.AddScoped<CommentAutomationJob>();
+builder.Services.AddSingleton<InstagramFollowCheckRateLimiter>();
 
 builder.Services.AddHttpClient<ISmsSender, OsonSmsSender>();
 

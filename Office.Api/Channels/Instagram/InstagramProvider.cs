@@ -24,6 +24,7 @@ public class InstagramProvider(
     AppDbContext db,
     INotificationService notificationService,
     IMemoryCache cache,
+    InstagramFollowCheckRateLimiter followCheckRateLimiter,
     ILogger<InstagramProvider> logger) : IChannelProvider
 {
     private const string GraphApiVersion = "v23.0";
@@ -32,6 +33,9 @@ public class InstagramProvider(
     private const int RateLimitErrorCode = 4;
     private const int UserRateLimitErrorCode = 17;
     private const int SendApiRateLimitErrorCode = 80004;
+
+    /// <summary>80% аз 200/соат-и Meta (спецификатсияи Фазаи 11) — ниг. InstagramFollowCheckRateLimiter.</summary>
+    private const int FollowCheckHourlyBudget = 160;
 
     public bool VerifyWebhookToken(string verifyToken)
     {
@@ -226,17 +230,32 @@ public class InstagramProvider(
     ///
     /// ҲЕҶ ГОҲ истисно намепартояд — хатогии HTTP/JSON/токен ҳама ба Unknown мераванд (Warning,
     /// на Error — ин ҳолати муқаррарӣ аст: муштарӣ бе ҷавоб намонад, амали асосӣ (OnMatch) иҷро
-    /// мешавад). Кэши 15-дақ (ҳам барои натиҷаи муваффақ, ҳам Unknown) — бе он ҳар коментарий як
-    /// дархости иловагӣ мешавад, ва лимити 200/соат-и апп зуд тамом мешавад.
+    /// мешавад).
+    ///
+    /// Кэш (15 дақ) — ФАҚАТ барои Following/Unknown, НА NotFollowing: санҷиши зинда (2026-09-15)
+    /// нишон дод, ки NotFollowing-и кэшшуда корбареро, ки ҳамон лаҳза воқеан обуна шуд, ҷазо
+    /// медиҳад (то 15 дақ боз "обуна нест" мегирад — ҳарчанд обуна шудааст). Following/Unknown
+    /// кэш кардан бехатар аст (ҳеҷ кас аз натиҷаи кӯҳна зарар намебинад). Ба ҷои кэши NotFollowing,
+    /// буҷаи соатии <see cref="InstagramFollowCheckRateLimiter"/> (80% аз 200/соат-и Meta) ва
+    /// идемпотентии як AutomationRun-и як comment_id (ниг. CommentAutomationProcessor) квотаро
+    /// муҳофизат мекунанд.
     /// </summary>
     public async Task<FollowCheckResult> CheckFollowStatusAsync(Channel channel, string actorId, CancellationToken ct)
     {
         var cacheKey = $"ig-follow:{channel.Id}:{actorId}";
-        if (cache.TryGetValue(cacheKey, out FollowCheckResult cached))
+        if (cache.TryGetValue(cacheKey, out FollowCheckResult cached) && cached != FollowCheckResult.NotFollowing)
             return cached;
 
+        if (!followCheckRateLimiter.TryConsume(FollowCheckHourlyBudget, DateTimeOffset.UtcNow))
+        {
+            logger.LogWarning(
+                "Instagram follow-check: буҷаи соатӣ (80% аз 200/соат-и Meta) тамом шуд — Unknown бе дархост ({ActorId})", actorId);
+            return FollowCheckResult.Unknown;
+        }
+
         var result = await CheckFollowStatusUncachedAsync(channel, actorId, ct);
-        cache.Set(cacheKey, result, TimeSpan.FromMinutes(15));
+        if (result != FollowCheckResult.NotFollowing)
+            cache.Set(cacheKey, result, TimeSpan.FromMinutes(15));
         return result;
     }
 

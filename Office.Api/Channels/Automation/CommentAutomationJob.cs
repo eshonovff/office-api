@@ -72,19 +72,28 @@ public class CommentAutomationJob(AppDbContext db, InstagramProvider instagramPr
             run.Error = ex.Message;
         }
 
-        try
+        if (string.IsNullOrEmpty(branch.DmText))
         {
-            await instagramProvider.SendPrivateReplyAsync(
-                channel, run.TriggerExternalId, branch.DmText, branch.DmButtonUrl, branch.DmButtonTitle, ct);
-            run.DmStatus = AutomationRunStatus.Sent;
+            // Корбар барои ин шоха DM танзим накардааст — қасдан фиристода намешавад (танҳо
+            // ҷавоби ҷамъиятӣ кофист). Ин холат аз хатогӣ фарқ мекунад — Error холӣ мемонад.
+            run.DmStatus = AutomationRunStatus.Disabled;
         }
-        catch (Exception ex)
+        else
         {
-            // Маъмултарин сабаб: 7 рӯз гузаштааст ё private reply аллакай як бор фиристода
-            // шудааст — Meta бо хатои возеҳ рад мекунад (ниг. шарҳи SendPrivateReplyAsync).
-            logger.LogError(ex, "AutomationRun {RunId}: DM (private reply) ноком шуд", run.Id);
-            run.DmStatus = AutomationRunStatus.Failed;
-            run.Error = run.Error is null ? ex.Message : $"{run.Error} | DM: {ex.Message}";
+            try
+            {
+                await instagramProvider.SendPrivateReplyAsync(
+                    channel, run.TriggerExternalId, branch.DmText, branch.DmButtonUrl, branch.DmButtonTitle, ct);
+                run.DmStatus = AutomationRunStatus.Sent;
+            }
+            catch (Exception ex)
+            {
+                // Маъмултарин сабаб: 7 рӯз гузаштааст ё private reply аллакай як бор фиристода
+                // шудааст — Meta бо хатои возеҳ рад мекунад (ниг. шарҳи SendPrivateReplyAsync).
+                logger.LogError(ex, "AutomationRun {RunId}: DM (private reply) ноком шуд", run.Id);
+                run.DmStatus = AutomationRunStatus.Failed;
+                run.Error = run.Error is null ? ex.Message : $"{run.Error} | DM: {ex.Message}";
+            }
         }
 
         await db.SaveChangesAsync(ct);

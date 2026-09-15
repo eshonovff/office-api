@@ -8,6 +8,9 @@ public enum AutomationRunStatus
 
     /// <summary>Rule мувофиқ буд, вале actor+пост дар доираи cooldown буд — ҳеҷ чиз фиристода нашуд.</summary>
     SkippedCooldown,
+
+    /// <summary>Ин амал (масалан DM) дар танзими rule холӣ гузошта шудааст — қасдан фиристода нашуд.</summary>
+    Disabled,
 }
 
 /// <summary>
