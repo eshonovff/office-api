@@ -1,0 +1,67 @@
+namespace Office.Api.Channels.Flows;
+
+/// <summary>Як блоки паём — матн то 500 аломат (санҷида дар FluentValidation, ниг. Features/Flows/Validators.cs).</summary>
+public record MessageBlock(string Type, string? Text, string? MediaId)
+{
+    public const string TypeText = "text";
+    public const string TypeImage = "image";
+    public const string TypeVideo = "video";
+    public const string TypeFile = "file";
+}
+
+/// <summary>
+/// Title то 30 аломат (маҳдудияти Messenger Platform). Action="payment" дар JSON қабул карда
+/// мешавад (мутобиқат бо намуди спека), вале дар UI пешниҳод НАМЕШАВАД ва дар backend рад
+/// мешавад — спека худаш "маҳсулоти пулакӣ"-ро дар рӯйхати НАГИР дорад, ин зиддият ба фоидаи
+/// НАГИР ҳал шуд (ниг. ҳуҷҷати фазаи 12).
+/// </summary>
+public record MessageButton(string Title, string Action, string? Url, bool AllowRepeat)
+{
+    public const string ActionNext = "next";
+    public const string ActionUrl = "url";
+}
+
+public record MessageNodeConfig(MessageBlock[] Blocks, MessageButton[] Buttons);
+
+public record ConditionRule(string Field, string Op, string Value)
+{
+    public const string FieldSubscription = "subscription";
+    public const string FieldTags = "tags";
+    public const string FieldVariable = "variable";
+    public const string FieldTime = "time";
+    public const string FieldDate = "date";
+    public const string FieldWeekday = "weekday";
+}
+
+public record ConditionNodeConfig(string Match, ConditionRule[] Rules)
+{
+    public const string MatchAll = "all";
+    public const string MatchAny = "any";
+}
+
+/// <summary>
+/// Kind муайян мекунад кадом майдонҳо истифода мешаванд — ҳамон алгуи ҳамворкунии
+/// AutomationActionConfig-и Фазаи 10/11 (record-и ягона, на иерархияи полиморфӣ, чунки ин
+/// лоиҳа ҳеҷ ҷо полиморфизми JSON истифода намебарад).
+/// </summary>
+public record ActionNodeConfig(
+    string Kind,
+    int? DelayMinutes = null,
+    string[]? Tags = null,
+    string? VariableKey = null,
+    string? VariableValue = null,
+    string? HttpUrl = null,
+    string? HttpMethod = null,
+    string? HttpBodyTemplate = null,
+    Guid? TargetFlowId = null)
+{
+    public const string KindDelay = "delay";
+    public const string KindAddTags = "add_tags";
+    public const string KindRemoveTags = "remove_tags";
+    public const string KindSetVariable = "set_variable";
+    public const string KindCollectInput = "collect_input";
+    public const string KindHttpRequest = "http_request";
+    public const string KindGotoFlow = "goto_flow";
+}
+
+public record NoteNodeConfig(string Text);

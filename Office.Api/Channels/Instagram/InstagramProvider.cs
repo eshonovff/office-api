@@ -70,6 +70,49 @@ public class InstagramProvider(
     public Task<IReadOnlyList<ParsedStatusUpdate>> ParseStatusUpdatesAsync(Channel channel, JsonElement payload, CancellationToken ct) =>
         Task.FromResult(InstagramPayloadParser.ParseStatusUpdates(payload));
 
+    /// <summary>
+    /// Паёми муқаррарӣ (recipient.id, на comment_id — фарқ аз SendPrivateReplyAsync) бо тугмаҳои
+    /// интерактивӣ — барои Flow Builder-и Фазаи 12. Тасдиқшуда бо ҳуҷҷати расмии Meta
+    /// (2026-09-15): Instagram ин намуди паёмро дастгирӣ мекунад (генерик/button template),
+    /// то 3 тугма, навъҳои "web_url" ва "postback" (тугмаи "next"-и flow ба "postback" бо
+    /// payload-и худ табдил меёбад — ниг. Channels/Flows/FlowConfigs.cs.MessageButton).
+    /// System.Text.Json.Nodes истифода мешавад (на анонимӣ тип) — то ҳар тугма танҳо
+    /// майдонҳои марбут ба навъи худро дошта бошад (URL барои postback ё payload барои web_url
+    /// набояд ҳатто ҳамчун null фиристода шавад).
+    /// </summary>
+    public async Task<string?> SendButtonMessageAsync(
+        Channel channel, string conversationExternalId, string text, IReadOnlyList<InstagramSendButton> buttons,
+        string? messageTag, CancellationToken ct)
+    {
+        var credentials = GetCredentials(channel);
+
+        var buttonsArray = new System.Text.Json.Nodes.JsonArray();
+        foreach (var button in buttons)
+        {
+            var buttonNode = new System.Text.Json.Nodes.JsonObject { ["type"] = button.Type, ["title"] = button.Title };
+            if (button.Type == InstagramSendButton.TypeWebUrl)
+                buttonNode["url"] = button.Url;
+            else
+                buttonNode["payload"] = button.Payload;
+            buttonsArray.Add(buttonNode);
+        }
+
+        var attachment = new System.Text.Json.Nodes.JsonObject
+        {
+            ["type"] = "template",
+            ["payload"] = new System.Text.Json.Nodes.JsonObject
+            {
+                ["template_type"] = "button",
+                ["text"] = text,
+                ["buttons"] = buttonsArray,
+            },
+        };
+
+        var payload = BuildMessagePayload(conversationExternalId, new { attachment }, messageTag);
+        var responseBody = await PostToGraphApiAsync(channel, credentials, "messages", payload, ct);
+        return InstagramPayloadParser.ExtractSentMessageId(responseBody);
+    }
+
     public async Task<string?> SendMessageAsync(Channel channel, string conversationExternalId, string body, string? messageTag, CancellationToken ct)
     {
         var credentials = GetCredentials(channel);

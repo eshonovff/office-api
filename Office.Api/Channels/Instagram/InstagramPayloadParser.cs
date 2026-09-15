@@ -126,11 +126,42 @@ public static class InstagramPayloadParser
                 continue;
             }
 
+            if (messagingEvent.TryGetProperty("postback", out var postbackEl))
+            {
+                result.Add(ParsePostback(senderId, timestampMs, sentAt, postbackEl));
+                continue;
+            }
+
             if (messagingEvent.TryGetProperty("reaction", out var reactionEl))
                 result.Add(ParseReaction(senderId, timestampMs, sentAt, reactionEl));
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Пахши тугмаи "postback" (аз паёми Flow Builder-и Фазаи 12, ниг.
+    /// InstagramProvider.SendButtonMessageAsync) — {title, payload}, ҳамон шакли Facebook
+    /// (тасдиқшуда бо ҳуҷҷати расмии Meta, 2026-09-15). Бар хилофи Facebook (ки title/payload-ро
+    /// дар як майдон омехта мекунад), ин ҷо ҳарду ҷудо нигоҳ дошта мешаванд — FlowEngine ба
+    /// PostbackPayload ниёз дорад, на ба title-и намоишӣ.
+    /// </summary>
+    private static ParsedWebhookMessage ParsePostback(string senderId, long timestampMs, DateTimeOffset sentAt, JsonElement postbackEl)
+    {
+        var title = postbackEl.TryGetProperty("title", out var titleEl) ? titleEl.GetString() : null;
+        var payload = postbackEl.TryGetProperty("payload", out var payloadEl) ? payloadEl.GetString() : null;
+
+        return new ParsedWebhookMessage(
+            ConversationExternalId: senderId,
+            ContactName: null,
+            ContactAvatarUrl: null,
+            MessageExternalId: $"postback:{senderId}:{timestampMs}",
+            Direction: MessageDirection.Inbound,
+            Type: MessageType.Text,
+            Body: title ?? payload,
+            MediaUrl: null,
+            SentAt: sentAt,
+            PostbackPayload: payload);
     }
 
     private static ParsedWebhookMessage ParseReaction(string senderId, long timestampMs, DateTimeOffset sentAt, JsonElement reactionEl)

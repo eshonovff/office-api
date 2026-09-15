@@ -309,6 +309,37 @@ public class InstagramPayloadParserTests
         }
         """;
 
+    private const string PostbackPayload = """
+        {
+          "object": "instagram",
+          "entry": [
+            {
+              "id": "17841400000000000",
+              "messaging": [
+                {
+                  "sender": { "id": "1254001234567890" },
+                  "recipient": { "id": "17841400000000000" },
+                  "timestamp": 1569262486134,
+                  "postback": { "title": "Ҳа, мехоҳам", "payload": "flow_button:node-1:0" }
+                }
+              ]
+            }
+          ]
+        }
+        """;
+
+    [Fact]
+    public void ParseMessages_Postback_SeparatesTitleFromPayload()
+    {
+        var messages = InstagramPayloadParser.ParseMessages(Parse(PostbackPayload));
+
+        var message = Assert.Single(messages);
+        Assert.Equal(MessageDirection.Inbound, message.Direction);
+        Assert.Equal("Ҳа, мехоҳам", message.Body);
+        Assert.Equal("flow_button:node-1:0", message.PostbackPayload);
+        Assert.Equal("postback:1254001234567890:1569262486134", message.MessageExternalId);
+    }
+
     private const string UnreactPayload = """
         {
           "object": "instagram",

@@ -2,10 +2,13 @@ using System.Text.Json;
 using Hangfire.Common;
 using Hangfire.States;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using Office.Api.Channels;
 using Office.Api.Channels.Automation;
 using Office.Api.Channels.Facebook;
+using Office.Api.Channels.Flows;
 using Office.Api.Channels.Instagram;
 using Office.Api.Channels.WhatsApp;
 using Office.Api.Data;
@@ -105,6 +108,7 @@ public class WebhookProcessorRealtimeTests
         var processor = new WebhookProcessor(
             db, new FakeChannelProviderFactory(), events, backgroundJobs,
             new CommentAutomationProcessor(db, backgroundJobs, NullLogger<CommentAutomationProcessor>.Instance),
+            MakeFlowTriggerProcessor(db),
             NullLogger<WebhookProcessor>.Instance);
 
         await processor.ProcessAsync(log.Id, CancellationToken.None);
@@ -138,6 +142,7 @@ public class WebhookProcessorRealtimeTests
         var processor = new WebhookProcessor(
             db, new FakeChannelProviderFactory(), events, backgroundJobs,
             new CommentAutomationProcessor(db, backgroundJobs, NullLogger<CommentAutomationProcessor>.Instance),
+            MakeFlowTriggerProcessor(db),
             NullLogger<WebhookProcessor>.Instance);
 
         await processor.ProcessAsync(log.Id, CancellationToken.None);
@@ -166,6 +171,7 @@ public class WebhookProcessorRealtimeTests
         var processor = new WebhookProcessor(
             db, new FakeChannelProviderFactory(), events, backgroundJobs,
             new CommentAutomationProcessor(db, backgroundJobs, NullLogger<CommentAutomationProcessor>.Instance),
+            MakeFlowTriggerProcessor(db),
             NullLogger<WebhookProcessor>.Instance);
 
         await processor.ProcessAsync(log.Id, CancellationToken.None);
@@ -293,5 +299,38 @@ public class WebhookProcessorRealtimeTests
     {
         public string Create(Job job, IState state) => throw new NotSupportedException("Ин тест enqueue-и job интизор надорад — паёми матнӣ медиа надорад.");
         public bool ChangeState(string jobId, IState state, string? expectedState) => throw new NotSupportedException();
+    }
+
+    /// <summary>
+    /// FlowTriggerProcessor.ProcessMessageAsync ҳамеша db.Flows-ро месанҷад пеш аз даъвати
+    /// FlowEngine — азбаски ин тестҳо ягон Flow намесозанд, FlowEngine/InstagramProvider ҳеҷ гоҳ
+    /// воқеан даъват намешаванд; HttpMessageHandler-и зерин агар ин фарзия вайрон шавад хато медиҳад.
+    /// </summary>
+    private static FlowTriggerProcessor MakeFlowTriggerProcessor(AppDbContext db)
+    {
+        var httpClient = new HttpClient(new NonFunctionalHttpMessageHandler());
+        var provider = new InstagramProvider(
+            httpClient, new PassthroughProtector(), new ConfigurationBuilder().Build(), db,
+            new NoOpNotificationService(), new MemoryCache(new MemoryCacheOptions()),
+            new InstagramFollowCheckRateLimiter(), NullLogger<InstagramProvider>.Instance);
+        var engine = new FlowEngine(db, provider, new NonFunctionalBackgroundJobClient(), httpClient, NullLogger<FlowEngine>.Instance);
+        return new FlowTriggerProcessor(db, engine, NullLogger<FlowTriggerProcessor>.Instance);
+    }
+
+    private sealed class NonFunctionalHttpMessageHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            throw new NotSupportedException("Ин тест ягон Flow намесозад — ҳеҷ дархости Graph API интизор нест.");
+    }
+
+    private sealed class PassthroughProtector : IChannelCredentialsProtector
+    {
+        public string Protect(string plainText) => plainText;
+        public string Unprotect(string protectedText) => protectedText;
+    }
+
+    private sealed class NoOpNotificationService : INotificationService
+    {
+        public Task PushAsync(Guid userId, string type, object payload, CancellationToken ct) => Task.CompletedTask;
     }
 }

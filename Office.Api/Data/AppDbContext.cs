@@ -35,6 +35,15 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<AutomationRule> AutomationRules => Set<AutomationRule>();
     public DbSet<AutomationRun> AutomationRuns => Set<AutomationRun>();
 
+    public DbSet<Flow> Flows => Set<Flow>();
+    public DbSet<FlowNode> FlowNodes => Set<FlowNode>();
+    public DbSet<FlowEdge> FlowEdges => Set<FlowEdge>();
+    public DbSet<FlowSession> FlowSessions => Set<FlowSession>();
+    public DbSet<FlowSessionStep> FlowSessionSteps => Set<FlowSessionStep>();
+    public DbSet<ContactTag> ContactTags => Set<ContactTag>();
+    public DbSet<ContactVariable> ContactVariables => Set<ContactVariable>();
+    public DbSet<FlowTemplate> FlowTemplates => Set<FlowTemplate>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);

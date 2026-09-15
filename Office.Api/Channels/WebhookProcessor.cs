@@ -2,6 +2,7 @@ using System.Text.Json;
 using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using Office.Api.Channels.Automation;
+using Office.Api.Channels.Flows;
 using Office.Api.Channels.Instagram;
 using Office.Api.Data;
 using Office.Api.Data.Entities;
@@ -21,6 +22,7 @@ public class WebhookProcessor(
     IInboxEventPublisher events,
     IBackgroundJobClient backgroundJobs,
     CommentAutomationProcessor commentAutomation,
+    FlowTriggerProcessor flowTrigger,
     ILogger<WebhookProcessor> logger)
 {
     public async Task ProcessAsync(Guid webhookLogId, CancellationToken ct)
@@ -78,6 +80,8 @@ public class WebhookProcessor(
         if (channelType == ChannelType.Instagram && InstagramPayloadParser.TryParseCommentEvent(root, out var commentEvent))
         {
             await commentAutomation.ProcessAsync(channel, commentEvent, ct);
+            // Паҳлӯи automation_rules-и Фазаи 10 (боло), на ба ҷои он — ниг. шарҳи FlowTriggerProcessor.
+            await flowTrigger.ProcessCommentAsync(channel, commentEvent, ct);
             return;
         }
 
@@ -107,12 +111,17 @@ public class WebhookProcessor(
 
         await db.SaveChangesAsync(ct);
 
+        var parsedByExternalId = newMessages.ToDictionary(m => m.MessageExternalId);
         foreach (var (message, conversation, mediaExternalId) in savedMessages)
         {
             await events.MessageReceivedAsync(channel.Id, conversation.AssignedTo, MessageDto.FromEntity(message), ct);
 
             if (mediaExternalId is not null)
                 backgroundJobs.Enqueue<MediaDownloadJob>(j => j.DownloadAsync(message.Id, mediaExternalId, CancellationToken.None));
+
+            // Фазаи 12: Flow Builder — паҳлӯи рӯйхати мавҷуда, ба ҷои он даст намезанад.
+            if (message.ExternalId is not null && parsedByExternalId.TryGetValue(message.ExternalId, out var parsed))
+                await flowTrigger.ProcessMessageAsync(channel, conversation, parsed, ct);
         }
     }
 
