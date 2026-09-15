@@ -6,9 +6,10 @@
 ягонаи "Автоматизатсияҳо" барои ҳарду навъ.
 **Пешшарт:** Фазаи 10 (V1) ✅, Фазаи 11 (follow-check) ✅
 
-> ⚠️ **2026-09-15: backend пурра иҷро ва бо аккаунти воқеии production
-> санҷида шуд. Frontend (canvas UI) ҳанӯз оғоз НАШУДААСТ** — ниг. бахши
-> "Чӣ иҷро нашуд" дар поён. Ин ҳуҷҷат танҳо кисми backend-ро дар бар мегирад.
+> ✅ **2026-09-15: backend пурра иҷро ва бо аккаунти воқеии production
+> санҷида шуд. Frontend (canvas UI) низ ҳамон рӯз пурра иҷро шуд** —
+> ниг. `office-web/docs/phases/phase-9-flow-builder-ui.md`. Ин ҳуҷҷат
+> танҳо кисми backend-ро дар бар мегирад.
 
 ## Тасмимҳои тарроҳӣ
 
@@ -136,22 +137,18 @@ DM бо калимаи "контакт"), баъд webhook-и воқеии им�
   кутоҳмуддат, дар ҳамон навбати умумӣ кофист).
 - **automation_rules бетаъсир монд** — на сохтор, на маълумот тағйир наёфт.
 
-## Чӣ иҷро нашуд (кисми оянда)
+## Чӣ иҷро нашуд
 
-Тибқи хости худи спека ("тестҳо+санҷиши зинда+ҳуҷҷат" аввал, canvas
-баъд), кисми **frontend (тахминан 60%-и фаза тибқи баҳогузории спека)
-ҳанӯз оғоз НАШУДААСТ**:
+Frontend ҳамон рӯз (2026-09-15) пурра иҷро шуд — ниг.
+`office-web/docs/phases/phase-9-flow-builder-ui.md`. Танҳо як чиз
+боқӣ монд: **санҷиши дастии зиндаи browser** (drag-и нод, autosave-и
+воқеӣ, reload+тасдиқи сабтшавӣ) — дар муҳити он сессия абзори browser
+automation дастрас набуд, тамоми санҷиш `typecheck`/`test`/`lint`/
+`build` буд. Тавсия: пеш аз production, як бор дастӣ санҷида шавад.
 
-- Саҳифаи `/automations` (рӯйхати ягона, ду карточкаи вуруд).
-- Саҳифаи canvas `/automations/flows/:id` (`@xyflow/react` — китобхонаи
-  нав, ҳанӯз ба `package.json` илова нашудааст).
-- Панелҳои танзимоти ҳар навъи нод (message/condition/action/note).
-- Undo/redo (store-и нави Zustand), autosave (debounce+mutation),
-  ҳаракати нод бо алгуи оптимистии Kanban.
-- Интихобгари шаблон дар UI, намоиши омор.
-
-Ин кор дар навбати навбатӣ аст — бидуни он, Flow Builder танҳо тавассути
-API/curl (ё дар оянда — скрипти ёрирасон) сохта мешавад, на тавассути UI.
+Дар доираи кори frontend, ду майдони хурд ба backend илова шуд
+(`FlowListItem`/`FlowDetail.ChannelId`) — canvas-ро лозим буд, ҳеҷ
+endpoint-и мавҷударо нашикаст.
 
 ## Definition of Done (backend)
 
@@ -159,4 +156,5 @@ API/curl (ё дар оянда — скрипти ёрирасон) сохта �
 - ✅ 598 тести backend сабз, build бе хатогӣ
 - ✅ Занҷири пурраи webhook→trigger→session→engine→Graph API воқеӣ санҷида шуд
 - ✅ Postback ва button-message воқеан ба Instagram фиристода шуданд
-- ⬜ Frontend (canvas) — оғоз нашудааст, ниг. боло
+- ✅ Frontend (canvas) — пурра иҷро шуд, ниг. `office-web/docs/phases/phase-9-flow-builder-ui.md`
+- ⬜ Санҷиши дастии зиндаи browser (frontend) — тавсияшуда, иҷро нашуд

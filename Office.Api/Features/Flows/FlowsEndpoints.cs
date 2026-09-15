@@ -83,7 +83,7 @@ public static class FlowsEndpoints
         var flows = await db.Flows
             .Where(f => f.ChannelId == channelId)
             .OrderByDescending(f => f.CreatedAt)
-            .Select(f => new FlowListItem(f.Id, f.Name, f.IsActive, f.TriggerType, f.Nodes.Count, f.CreatedAt, f.UpdatedAt))
+            .Select(f => new FlowListItem(f.Id, f.ChannelId, f.Name, f.IsActive, f.TriggerType, f.Nodes.Count, f.CreatedAt, f.UpdatedAt))
             .ToListAsync(ct);
 
         return Results.Ok(flows);
@@ -270,6 +270,7 @@ public static class FlowsEndpoints
 
     private static FlowDetail ToDetail(Flow flow, List<FlowNode> nodes, List<FlowEdge> edges) => new(
         flow.Id,
+        flow.ChannelId,
         flow.Name,
         flow.IsActive,
         flow.TriggerType,

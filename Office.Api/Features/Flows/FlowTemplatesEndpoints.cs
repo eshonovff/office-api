@@ -89,7 +89,7 @@ public static class FlowTemplatesEndpoints
         var nodes = await db.FlowNodes.Where(n => n.FlowId == flow.Id).ToListAsync(ct);
         var edges = await db.FlowEdges.Where(e => e.FlowId == flow.Id).ToListAsync(ct);
         return Results.Created($"/api/flows/{flow.Id}", new FlowDetail(
-            flow.Id, flow.Name, flow.IsActive, flow.TriggerType, request.TriggerConfig,
+            flow.Id, flow.ChannelId, flow.Name, flow.IsActive, flow.TriggerType, request.TriggerConfig,
             nodes.Select(n => new FlowNodeDto(n.Id, n.Type.ToString().ToLowerInvariant(), JsonDocument.Parse(n.ConfigJson).RootElement, n.X, n.Y)).ToList(),
             edges.Select(e => new FlowEdgeDto(e.Id, e.FromNodeId, e.FromPort, e.ToNodeId)).ToList(),
             flow.CreatedAt, flow.UpdatedAt));

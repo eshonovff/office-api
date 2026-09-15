@@ -3,7 +3,7 @@ using Office.Api.Channels.Automation;
 
 namespace Office.Api.Features.Flows;
 
-public record FlowListItem(Guid Id, string Name, bool IsActive, string TriggerType, int NodeCount, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt);
+public record FlowListItem(Guid Id, Guid ChannelId, string Name, bool IsActive, string TriggerType, int NodeCount, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt);
 
 /// <summary>
 /// Config-и ҳар нод шакли typed надорад дар ин сатҳ — вобаста ба Type фарқ мекунад (ниг.
@@ -15,7 +15,7 @@ public record FlowNodeDto(Guid Id, string Type, JsonElement Config, double X, do
 public record FlowEdgeDto(Guid Id, Guid FromNodeId, string FromPort, Guid ToNodeId);
 
 public record FlowDetail(
-    Guid Id, string Name, bool IsActive, string TriggerType, AutomationTriggerConfig TriggerConfig,
+    Guid Id, Guid ChannelId, string Name, bool IsActive, string TriggerType, AutomationTriggerConfig TriggerConfig,
     IReadOnlyList<FlowNodeDto> Nodes, IReadOnlyList<FlowEdgeDto> Edges, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt);
 
 public record CreateFlowRequest(string Name, string TriggerType, AutomationTriggerConfig TriggerConfig);
