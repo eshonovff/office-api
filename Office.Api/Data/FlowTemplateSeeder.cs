@@ -45,7 +45,7 @@ public static class FlowTemplateSeeder
         await db.SaveChangesAsync(ct);
     }
 
-    private static JsonElement ToElement<T>(T value) => JsonSerializer.SerializeToElement(value);
+    private static JsonElement ToElement<T>(T value) => JsonSerializer.SerializeToElement(value, FlowJsonOptions.Options);
 
     private static FlowTemplateDefinition LeadMagnetTemplate()
     {

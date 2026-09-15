@@ -476,5 +476,5 @@ public class FlowEngine(AppDbContext db, InstagramProvider instagramProvider, IB
         return (nodes, edges);
     }
 
-    private static T Deserialize<T>(string json) => JsonSerializer.Deserialize<T>(json) ?? throw new JsonException($"null {typeof(T).Name}");
+    private static T Deserialize<T>(string json) => JsonSerializer.Deserialize<T>(json, FlowJsonOptions.Options) ?? throw new JsonException($"null {typeof(T).Name}");
 }

@@ -238,7 +238,7 @@ public static class FlowsEndpoints
             switch (type.ToLowerInvariant())
             {
                 case "message":
-                    var message = config.Deserialize<MessageNodeConfig>() ?? throw new JsonException("null");
+                    var message = config.Deserialize<MessageNodeConfig>(FlowJsonOptions.Options) ?? throw new JsonException("null");
                     // "payment" дар намуди JSON қабул карда мешавад (мутобиқат бо спека), вале
                     // қасдан рад мешавад — спека худаш "маҳсулоти пулакӣ"-ро дар НАГИР дорад.
                     if (message.Buttons.Any(b => b.Action == "payment"))
@@ -247,15 +247,15 @@ public static class FlowsEndpoints
                         return "action-и тугма бояд 'next' ё 'url' бошад.";
                     break;
                 case "condition":
-                    _ = config.Deserialize<ConditionNodeConfig>() ?? throw new JsonException("null");
+                    _ = config.Deserialize<ConditionNodeConfig>(FlowJsonOptions.Options) ?? throw new JsonException("null");
                     break;
                 case "action":
-                    var action = config.Deserialize<ActionNodeConfig>() ?? throw new JsonException("null");
+                    var action = config.Deserialize<ActionNodeConfig>(FlowJsonOptions.Options) ?? throw new JsonException("null");
                     if (string.IsNullOrEmpty(action.Kind))
                         return "kind лозим аст.";
                     break;
                 case "note":
-                    _ = config.Deserialize<NoteNodeConfig>() ?? throw new JsonException("null");
+                    _ = config.Deserialize<NoteNodeConfig>(FlowJsonOptions.Options) ?? throw new JsonException("null");
                     break;
                 default:
                     return $"Навъи нодуруст: {type}.";
