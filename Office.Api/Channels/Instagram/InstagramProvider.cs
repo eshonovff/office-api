@@ -56,6 +56,15 @@ public class InstagramProvider(
         {
             if (message.Body?.StartsWith(InstagramPayloadParser.UnsupportedTypeBodyPrefix, StringComparison.Ordinal) == true)
                 logger.LogWarning("Instagram: паёми навъи дастгирӣнашуда сабт шуд: {Body}", message.Body);
+
+            // МУВАҚҚАТӢ ТАШХИС (2026-09-17, санҷиши зиндаи флоу бо тугма): PostbackPayload
+            // ҳеҷ токен надорад (танҳо {sessionId}:{nodeId}:{buttonIndex}-и худамон) — сабти
+            // пурра бехатар аст. Мақсад: тасдиқ кардан, ки Meta воқеан "postback" мефиристад
+            // (на танҳо "message"-и матнии title-и тугма), пас аз тасдиқи messaging_postbacks
+            // дар App Dashboard.
+            if (message.PostbackPayload is not null)
+                logger.LogInformation(
+                    "Instagram: postback гирифта шуд — Payload={Payload}, Body={Body}", message.PostbackPayload, message.Body);
         }
 
         // МУВАҚҚАТӢ ТАШХИС: ин payload-ҳо ҳеҷ токен/парол надоранд (url + title, ҳамин

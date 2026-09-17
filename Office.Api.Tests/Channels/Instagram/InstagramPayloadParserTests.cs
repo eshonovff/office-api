@@ -340,6 +340,42 @@ public class InstagramPayloadParserTests
         Assert.Equal("postback:1254001234567890:1569262486134", message.MessageExternalId);
     }
 
+    private const string PostbackWithMessageEchoPayload = """
+        {
+          "object": "instagram",
+          "entry": [
+            {
+              "id": "17841400000000000",
+              "messaging": [
+                {
+                  "sender": { "id": "1254001234567890" },
+                  "recipient": { "id": "17841400000000000" },
+                  "timestamp": 1569262486134,
+                  "message": { "mid": "aWdfZAG1fMID", "text": "Ҳа, мехоҳам" },
+                  "postback": { "title": "Ҳа, мехоҳам", "payload": "flow_button:node-1:0" }
+                }
+              ]
+            }
+          ]
+        }
+        """;
+
+    /// <summary>
+    /// Регрессия (2026-09-17, санҷиши зиндаи флоу бо тугма): агар Meta ҳарду майдонро дар як
+    /// рӯйдод фиристад, "postback" бояд бартарӣ дошта бошад — вагарна FlowEngine пахши тугмаро
+    /// ҳамчун паёми матнии нав тафсир мекунад ва flow-и MatchMode=all худро аз сифр сар медиҳад
+    /// (ниг. огоҳии чат: паёми аввал бепоён такрор мешуд).
+    /// </summary>
+    [Fact]
+    public void ParseMessages_PostbackWithMessageEcho_PostbackTakesPriority()
+    {
+        var messages = InstagramPayloadParser.ParseMessages(Parse(PostbackWithMessageEchoPayload));
+
+        var message = Assert.Single(messages);
+        Assert.Equal("flow_button:node-1:0", message.PostbackPayload);
+        Assert.Equal("postback:1254001234567890:1569262486134", message.MessageExternalId);
+    }
+
     private const string UnreactPayload = """
         {
           "object": "instagram",

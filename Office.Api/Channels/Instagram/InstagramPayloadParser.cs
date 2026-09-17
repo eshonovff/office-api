@@ -90,6 +90,19 @@ public static class InstagramPayloadParser
             var timestampMs = messagingEvent.GetProperty("timestamp").GetInt64();
             var sentAt = DateTimeOffset.FromUnixTimeMilliseconds(timestampMs);
 
+            // "postback" пеш аз "message" САНҶИДА МЕШАВАД (2026-09-17, санҷиши зиндаи флоу бо
+            // тугма): агар Meta ҳарду майдонро дар як рӯйдод фиристад (масалан title-и тугма
+            // ҳамчун матни оддии эхо низ илова кунад — тасдиқнашуда расман, вале дар санҷиши
+            // зинда рафтори "тугма пахш шуд, вале flow онро ҳамчун матни оддии нав тафсир кард"
+            // мушоҳида шуд), ниятAСЛИИ пахши тугма (postback.payload) бояд бартарӣ дошта бошад,
+            // на матни ҳамрадифи он — вагарна FlowEngine ҳеҷ гоҳ ResumeFromButtonAsync-ро
+            // намебинад ва flow-и MatchMode=all худро аз сифр сар медиҳад (ниг. огоҳии чат).
+            if (messagingEvent.TryGetProperty("postback", out var postbackEl))
+            {
+                result.Add(ParsePostback(senderId, timestampMs, sentAt, postbackEl));
+                continue;
+            }
+
             if (messagingEvent.TryGetProperty("message", out var messageEl))
             {
                 // Эхои паёме, ки худи мо мустақим аз барномаи Instagram фиристодаем (на тавассути
@@ -123,12 +136,6 @@ public static class InstagramPayloadParser
                     ExternalContentUrl: externalContentUrl,
                     ExternalContentKind: externalContentKind));
 
-                continue;
-            }
-
-            if (messagingEvent.TryGetProperty("postback", out var postbackEl))
-            {
-                result.Add(ParsePostback(senderId, timestampMs, sentAt, postbackEl));
                 continue;
             }
 
