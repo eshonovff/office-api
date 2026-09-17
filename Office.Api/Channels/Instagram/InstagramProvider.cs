@@ -244,33 +244,48 @@ public class InstagramProvider(
     /// коментарий (барои пости оддӣ/reel — на Instagram Live, ки танҳо то анҷоми пахш кор мекунад).
     /// Ин ду маҳдудиятро ин методи содда санҷида наметавонад (Meta худаш хато медиҳад, агар
     /// вайрон шаванд) — CommentAutomationJob хатогиро сабт мекунад, дубора кӯшиш намекунад.
-    /// Агар <paramref name="buttonUrl"/>/<paramref name="buttonTitle"/> дода шаванд, ба ҷои матни
-    /// оддӣ button template (Messenger Platform) фиристода мешавад — тасдиқшуда бо ҳуҷҷати расмии
-    /// Meta (2026-09-14): "text" то 640 ҳарф, то 3 тугма (мо танҳо якто мефиристем). Дарозии
+    /// Агар <paramref name="button"/> дода шавад, ба ҷои матни оддӣ button template (Messenger
+    /// Platform) фиристода мешавад — тасдиқшуда бо ҳуҷҷати расмии Meta (2026-09-14): "text" то 640
+    /// ҳарф, то 3 тугма (мо танҳо якто мефиристем). type="postback" низ дастгирӣ мешавад (2026-09-17,
+    /// FlowEngine.ExecuteMessageNodeAsync) — ҳамон endpoint (POST /messages) барои recipient.id
+    /// (SendButtonMessageAsync) ва recipient.comment_id рафтори якхела дорад, тасдиқи алоҳидаи Meta
+    /// барои ин комбинатсия дар ҳуҷҷат ёфт нашуд, вале шакли payload комилан умумист. Дарозии
     /// сарлавҳаи тугма дар ҳуҷҷат возеҳ нест — 20 ҳарф (маҳдудияти маъмули Messenger Platform барои
     /// тугмаҳо) дар frontend (`maxLength`) татбиқ шудааст; агар нодуруст бошад, Meta худаш бо
     /// хатогии возеҳ рад мекунад (ниг. GraphApiException — сабт мешавад, дубора кӯшиш намешавад).
     /// </summary>
     public async Task<string?> SendPrivateReplyAsync(
-        Channel channel, string commentId, string text, string? buttonUrl, string? buttonTitle, CancellationToken ct)
+        Channel channel, string commentId, string text, InstagramSendButton? button, CancellationToken ct)
     {
         var credentials = GetCredentials(channel);
 
-        object message = string.IsNullOrEmpty(buttonUrl) || string.IsNullOrEmpty(buttonTitle)
-            ? new { text }
-            : new
+        object message;
+        if (button is null)
+        {
+            message = new { text };
+        }
+        else
+        {
+            var buttonNode = new System.Text.Json.Nodes.JsonObject { ["type"] = button.Type, ["title"] = button.Title };
+            if (button.Type == InstagramSendButton.TypeWebUrl)
+                buttonNode["url"] = button.Url;
+            else
+                buttonNode["payload"] = button.Payload;
+
+            message = new
             {
-                attachment = new
+                attachment = new System.Text.Json.Nodes.JsonObject
                 {
-                    type = "template",
-                    payload = new
+                    ["type"] = "template",
+                    ["payload"] = new System.Text.Json.Nodes.JsonObject
                     {
-                        template_type = "button",
-                        text,
-                        buttons = new[] { new { type = "web_url", url = buttonUrl, title = buttonTitle } },
+                        ["template_type"] = "button",
+                        ["text"] = text,
+                        ["buttons"] = new System.Text.Json.Nodes.JsonArray { buttonNode },
                     },
                 },
             };
+        }
 
         var payload = new { recipient = new { comment_id = commentId }, message };
         var responseBody = await PostToGraphApiAsync(channel, credentials, "messages", payload, ct);

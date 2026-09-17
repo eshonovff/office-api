@@ -608,6 +608,64 @@ public class FlowEngineTests
         Assert.Equal("Ҳа, мехоҳам!", buttonPayload.GetProperty("buttons")[0].GetProperty("title").GetString());
     }
 
+    /// <summary>
+    /// Регрессия барои хатои воқеии истеҳсол (2026-09-17, "Лид-магнит"-и оғозин: расм+тугмаи
+    /// "next"): пештар шарти Private Reply тугмаро истисно мекард (танҳо url кор мекард), пас
+    /// коментатори аввалин (WindowExpiresAt=null) ба рафтори кӯҳна мегузашт — SendButtonMessageAsync
+    /// (recipient.id) ба контакти бе тиреза, ки Meta бояд рад мекард ("ба DM ҳеҷ чиз намеояд").
+    /// Ҳозир бояд тавассути Private Reply бо тугмаи postback гузарад ва Waiting/ButtonClick монад.
+    /// </summary>
+    [Fact]
+    public async Task Message_CommentTriggeredNoWindowWithMediaAndNextButton_UsesPrivateReplyWithPostbackButton()
+    {
+        await using var db = CreateDb();
+        var channel = MakeChannel();
+        var contact = new Conversation
+        {
+            Id = Guid.CreateVersion7(),
+            ChannelId = channel.Id,
+            ExternalId = "1254001234567890",
+            ContactUsername = "eshonov.f1",
+            Status = ConversationStatus.New,
+            WindowExpiresAt = null, // ҳеҷ гоҳ DM нафиристодааст — танҳо коментарий (айнан ҳолати воқеӣ)
+            CreatedAt = DateTimeOffset.UtcNow,
+        };
+        var flow = MakeFlow(channel.Id);
+        flow.TriggerType = "instagram_comment";
+        var node = MakeNode(flow.Id, FlowNodeType.Message,
+            new MessageNodeConfig(
+                [new MessageBlock(MessageBlock.TypeText, "Мехоҳед видеогайдро бинед?", null), new MessageBlock(MessageBlock.TypeImage, null, "attach_lead")],
+                [new MessageButton("Ҳа, мехоҳам!", MessageButton.ActionNext, null, false)]));
+        db.Channels.Add(channel);
+        db.Conversations.Add(contact);
+        db.Flows.Add(flow);
+        db.FlowNodes.Add(node);
+        await db.SaveChangesAsync();
+
+        string? sentBody = null;
+        var (_, handler, _, engine) = MakeEngine(db, req =>
+        {
+            sentBody = req.Content!.ReadAsStringAsync().Result;
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{"message_id":"mid.1"}""") };
+        });
+
+        await engine.StartAsync(flow, contact.Id, CancellationToken.None, triggerExternalId: "comment_888");
+
+        var session = await db.FlowSessions.SingleAsync();
+        Assert.Equal(FlowSessionStatus.Waiting, session.Status);
+        Assert.Equal(FlowWaitReason.ButtonClick, session.WaitReason);
+        Assert.Single(handler.RequestUrls); // Private Reply — як дархост, на ду (media партофта шуд, на фиристода)
+
+        using var doc = JsonDocument.Parse(sentBody!);
+        Assert.Equal("comment_888", doc.RootElement.GetProperty("recipient").GetProperty("comment_id").GetString());
+        var buttonPayload = doc.RootElement.GetProperty("message").GetProperty("attachment").GetProperty("payload");
+        Assert.Equal("Мехоҳед видеогайдро бинед?", buttonPayload.GetProperty("text").GetString());
+        var button = buttonPayload.GetProperty("buttons")[0];
+        Assert.Equal("postback", button.GetProperty("type").GetString());
+        Assert.Equal("Ҳа, мехоҳам!", button.GetProperty("title").GetString());
+        Assert.Equal($"{session.Id}:{node.Id}:0", button.GetProperty("payload").GetString());
+    }
+
     [Fact]
     public async Task Message_CommentTriggeredNoWindowWithMedia_UsesPrivateReplyMedia()
     {

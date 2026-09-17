@@ -275,30 +275,45 @@ public class FlowEngine(AppDbContext db, InstagramProvider instagramProvider, IB
         // Контакте, ки ҳеҷ гоҳ ба мо DM нафиристодааст (масалан танҳо коментарий кардааст):
         // WindowExpiresAt=null маънои "тирезаи 24-соата ҳеҷ гоҳ КУШОДА НАШУДААСТ" дорад, на
         // "баста" — IsWindowClosed поён барои null ҳамеша false бармегардонад, пас бе ин шоха
-        // ба SendMessageAsync-и муқаррарӣ мерафтем, ки Meta онро рад мекунад (ҳеҷ тиреза нест).
-        // Ягона роҳи қонунии расидан ба чунин контакт — Private Reply бо comment_id (як бор,
-        // дар давоми 7 рӯз), ҳамон API-е ки DmText-и automation_rules-и оддӣ аллакай истифода
-        // мебарад. Танҳо барои матни оддӣ ё як тугмаи "url" кор мекунад (шакли payload-и Private
-        // Reply дигар намудҳоро дастгирӣ намекунад) — вагарна ба рафтори кӯҳна мегузарем.
-        if (session.TriggerExternalId is not null && contact.WindowExpiresAt is null &&
-            (config.Buttons.Length == 0 || (config.Buttons.Length == 1 && config.Buttons[0].Action == MessageButton.ActionUrl)))
+        // ба SendMessageAsync-и муқаррарӣ мерафтем, ки Meta онро рад мекунад (ҳеҷ тиреза нест,
+        // ҳеҷ гоҳ кушода нашудааст — санҷидашуда: 2026-09-17, дар воқеъ ин сабаби "ба DM ҳеҷ чиз
+        // намеояд" барои коментатори аввалин буд, вақте ки нод тугмаи "next" дошт). Ягона роҳи
+        // қонунии расидан ба чунин контакт — Private Reply бо comment_id (як бор, дар давоми 7 рӯз).
+        // ≤1 тугма (ҳар навъ — url ё postback) дар ҳамин як фиристодан ҷобаҷо мешавад; 2-3 тугма
+        // ҳанӯз дастгирӣ намешавад (интихоби кадоме бе аз даст додани дигарон мушаххас нест) —
+        // барои он ҳолат ба рафтори кӯҳна (тирезаи муқаррарӣ, эҳтимол рад) мегузарем.
+        if (session.TriggerExternalId is not null && contact.WindowExpiresAt is null && config.Buttons.Length <= 1)
         {
-            // Private Reply "як бор дар як коментарий" аст — агар ҳам media, ҳам матн дошта
-            // бошем, ҳарду бо ду дархости ҷудогона фиристода намешаванд (дархости дуюм рад
-            // мешавад). Media авлотар аст (маъмулан мақсади асосии автоматизатсия ҳамин аст);
-            // матн нодида гирифта мешавад бо warning — агар ҳарду лозим бошанд, нодаи "Гирифтани
-            // ҷавоби корбар"-ро пеш аз ин нод илова кунед, то тиреза воқеан кушода шавад.
+            // Private Reply "як бор дар як коментарий" аст — на ҳама чиз якҷоя фиристода мешавад.
+            // Тугма (агар бошад) авлотар аст аз media: бе тугма, flow-и graph-based (масалан
+            // "wants_guide"-и Лид-магнит) идома ёфта наметавонад — нарасидани расм танҳо масъалаи
+            // зоҳирист. Матн ҳамеша бо тугма меравад (ҳамон паём); бо media ноком мешавад.
+            if (config.Buttons.Length == 1)
+            {
+                var configButton = config.Buttons[0];
+                var isUrl = configButton.Action == MessageButton.ActionUrl;
+                var button = new InstagramSendButton(
+                    configButton.Title, isUrl ? InstagramSendButton.TypeWebUrl : InstagramSendButton.TypePostback,
+                    configButton.Url, isUrl ? null : $"{session.Id}:{node.Id}:0");
+
+                if (mediaBlock is not null)
+                    logger.LogWarning("FlowSession {SessionId}: media дар нод {NodeId} бо тугма якҷоя буд — Private Reply танҳо якто ирсол мекунад, тугма авлотар шуд", session.Id, node.Id);
+
+                await instagramProvider.SendPrivateReplyAsync(contact.Channel, session.TriggerExternalId, text, button, ct);
+                // Тугмаи "url" рӯйдоди postback намедиҳад (танҳо силка мекушояд) — интизории он
+                // ҷаворобе абадӣ мемонд; рафтори кӯҳна (идомаи фаврӣ) барои он нигоҳ дошта шуд.
+                return isUrl ? new NodeOutcome("default", null) : new NodeOutcome(null, FlowWaitReason.ButtonClick);
+            }
+
             if (mediaBlock is not null && mediaType is not null)
             {
                 if (!string.IsNullOrEmpty(text))
                     logger.LogWarning("FlowSession {SessionId}: матни нод {NodeId} бо media якҷоя буд — Private Reply танҳо якто ирсол мекунад, media авлотар шуд", session.Id, node.Id);
                 await instagramProvider.SendPrivateReplyMediaAsync(contact.Channel, session.TriggerExternalId, mediaBlock.MediaId!, mediaType.Value, ct);
             }
-            else
+            else if (!string.IsNullOrEmpty(text))
             {
-                var urlButton = config.Buttons.FirstOrDefault();
-                if (!string.IsNullOrEmpty(text))
-                    await instagramProvider.SendPrivateReplyAsync(contact.Channel, session.TriggerExternalId, text, urlButton?.Url, urlButton?.Title, ct);
+                await instagramProvider.SendPrivateReplyAsync(contact.Channel, session.TriggerExternalId, text, null, ct);
             }
             return new NodeOutcome("default", null);
         }
