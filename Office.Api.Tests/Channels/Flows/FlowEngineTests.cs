@@ -560,6 +560,54 @@ public class FlowEngineTests
         Assert.Equal("Ана расми шумо!", captionDoc.RootElement.GetProperty("message").GetProperty("text").GetString());
     }
 
+    /// <summary>
+    /// Регрессия: пештар нод бо media+тугма якҷоя (масалан "Лид-магнит"-и оғозин) хомӯшона
+    /// media-ро партофта, танҳо матни тугмадорро мефиристод — Send API-и Meta як message object
+    /// мегирад (attachment ё button-template, на ҳарду якҷоя), пас ҳал ин аст: ду дархости
+    /// пайдарпай (аввал attachment, баъд паёми тугмадор), на партофтани яке аз онҳо.
+    /// </summary>
+    [Fact]
+    public async Task Message_WithMediaAndButtons_SendsAttachmentThenButtonMessage()
+    {
+        await using var db = CreateDb();
+        var channel = MakeChannel();
+        var contact = MakeContact(channel.Id); // тирезаи кушода
+        var flow = MakeFlow(channel.Id);
+        var node = MakeNode(flow.Id, FlowNodeType.Message,
+            new MessageNodeConfig(
+                [new MessageBlock(MessageBlock.TypeText, "Мехоҳед видеогайдро бинед?", null), new MessageBlock(MessageBlock.TypeImage, null, "attach_lead")],
+                [new MessageButton("Ҳа, мехоҳам!", MessageButton.ActionNext, null, false)]));
+        db.Channels.Add(channel);
+        db.Conversations.Add(contact);
+        db.Flows.Add(flow);
+        db.FlowNodes.Add(node);
+        await db.SaveChangesAsync();
+
+        var bodies = new List<string>();
+        var (_, handler, _, engine) = MakeEngine(db, req =>
+        {
+            bodies.Add(req.Content!.ReadAsStringAsync().Result);
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{"message_id":"mid.1"}""") };
+        });
+
+        await engine.StartAsync(flow, contact.Id, CancellationToken.None);
+
+        var session = await db.FlowSessions.SingleAsync();
+        Assert.Equal(FlowSessionStatus.Waiting, session.Status);
+        Assert.Equal(FlowWaitReason.ButtonClick, session.WaitReason);
+        Assert.Equal(2, handler.RequestUrls.Count); // расм якум, баъд паёми тугмадор — на яке ба ҷои дигаре
+
+        using var attachmentDoc = JsonDocument.Parse(bodies[0]);
+        var attachment = attachmentDoc.RootElement.GetProperty("message").GetProperty("attachment");
+        Assert.Equal("image", attachment.GetProperty("type").GetString());
+        Assert.Equal("attach_lead", attachment.GetProperty("payload").GetProperty("attachment_id").GetString());
+
+        using var buttonDoc = JsonDocument.Parse(bodies[1]);
+        var buttonPayload = buttonDoc.RootElement.GetProperty("message").GetProperty("attachment").GetProperty("payload");
+        Assert.Equal("Мехоҳед видеогайдро бинед?", buttonPayload.GetProperty("text").GetString());
+        Assert.Equal("Ҳа, мехоҳам!", buttonPayload.GetProperty("buttons")[0].GetProperty("title").GetString());
+    }
+
     [Fact]
     public async Task Message_CommentTriggeredNoWindowWithMedia_UsesPrivateReplyMedia()
     {

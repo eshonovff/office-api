@@ -272,16 +272,6 @@ public class FlowEngine(AppDbContext db, InstagramProvider instagramProvider, IB
         var mediaBlock = config.Blocks.FirstOrDefault(b => b.Type != MessageBlock.TypeText && !string.IsNullOrEmpty(b.MediaId));
         var mediaType = mediaBlock is null ? (MessageType?)null : ToMessageType(mediaBlock.Type);
 
-        if (mediaBlock is not null && config.Buttons.Length > 0)
-        {
-            // Send API-и Meta як message object мегирад (матн/attachment/button-template) —
-            // на якчанд якҷоя. Тугма (ки худаш attachment-и намуди "template" аст) авлотар аст,
-            // media дар ин ҳолат нодида гирифта мешавад бе хато.
-            logger.LogWarning("FlowSession {SessionId}: media дар нод {NodeId} бо тугмаҳо якҷоя буд, нодида гирифта шуд (Meta як паём=як object)", session.Id, node.Id);
-            mediaBlock = null;
-            mediaType = null;
-        }
-
         // Контакте, ки ҳеҷ гоҳ ба мо DM нафиристодааст (масалан танҳо коментарий кардааст):
         // WindowExpiresAt=null маънои "тирезаи 24-соата ҳеҷ гоҳ КУШОДА НАШУДААСТ" дорад, на
         // "баста" — IsWindowClosed поён барои null ҳамеша false бармегардонад, пас бе ин шоха
@@ -322,6 +312,16 @@ public class FlowEngine(AppDbContext db, InstagramProvider instagramProvider, IB
 
         if (config.Buttons.Length > 0)
         {
+            // Send API-и Meta як message object мегирад (attachment/button-template якҷоя
+            // намешаванд) — агар media ҳам бошад, аввал ҳамчун паёми алоҳида (бе caption, то
+            // матн дучандшуда набошад) мефиристем, баъд паёми тугмадор.
+            if (mediaBlock is not null && mediaType is not null)
+            {
+                await instagramProvider.SendMediaMessageAsync(
+                    contact.Channel, contact.ExternalId, mediaBlock.MediaId!, mediaType.Value,
+                    caption: null, isVoiceNote: mediaType == MessageType.Audio, messageTag: null, ct);
+            }
+
             var buttons = config.Buttons.Select((button, index) => button.Action == MessageButton.ActionUrl
                 ? new InstagramSendButton(button.Title, InstagramSendButton.TypeWebUrl, button.Url, null)
                 : new InstagramSendButton(button.Title, InstagramSendButton.TypePostback, null, $"{session.Id}:{node.Id}:{index}"))
