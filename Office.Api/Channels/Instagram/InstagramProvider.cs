@@ -160,7 +160,10 @@ public class InstagramProvider(
         using var form = new MultipartFormDataContent();
         form.Add(new StringContent("""{"attachment":{"type":"file","payload":{"is_reusable":true}}}"""), "message");
         using var streamContent = new StreamContent(content);
-        streamContent.Headers.ContentType = new MediaTypeHeaderValue(mimeType);
+        // Parse (на конструктор): mimeType метавонад параметр дошта бошад (масалан
+        // "audio/webm;codecs=opus"-и MediaRecorder-и браузер) — конструктори MediaTypeHeaderValue
+        // танҳо "type/subtype"-и холисро қабул мекунад ва бо параметр FormatException медиҳад.
+        streamContent.Headers.ContentType = MediaTypeHeaderValue.Parse(mimeType);
         form.Add(streamContent, "filedata", fileName);
 
         using var request = new HttpRequestMessage(
@@ -261,6 +264,31 @@ public class InstagramProvider(
             };
 
         var payload = new { recipient = new { comment_id = commentId }, message };
+        var responseBody = await PostToGraphApiAsync(channel, credentials, "messages", payload, ct);
+        return InstagramPayloadParser.ExtractSentMessageId(responseBody);
+    }
+
+    /// <summary>
+    /// Ҳамон Private Reply (ниг. SendPrivateReplyAsync боло), вале барои media (аз
+    /// UploadMediaAsync-и дубора-истифодашаванда) ба ҷои матн. ДИҚҚАТ: бар хилофи
+    /// SendPrivateReplyAsync (матн/тугма), ин шакли мушаххас — attachment тавассути
+    /// recipient.comment_id — бо ҳуҷҷати расмии Meta ҷудогона тасдиқ НАШУДААСТ дар ин лоиҳа
+    /// (танҳо шакли умумии Send API-и як object-и message фарз карда шудааст). Агар Meta ба ин
+    /// комбинатсия хато диҳад, GraphApiException сабт мешавад — CommentAutomationJob-монанд
+    /// дубора кӯшиш намекунад (маҳдудияти "як бор дар як коментарий" ҳамин тавр ҳам вайрон намешавад).
+    /// </summary>
+    public async Task<string?> SendPrivateReplyMediaAsync(
+        Channel channel, string commentId, string mediaId, MessageType type, CancellationToken ct)
+    {
+        var credentials = GetCredentials(channel);
+        var attachmentType = ToInstagramAttachmentType(type);
+
+        var payload = new
+        {
+            recipient = new { comment_id = commentId },
+            message = new { attachment = new { type = attachmentType, payload = new { attachment_id = mediaId } } },
+        };
+
         var responseBody = await PostToGraphApiAsync(channel, credentials, "messages", payload, ct);
         return InstagramPayloadParser.ExtractSentMessageId(responseBody);
     }

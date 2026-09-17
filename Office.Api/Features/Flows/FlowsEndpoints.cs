@@ -1,11 +1,14 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Office.Api.Auth;
+using Office.Api.Channels;
 using Office.Api.Channels.Automation;
 using Office.Api.Channels.Flows;
+using Office.Api.Channels.Instagram;
 using Office.Api.Common;
 using Office.Api.Data;
 using Office.Api.Data.Entities;
+using Office.Api.Media;
 
 namespace Office.Api.Features.Flows;
 
@@ -27,6 +30,14 @@ public static class FlowsEndpoints
             .WithSummary("Сохтани flow-и холӣ (граф баъдтар аз canvas сабт мешавад)")
             .Produces<FlowDetail>(StatusCodes.Status201Created)
             .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        byChannel.MapPost("/media", UploadMediaAsync)
+            .DisableAntiforgery()
+            .RequirePermission(Permissions.Channels.Manage)
+            .WithSummary("Боркунии медиа (сурат/видео/овоз) барои нодаи паём — attachment_id-и дубора-истифодашаванда")
+            .Produces<UploadFlowMediaResult>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
         var byFlow = app.MapGroup("/api/flows/{id:guid}").WithTags("Flows");
@@ -109,6 +120,85 @@ public static class FlowsEndpoints
         await db.SaveChangesAsync(ct);
 
         return Results.Created($"/api/flows/{flow.Id}", ToDetail(flow, [], []));
+    }
+
+    private static async Task<IResult> UploadMediaAsync(
+        Guid channelId, IFormFile file, AppDbContext db, InstagramProvider instagramProvider,
+        IMediaProcessor mediaProcessor, ILogger<Program> logger, CancellationToken ct)
+    {
+        var channel = await db.Channels.FirstOrDefaultAsync(c => c.Id == channelId && c.Type == ChannelType.Instagram, ct);
+        if (channel is null)
+            return Results.NotFound();
+
+        if (file.Length <= 0)
+            return Results.BadRequest();
+
+        var mimeType = string.IsNullOrEmpty(file.ContentType) ? "application/octet-stream" : file.ContentType;
+        var (messageType, maxSizeBytes) = MediaUploadValidator.Classify(channel.Type, mimeType);
+        if (!MediaUploadValidator.IsWithinLimit(channel.Type, mimeType, file.Length))
+        {
+            return Results.Problem(
+                title: "Файл калон аст",
+                detail: $"Барои Instagram ҳадди аксар {maxSizeBytes / (1024 * 1024)} МБ аст.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        try
+        {
+            string attachmentId;
+            string blockType;
+
+            if (messageType == MessageType.Audio)
+            {
+                // Instagram/Facebook message_attachments audio/webm(opus)-и браузерро (MediaRecorder)
+                // рад мекунад — ниг. MediaSendJob.TranscodeVoiceNoteAsync барои далели зиндаи ин
+                // (санҷидашуда 2026-08-25). Бояд пеш аз боркунӣ ба aac/m4a иваз шавад. Файли муваққатӣ —
+                // Flow media доимӣ нигоҳ дошта намешавад (танҳо attachment_id-и Meta захира мешавад).
+                var tempDir = Path.Combine(Path.GetTempPath(), "flow-media-uploads");
+                Directory.CreateDirectory(tempDir);
+                var sourcePath = Path.Combine(tempDir, $"{Guid.CreateVersion7()}.src");
+                var targetPath = Path.ChangeExtension(sourcePath, ".m4a");
+                try
+                {
+                    await using (var sourceStream = File.Create(sourcePath))
+                        await file.CopyToAsync(sourceStream, ct);
+
+                    await mediaProcessor.TranscodeToAacAsync(sourcePath, targetPath, ct);
+
+                    await using var transcodedStream = File.OpenRead(targetPath);
+                    attachmentId = await instagramProvider.UploadMediaAsync(channel, transcodedStream, "audio/mp4", "voice.m4a", ct);
+                    blockType = MessageBlock.TypeAudio;
+                }
+                finally
+                {
+                    if (File.Exists(sourcePath)) File.Delete(sourcePath);
+                    if (File.Exists(targetPath)) File.Delete(targetPath);
+                }
+            }
+            else
+            {
+                await using var stream = file.OpenReadStream();
+                attachmentId = await instagramProvider.UploadMediaAsync(channel, stream, mimeType, file.FileName, ct);
+                blockType = messageType switch
+                {
+                    MessageType.Image => MessageBlock.TypeImage,
+                    MessageType.Video => MessageBlock.TypeVideo,
+                    _ => MessageBlock.TypeFile,
+                };
+            }
+
+            return Results.Ok(new UploadFlowMediaResult(attachmentId, blockType));
+        }
+        catch (GraphApiException ex)
+        {
+            logger.LogError(ex, "Flow media: боркунӣ ба Meta рад шуд (Channel {ChannelId})", channelId);
+            return Results.Problem(title: "Боркунӣ ба Instagram рад шуд", detail: ex.Message, statusCode: StatusCodes.Status502BadGateway);
+        }
+        catch (MediaProcessingException ex)
+        {
+            logger.LogError(ex, "Flow media: transcode ноком шуд (Channel {ChannelId})", channelId);
+            return Results.Problem(title: "Файл коркард нашуд", detail: "Формати файл дастгирӣ намешавад.", statusCode: StatusCodes.Status400BadRequest);
+        }
     }
 
     private static async Task<IResult> GetAsync(Guid id, AppDbContext db, CancellationToken ct)

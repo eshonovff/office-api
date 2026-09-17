@@ -6,6 +6,7 @@ public record MessageBlock(string Type, string? Text, string? MediaId)
     public const string TypeText = "text";
     public const string TypeImage = "image";
     public const string TypeVideo = "video";
+    public const string TypeAudio = "audio";
     public const string TypeFile = "file";
 }
 

@@ -239,13 +239,6 @@ public class FlowEngine(AppDbContext db, InstagramProvider instagramProvider, IB
     {
         var contact = await db.Conversations.Include(c => c.Channel).FirstAsync(c => c.Id == session.ContactId, ct);
 
-        // Спека: "Пеш аз ҳар фиристодан дар runtime тирезаи 24-соата тафтиш шавад; агар баста
-        // бошад — сессия waiting монад, на failed". isTemplate=false — Instagram шаблон надорад
-        // (SendTemplateAsync-и InstagramProvider NotSupportedException медиҳад), пас ҳеҷ роҳи
-        // дигари убур аз тиреза нест — бояд интизор шуд.
-        if (ConversationWindowCalculator.IsWindowClosed(isTemplate: false, contact.WindowExpiresAt, DateTimeOffset.UtcNow))
-            return new NodeOutcome(null, FlowWaitReason.WindowClosed);
-
         var config = Deserialize<MessageNodeConfig>(node.ConfigJson);
         var variables = await LoadVariablesAsync(session, ct);
         var contactFields = BuildContactFields(contact);
@@ -253,13 +246,60 @@ public class FlowEngine(AppDbContext db, InstagramProvider instagramProvider, IB
         var textBlocks = config.Blocks.Where(b => b.Type == MessageBlock.TypeText && !string.IsNullOrEmpty(b.Text));
         var text = string.Join("\n\n", textBlocks.Select(b => FlowVariableInterpolator.Interpolate(b.Text!, variables, contactFields)));
 
-        if (config.Blocks.Any(b => b.Type != MessageBlock.TypeText))
+        // Якто блоки media дар як нод (расм/видео/овоз/файл) — MediaId аллакай attachment_id-и
+        // дубора-истифодашавандаи Meta (боркунии воқеӣ дар лаҳзаи илова кардан дар canvas рафта
+        // буд, ниг. FlowsEndpoints.UploadMediaAsync), пас ин ҷо танҳо фиристодан лозим аст, на
+        // боркунӣ. Якчанд media дар як нод дастгирӣ намешавад — барои дуюм, нодаи дигари паём илова кунед.
+        var mediaBlock = config.Blocks.FirstOrDefault(b => b.Type != MessageBlock.TypeText && !string.IsNullOrEmpty(b.MediaId));
+        var mediaType = mediaBlock is null ? (MessageType?)null : ToMessageType(mediaBlock.Type);
+
+        if (mediaBlock is not null && config.Buttons.Length > 0)
         {
-            // Блокҳои расм/видео/файл ба media_id-и АЛЛАКАЙ БОРШУДА ниёз доранд (UploadMediaAsync) —
-            // конструктори визуалии ин фаза UI-и боркунии media надорад. Танҳо матн фиристода
-            // мешавад, гумшавии блоки media бе хато сабт мешавад — ниг. "Он чи иҷро нашуд" дар ҳуҷҷат.
-            logger.LogWarning("FlowSession {SessionId}: блоки ғайри-матнӣ дар нод {NodeId} нодида гирифта шуд (media-и flow ҳанӯз дастгирӣ намешавад)", session.Id, node.Id);
+            // Send API-и Meta як message object мегирад (матн/attachment/button-template) —
+            // на якчанд якҷоя. Тугма (ки худаш attachment-и намуди "template" аст) авлотар аст,
+            // media дар ин ҳолат нодида гирифта мешавад бе хато.
+            logger.LogWarning("FlowSession {SessionId}: media дар нод {NodeId} бо тугмаҳо якҷоя буд, нодида гирифта шуд (Meta як паём=як object)", session.Id, node.Id);
+            mediaBlock = null;
+            mediaType = null;
         }
+
+        // Контакте, ки ҳеҷ гоҳ ба мо DM нафиристодааст (масалан танҳо коментарий кардааст):
+        // WindowExpiresAt=null маънои "тирезаи 24-соата ҳеҷ гоҳ КУШОДА НАШУДААСТ" дорад, на
+        // "баста" — IsWindowClosed поён барои null ҳамеша false бармегардонад, пас бе ин шоха
+        // ба SendMessageAsync-и муқаррарӣ мерафтем, ки Meta онро рад мекунад (ҳеҷ тиреза нест).
+        // Ягона роҳи қонунии расидан ба чунин контакт — Private Reply бо comment_id (як бор,
+        // дар давоми 7 рӯз), ҳамон API-е ки DmText-и automation_rules-и оддӣ аллакай истифода
+        // мебарад. Танҳо барои матни оддӣ ё як тугмаи "url" кор мекунад (шакли payload-и Private
+        // Reply дигар намудҳоро дастгирӣ намекунад) — вагарна ба рафтори кӯҳна мегузарем.
+        if (session.TriggerExternalId is not null && contact.WindowExpiresAt is null &&
+            (config.Buttons.Length == 0 || (config.Buttons.Length == 1 && config.Buttons[0].Action == MessageButton.ActionUrl)))
+        {
+            // Private Reply "як бор дар як коментарий" аст — агар ҳам media, ҳам матн дошта
+            // бошем, ҳарду бо ду дархости ҷудогона фиристода намешаванд (дархости дуюм рад
+            // мешавад). Media авлотар аст (маъмулан мақсади асосии автоматизатсия ҳамин аст);
+            // матн нодида гирифта мешавад бо warning — агар ҳарду лозим бошанд, нодаи "Гирифтани
+            // ҷавоби корбар"-ро пеш аз ин нод илова кунед, то тиреза воқеан кушода шавад.
+            if (mediaBlock is not null && mediaType is not null)
+            {
+                if (!string.IsNullOrEmpty(text))
+                    logger.LogWarning("FlowSession {SessionId}: матни нод {NodeId} бо media якҷоя буд — Private Reply танҳо якто ирсол мекунад, media авлотар шуд", session.Id, node.Id);
+                await instagramProvider.SendPrivateReplyMediaAsync(contact.Channel, session.TriggerExternalId, mediaBlock.MediaId!, mediaType.Value, ct);
+            }
+            else
+            {
+                var urlButton = config.Buttons.FirstOrDefault();
+                if (!string.IsNullOrEmpty(text))
+                    await instagramProvider.SendPrivateReplyAsync(contact.Channel, session.TriggerExternalId, text, urlButton?.Url, urlButton?.Title, ct);
+            }
+            return new NodeOutcome("default", null);
+        }
+
+        // Спека: "Пеш аз ҳар фиристодан дар runtime тирезаи 24-соата тафтиш шавад; агар баста
+        // бошад — сессия waiting монад, на failed". isTemplate=false — Instagram шаблон надорад
+        // (SendTemplateAsync-и InstagramProvider NotSupportedException медиҳад), пас ҳеҷ роҳи
+        // дигари убур аз тиреза нест — бояд интизор шуд.
+        if (ConversationWindowCalculator.IsWindowClosed(isTemplate: false, contact.WindowExpiresAt, DateTimeOffset.UtcNow))
+            return new NodeOutcome(null, FlowWaitReason.WindowClosed);
 
         if (config.Buttons.Length > 0)
         {
@@ -272,11 +312,30 @@ public class FlowEngine(AppDbContext db, InstagramProvider instagramProvider, IB
             return new NodeOutcome(null, FlowWaitReason.ButtonClick);
         }
 
-        if (!string.IsNullOrEmpty(text))
+        if (mediaBlock is not null && mediaType is not null)
+        {
+            // caption: SendMediaMessageAsync худаш баъд аз attachment як паёми матнии ҷудогона
+            // мефиристад (Send API як object мегирад) — тирезаи муқаррарӣ маҳдудияти "як бор"-и
+            // Private Reply-ро надорад, пас ин ҷо ҳарду (media+матн) бехатар кор мекунанд.
+            await instagramProvider.SendMediaMessageAsync(
+                contact.Channel, contact.ExternalId, mediaBlock.MediaId!, mediaType.Value,
+                caption: text, isVoiceNote: mediaType == MessageType.Audio, messageTag: null, ct);
+        }
+        else if (!string.IsNullOrEmpty(text))
+        {
             await instagramProvider.SendMessageAsync(contact.Channel, contact.ExternalId, text, null, ct);
+        }
 
         return new NodeOutcome("default", null);
     }
+
+    private static MessageType ToMessageType(string blockType) => blockType switch
+    {
+        MessageBlock.TypeImage => MessageType.Image,
+        MessageBlock.TypeVideo => MessageType.Video,
+        MessageBlock.TypeAudio => MessageType.Audio,
+        _ => MessageType.File,
+    };
 
     private async Task<NodeOutcome> ExecuteConditionNodeAsync(FlowSession session, FlowNode node, CancellationToken ct)
     {

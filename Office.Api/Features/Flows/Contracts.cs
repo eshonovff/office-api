@@ -39,3 +39,6 @@ public record FlowNodeStat(Guid NodeId, int ContactCount);
 public record FlowStats(int TotalSessions, int FinishedSessions, int ActiveOrWaitingSessions, int FailedSessions, IReadOnlyList<FlowNodeStat> Nodes);
 
 public record FlowTemplateListItem(Guid Id, string Name, string? Description);
+
+/// <summary>MediaId — attachment_id-и дубора-истифодашавандаи Meta (ниг. InstagramProvider.UploadMediaAsync).</summary>
+public record UploadFlowMediaResult(string MediaId, string BlockType);

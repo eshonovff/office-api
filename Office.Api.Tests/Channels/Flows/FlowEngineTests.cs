@@ -477,6 +477,133 @@ public class FlowEngineTests
     }
 
     [Fact]
+    public async Task Message_CommentTriggeredContactWithNoWindow_UsesPrivateReplyByCommentId()
+    {
+        await using var db = CreateDb();
+        var channel = MakeChannel();
+        // Контакти нав аз коментарий: ҳеҷ гоҳ DM нафиристодааст — WindowExpiresAt=null (на
+        // "баста", балки "ҳеҷ гоҳ кушода нашуда"). MakeContact(channelId, null) намесозад чунин
+        // ҳолатро (null аргумент ба +1соат мубаддал мешавад), пас Conversation мустақим сохта мешавад.
+        var contact = new Conversation
+        {
+            Id = Guid.CreateVersion7(),
+            ChannelId = channel.Id,
+            ExternalId = "1254001234567890",
+            ContactUsername = "eshonov.f1",
+            Status = ConversationStatus.New,
+            WindowExpiresAt = null,
+            CreatedAt = DateTimeOffset.UtcNow,
+        };
+        var flow = MakeFlow(channel.Id);
+        flow.TriggerType = "instagram_comment";
+        var node = MakeNode(flow.Id, FlowNodeType.Message, new MessageNodeConfig([new MessageBlock(MessageBlock.TypeText, "Салом!", null)], []));
+        db.Channels.Add(channel);
+        db.Conversations.Add(contact);
+        db.Flows.Add(flow);
+        db.FlowNodes.Add(node);
+        await db.SaveChangesAsync();
+
+        string? sentBody = null;
+        var (_, handler, _, engine) = MakeEngine(db, req =>
+        {
+            sentBody = req.Content!.ReadAsStringAsync().Result;
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{"message_id":"mid.1"}""") };
+        });
+
+        await engine.StartAsync(flow, contact.Id, CancellationToken.None, triggerExternalId: "comment_777");
+
+        var session = await db.FlowSessions.SingleAsync();
+        // На Waiting/WindowClosed (тарзи кӯҳна барои WindowExpiresAt=null ҳамеша "кушода" мешумурд,
+        // вале SendMessageAsync-и муқаррарӣ аз ҷониби Meta рад мешуд) — паём воқеан фиристода шуд.
+        Assert.Equal(FlowSessionStatus.Finished, session.Status);
+        Assert.Single(handler.RequestUrls);
+
+        using var doc = JsonDocument.Parse(sentBody!);
+        Assert.Equal("comment_777", doc.RootElement.GetProperty("recipient").GetProperty("comment_id").GetString());
+        Assert.Equal("Салом!", doc.RootElement.GetProperty("message").GetProperty("text").GetString());
+    }
+
+    [Fact]
+    public async Task Message_WithMediaAndCaption_SendsAttachmentThenCaptionText()
+    {
+        await using var db = CreateDb();
+        var channel = MakeChannel();
+        var contact = MakeContact(channel.Id); // тирезаи кушода — SendMediaMessageAsync-и муқаррарӣ
+        var flow = MakeFlow(channel.Id);
+        var node = MakeNode(flow.Id, FlowNodeType.Message,
+            new MessageNodeConfig(
+                [new MessageBlock(MessageBlock.TypeText, "Ана расми шумо!", null), new MessageBlock(MessageBlock.TypeImage, null, "attach_123")],
+                []));
+        db.Channels.Add(channel);
+        db.Conversations.Add(contact);
+        db.Flows.Add(flow);
+        db.FlowNodes.Add(node);
+        await db.SaveChangesAsync();
+
+        var bodies = new List<string>();
+        var (_, handler, _, engine) = MakeEngine(db, req =>
+        {
+            bodies.Add(req.Content!.ReadAsStringAsync().Result);
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{"message_id":"mid.1"}""") };
+        });
+
+        await engine.StartAsync(flow, contact.Id, CancellationToken.None);
+
+        Assert.Equal(FlowSessionStatus.Finished, (await db.FlowSessions.SingleAsync()).Status);
+        Assert.Equal(2, handler.RequestUrls.Count); // attachment якум, баъд caption (Send API як object=як дархост)
+
+        using var attachmentDoc = JsonDocument.Parse(bodies[0]);
+        Assert.Equal("image", attachmentDoc.RootElement.GetProperty("message").GetProperty("attachment").GetProperty("type").GetString());
+        Assert.Equal("attach_123", attachmentDoc.RootElement.GetProperty("message").GetProperty("attachment").GetProperty("payload").GetProperty("attachment_id").GetString());
+
+        using var captionDoc = JsonDocument.Parse(bodies[1]);
+        Assert.Equal("Ана расми шумо!", captionDoc.RootElement.GetProperty("message").GetProperty("text").GetString());
+    }
+
+    [Fact]
+    public async Task Message_CommentTriggeredNoWindowWithMedia_UsesPrivateReplyMedia()
+    {
+        await using var db = CreateDb();
+        var channel = MakeChannel();
+        var contact = new Conversation
+        {
+            Id = Guid.CreateVersion7(),
+            ChannelId = channel.Id,
+            ExternalId = "1254001234567890",
+            ContactUsername = "eshonov.f1",
+            Status = ConversationStatus.New,
+            WindowExpiresAt = null, // ҳеҷ гоҳ DM нафиристодааст — танҳо коментарий
+            CreatedAt = DateTimeOffset.UtcNow,
+        };
+        var flow = MakeFlow(channel.Id);
+        flow.TriggerType = "instagram_comment";
+        var node = MakeNode(flow.Id, FlowNodeType.Message,
+            new MessageNodeConfig([new MessageBlock(MessageBlock.TypeVideo, null, "attach_456")], []));
+        db.Channels.Add(channel);
+        db.Conversations.Add(contact);
+        db.Flows.Add(flow);
+        db.FlowNodes.Add(node);
+        await db.SaveChangesAsync();
+
+        string? sentBody = null;
+        var (_, handler, _, engine) = MakeEngine(db, req =>
+        {
+            sentBody = req.Content!.ReadAsStringAsync().Result;
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{"message_id":"mid.1"}""") };
+        });
+
+        await engine.StartAsync(flow, contact.Id, CancellationToken.None, triggerExternalId: "comment_999");
+
+        Assert.Equal(FlowSessionStatus.Finished, (await db.FlowSessions.SingleAsync()).Status);
+        Assert.Single(handler.RequestUrls);
+
+        using var doc = JsonDocument.Parse(sentBody!);
+        Assert.Equal("comment_999", doc.RootElement.GetProperty("recipient").GetProperty("comment_id").GetString());
+        Assert.Equal("video", doc.RootElement.GetProperty("message").GetProperty("attachment").GetProperty("type").GetString());
+        Assert.Equal("attach_456", doc.RootElement.GetProperty("message").GetProperty("attachment").GetProperty("payload").GetProperty("attachment_id").GetString());
+    }
+
+    [Fact]
     public async Task LoopGuard_SelfReferencingGraph_FailsAfterFiftySteps()
     {
         await using var db = CreateDb();
