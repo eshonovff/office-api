@@ -48,6 +48,12 @@ public static class CommentAutomationEndpoints
             .Produces(StatusCodes.Status204NoContent)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
+        group.MapDelete("/automation-rules/{ruleId:guid}", DeleteAsync)
+            .RequirePermission(Permissions.Channels.Manage)
+            .WithSummary("Нест кардани қоида (бо ҳамаи AutomationRun-ҳояш)")
+            .Produces(StatusCodes.Status204NoContent)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
         group.MapPost("/automation-rules/dry-run", DryRunAsync)
             .WithValidation<DryRunAutomationRuleRequest>()
             .RequirePermission(Permissions.Channels.Manage)
@@ -153,6 +159,17 @@ public static class CommentAutomationEndpoints
         rule.IsActive = request.IsActive;
         await db.SaveChangesAsync(ct);
 
+        return Results.NoContent();
+    }
+
+    private static async Task<IResult> DeleteAsync(Guid channelId, Guid ruleId, AppDbContext db, CancellationToken ct)
+    {
+        var rule = await db.AutomationRules.FirstOrDefaultAsync(r => r.Id == ruleId && r.ChannelId == channelId, ct);
+        if (rule is null)
+            return Results.NotFound();
+
+        db.AutomationRules.Remove(rule); // Cascade: AutomationRun бо OnDelete(Cascade) — ниг. AutomationRunConfiguration
+        await db.SaveChangesAsync(ct);
         return Results.NoContent();
     }
 
