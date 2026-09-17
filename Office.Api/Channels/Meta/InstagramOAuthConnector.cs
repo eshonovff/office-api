@@ -122,11 +122,17 @@ public class InstagramOAuthConnector(HttpClient httpClient, IConfiguration confi
     // Барои Instagram "message_echoes" майдони алоҳида НЕСТ (бар хилофи Facebook) — Meta онҳоро
     // худи "messages" дохил мекунад (ниг. developers.facebook.com, тасдиқшуда 2026-08-25).
     // "comments" барои Фазаи 10 (автоматизатсияи коментарий) илова шуд — ниг.
-    // phase-10-instagram-automation.md. Каналҳои ПЕШ аз ин пайвастшуда обунаи "comments"
-    // надоранд то CommentAutomationEndpoints.CreateAsync ин методро бори дигар даъват кунад
-    // (ҳангоми сохтани аввалин rule-и фаъол).
-    private static readonly string[] RequiredWebhookFields = ["messages", "comments"];
-    private const string RequiredWebhookFieldsParam = "messages,comments";
+    // phase-10-instagram-automation.md. "messaging_postbacks" (2026-09-17):
+    // FacebookOAuthConnector аллакай инро дошт, вале Instagram надошт — тугмаҳои Flow Builder
+    // (SendButtonMessageAsync, навъи "postback") бе ин майдон ҳеҷ гоҳ ба
+    // InstagramPayloadParser.ParsePostback намерасанд, сессия дар FlowWaitReason.ButtonClick
+    // абадан "waiting" мемонад (ва агар Instagram пахши тугмаро ҳамчун паёми матнии оддӣ
+    // фиристад — на postback воқеӣ — flow-и бо MatchMode=all онро аз нав ба сифр сар медиҳад,
+    // боиси такрори бепоёни паёми аввал мешавад). Каналҳои ПЕШ аз ин пайвастшуда обунаи нав
+    // надоранд то бори дигар пайваст/reconnect шаванд (ChannelOAuthEndpoints ин методро дар
+    // ҲАР пайвастшавӣ, на танҳо аввалин, даъват мекунад).
+    private static readonly string[] RequiredWebhookFields = ["messages", "comments", "messaging_postbacks"];
+    private const string RequiredWebhookFieldsParam = "messages,comments,messaging_postbacks";
 
     /// <summary>
     /// Обуна ба webhook-и Page-и Instagram, баъд ТАСДИҚ бо GET (на танҳо такя ба POST-и 200) —
