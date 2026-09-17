@@ -64,7 +64,7 @@ public static class FlowTemplateSeeder
             ToElement(new MessageNodeConfig(
                 [new MessageBlock(MessageBlock.TypeText, "Салом, {{firstName}}! Мехоҳед видеогайди ройгонро бинед? 🔥", null)],
                 [new MessageButton("Ҳа, мехоҳам!", MessageButton.ActionNext, null, false)])),
-            0, 0);
+            0, 0, DefaultImageAsset: "lead-magnet.png");
         var tagWants = new FlowTemplateNodeDefinition("tagWants", "action",
             ToElement(new ActionNodeConfig(ActionNodeConfig.KindAddTags, Tags: ["wants_guide"])),
             300, 0);

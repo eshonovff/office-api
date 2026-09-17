@@ -110,6 +110,54 @@ public class FlowTemplateDeliveryTests
         return flow;
     }
 
+    /// <summary>
+    /// FlowTemplateInstantiator.AttachDefaultImagesAsync (2026-09-17, дархости корбар: "дар якум
+    /// смс по умолчанию ягон сурат мон") — attachment_id-и Meta умумӣ буда наметавонад, пас файли
+    /// Assets/-ро барои КАНАЛИ мушаххас бор мекунад ва натиҷаро ба блоки паём замима мекунад.
+    /// </summary>
+    [Fact]
+    public async Task AttachDefaultImagesAsync_UploadsAssetAndAttachesImageBlockToNode()
+    {
+        var assetDir = Path.Combine(AppContext.BaseDirectory, "Assets", "DefaultTemplateImages");
+        Directory.CreateDirectory(assetDir);
+        var assetPath = Path.Combine(assetDir, "test-lead-magnet.png");
+        await File.WriteAllBytesAsync(assetPath, [0x89, 0x50, 0x4E, 0x47]); // сарлавҳаи PNG кофист — воқеан рамзгузорӣ намекунем
+        try
+        {
+            var channel = MakeChannel();
+            var handler = new FakeHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"attachment_id":"fake_attach_123"}""", Encoding.UTF8, "application/json"),
+            });
+            var provider = new InstagramProvider(
+                new HttpClient(handler), new PassthroughProtector(), new ConfigurationBuilder().Build(), CreateDb(),
+                new NoOpNotificationService(), new MemoryCache(new MemoryCacheOptions()),
+                new InstagramFollowCheckRateLimiter(), NullLogger<InstagramProvider>.Instance);
+
+            var introKey = "intro";
+            var definition = new FlowTemplateDefinition(
+                [new FlowTemplateNodeDefinition(introKey, "message",
+                    JsonSerializer.SerializeToElement(new MessageNodeConfig([new MessageBlock(MessageBlock.TypeText, "Салом!", null)], []), FlowJsonOptions.Options),
+                    0, 0, DefaultImageAsset: "test-lead-magnet.png")],
+                []);
+
+            var (nodes, _) = FlowTemplateInstantiator.Instantiate(definition, Guid.CreateVersion7());
+            await FlowTemplateInstantiator.AttachDefaultImagesAsync(definition, nodes, channel, provider, NullLogger<InstagramProvider>.Instance, CancellationToken.None);
+
+            Assert.Single(handler.Bodies);
+            Assert.Contains("is_reusable", handler.Bodies[0]); // қисми JSON-и multipart body-и UploadMediaAsync
+
+            var config = JsonSerializer.Deserialize<MessageNodeConfig>(nodes.Single().ConfigJson, FlowJsonOptions.Options)!;
+            var imageBlock = Assert.Single(config.Blocks, b => b.Type == MessageBlock.TypeImage);
+            Assert.Equal("fake_attach_123", imageBlock.MediaId);
+            Assert.Contains(config.Blocks, b => b.Type == MessageBlock.TypeText); // матни аслӣ гум нашуд
+        }
+        finally
+        {
+            File.Delete(assetPath);
+        }
+    }
+
     [Fact]
     public async Task CommentReplyTemplate_TriggeredByCommentFromFirstTimeCommenter_DeliversDmViaPrivateReply()
     {

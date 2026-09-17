@@ -1,4 +1,6 @@
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
+using Office.Api.Channels.Instagram;
 using Office.Api.Data.Entities;
 
 namespace Office.Api.Channels.Flows;
@@ -7,8 +9,13 @@ namespace Office.Api.Channels.Flows;
 /// Шакли typed-и FlowTemplate.DefinitionJson. Key (на Guid) — рамзи муваққатии дохили худи
 /// шаблон, танҳо барои пайванди Edge→Node дар ҳамин JSON; ҳангоми нусхабардорӣ ба Flow-и воқеӣ
 /// (POST .../flows/from-template), Key→Guid-и воқеӣ табдил меёбад.
+///
+/// DefaultImageAsset (ихтиёрӣ): номи файл дар Assets/DefaultTemplateImages/ — агар дода шавад,
+/// FlowTemplatesEndpoints.InstantiateAsync ин суратро ба КАНАЛИ мушаххас бор мекунад (attachment_id
+/// умумӣ буда наметавонад — ҳар акаунти Instagram attachment_id-и худро мехоҳад) ва ҳамчун блоки
+/// расм ба config-и ин нод замима мекунад, пеш аз захира.
 /// </summary>
-public record FlowTemplateNodeDefinition(string Key, string Type, JsonElement Config, double X, double Y);
+public record FlowTemplateNodeDefinition(string Key, string Type, JsonElement Config, double X, double Y, string? DefaultImageAsset = null);
 
 public record FlowTemplateEdgeDefinition(string FromKey, string FromPort, string ToKey);
 
@@ -44,5 +51,49 @@ public static class FlowTemplateInstantiator
         }).ToList();
 
         return (nodes, edges);
+    }
+
+    /// <summary>
+    /// Расми пешфарзи баъзе нодҳо (масалан паёми оғозини "Лид-магнит") — attachment_id-и Meta
+    /// умумӣ буда наметавонад (ҳар акаунти Instagram аз худ мехоҳад), пас файли Assets/-ро
+    /// ҳамин ҷо, барои КАНАЛИ мушаххас, як бор бор мекунем. Хатогӣ (канали ҳанӯз пайваст
+    /// нашуда, Meta дастрас нест ва ғ.) сохтани flow-ро намебандад — паём бе расм фиристода
+    /// мешавад, на хатои 500. `nodes` бояд натиҷаи ҳамин Instantiate барои ҳамин `definition`
+    /// бошад — тартиб бояд мувофиқат кунад (Zip бо definition.Nodes).
+    /// </summary>
+    public static async Task AttachDefaultImagesAsync(
+        FlowTemplateDefinition definition, List<FlowNode> nodes, Channel channel,
+        InstagramProvider instagramProvider, ILogger logger, CancellationToken ct)
+    {
+        if (channel.Type != ChannelType.Instagram || string.IsNullOrEmpty(channel.CredentialsEncrypted))
+            return;
+
+        var nodeByKey = definition.Nodes.Zip(nodes).ToDictionary(pair => pair.First.Key, pair => pair.Second);
+        foreach (var templateNode in definition.Nodes)
+        {
+            if (templateNode.DefaultImageAsset is null || !nodeByKey.TryGetValue(templateNode.Key, out var node))
+                continue;
+
+            try
+            {
+                var assetPath = Path.Combine(AppContext.BaseDirectory, "Assets", "DefaultTemplateImages", templateNode.DefaultImageAsset);
+                if (!File.Exists(assetPath))
+                {
+                    logger.LogWarning("Flow template: файли расми пешфарз ёфт нашуд: {AssetPath}", assetPath);
+                    continue;
+                }
+
+                await using var stream = File.OpenRead(assetPath);
+                var attachmentId = await instagramProvider.UploadMediaAsync(channel, stream, "image/png", templateNode.DefaultImageAsset, ct);
+
+                var config = JsonSerializer.Deserialize<MessageNodeConfig>(node.ConfigJson, FlowJsonOptions.Options)!;
+                var blocks = config.Blocks.Append(new MessageBlock(MessageBlock.TypeImage, null, attachmentId)).ToArray();
+                node.ConfigJson = JsonSerializer.Serialize(config with { Blocks = blocks }, FlowJsonOptions.Options);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Flow template: боркунии расми пешфарз ноком шуд (Channel {ChannelId})", channel.Id);
+            }
+        }
     }
 }

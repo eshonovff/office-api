@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Office.Api.Auth;
 using Office.Api.Channels.Flows;
+using Office.Api.Channels.Instagram;
 using Office.Api.Common;
 using Office.Api.Data;
 using Office.Api.Data.Entities;
@@ -34,9 +35,11 @@ public static class FlowTemplatesEndpoints
         Results.Ok(await db.FlowTemplates.Select(t => new FlowTemplateListItem(t.Id, t.Name, t.Description)).ToListAsync(ct));
 
     private static async Task<IResult> InstantiateAsync(
-        Guid channelId, Guid templateId, CreateFlowRequest request, AppDbContext db, CancellationToken ct)
+        Guid channelId, Guid templateId, CreateFlowRequest request, AppDbContext db,
+        InstagramProvider instagramProvider, ILogger<Program> logger, CancellationToken ct)
     {
-        if (!await db.Channels.AnyAsync(c => c.Id == channelId, ct))
+        var channel = await db.Channels.FirstOrDefaultAsync(c => c.Id == channelId, ct);
+        if (channel is null)
             return Results.NotFound();
 
         var template = await db.FlowTemplates.FirstOrDefaultAsync(t => t.Id == templateId, ct);
@@ -59,6 +62,7 @@ public static class FlowTemplatesEndpoints
         db.Flows.Add(flow);
 
         var (templateNodes, templateEdges) = FlowTemplateInstantiator.Instantiate(definition, flow.Id);
+        await FlowTemplateInstantiator.AttachDefaultImagesAsync(definition, templateNodes, channel, instagramProvider, logger, ct);
         db.FlowNodes.AddRange(templateNodes);
         db.FlowEdges.AddRange(templateEdges);
 
