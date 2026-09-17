@@ -312,12 +312,22 @@ public static class FlowsEndpoints
             .Select(g => new FlowNodeStat(g.Key, g.Select(x => x.SessionId).Distinct().Count()))
             .ToListAsync(ct);
 
+        // 5-тои охирин, на ҳама — Stats popover-и хурд аст, на саҳифаи алоҳида; агар "Ноком" зиёд
+        // бошад, флоу-и худ бояд ислоҳ шавад, на рӯйхати дарозро дар popover хонд.
+        var recentFailures = await db.FlowSessions
+            .Where(s => s.FlowId == id && s.Status == FlowSessionStatus.Failed && s.Error != null)
+            .OrderByDescending(s => s.CreatedAt)
+            .Take(5)
+            .Select(s => new FlowFailure(s.Id, s.Error!, s.CreatedAt))
+            .ToListAsync(ct);
+
         return Results.Ok(new FlowStats(
             TotalSessions: sessions.Count,
             FinishedSessions: sessions.Count(s => s == FlowSessionStatus.Finished),
             ActiveOrWaitingSessions: sessions.Count(s => s is FlowSessionStatus.Active or FlowSessionStatus.Waiting),
             FailedSessions: sessions.Count(s => s == FlowSessionStatus.Failed),
-            Nodes: nodeStats));
+            Nodes: nodeStats,
+            RecentFailures: recentFailures));
     }
 
     /// <summary>Ҳар навъи нод config-и typed-и худро дорад — ниг. Channels/Flows/FlowConfigs.cs.</summary>

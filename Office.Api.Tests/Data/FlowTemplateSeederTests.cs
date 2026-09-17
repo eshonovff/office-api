@@ -66,4 +66,28 @@ public class FlowTemplateSeederTests
         Assert.True(message.Config.TryGetProperty("blocks", out _));
         Assert.True(message.Config.TryGetProperty("buttons", out _));
     }
+
+    /// <summary>
+    /// Регрессия: то ин тағйирот SeedAsync танҳо "агар ҷадвал холӣ бошад" кор мекард — дар DB-и
+    /// аллакай seed-шуда (production) навсозии LeadMagnetTemplate ҳеҷ гоҳ намерасид. Ҳоло бо
+    /// ном upsert мешавад — иҷрои дуюм (мисли restart-и сервери воқеӣ) бояд DefinitionJson-ро
+    /// нав кунад, на нодида гирад, ва шумораи умумии шаблонҳоро дучанд накунад.
+    /// </summary>
+    [Fact]
+    public async Task SeedAsync_CalledTwice_UpdatesDefinitionInPlace_WithoutDuplicating()
+    {
+        await using var db = CreateDb();
+        await FlowTemplateSeeder.SeedAsync(db, CancellationToken.None);
+        var original = await db.FlowTemplates.FirstAsync(t => t.Name.Contains("обуна"));
+        var originalId = original.Id;
+
+        await FlowTemplateSeeder.SeedAsync(db, CancellationToken.None);
+
+        var all = await db.FlowTemplates.Where(t => t.Name.Contains("обуна")).ToListAsync();
+        var updated = Assert.Single(all);
+        Assert.Equal(originalId, updated.Id);
+
+        var definition = JsonSerializer.Deserialize<FlowTemplateDefinition>(updated.DefinitionJson, FlowJsonOptions.Options)!;
+        Assert.Contains(definition.Nodes, n => n.Key == "intro");
+    }
 }

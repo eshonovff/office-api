@@ -58,31 +58,9 @@ public static class FlowTemplatesEndpoints
         };
         db.Flows.Add(flow);
 
-        var idByKey = definition.Nodes.ToDictionary(n => n.Key, _ => Guid.CreateVersion7());
-        foreach (var node in definition.Nodes)
-        {
-            db.FlowNodes.Add(new FlowNode
-            {
-                Id = idByKey[node.Key],
-                FlowId = flow.Id,
-                Type = Enum.Parse<FlowNodeType>(node.Type, ignoreCase: true),
-                ConfigJson = node.Config.GetRawText(),
-                X = node.X,
-                Y = node.Y,
-            });
-        }
-
-        foreach (var edge in definition.Edges)
-        {
-            db.FlowEdges.Add(new FlowEdge
-            {
-                Id = Guid.CreateVersion7(),
-                FlowId = flow.Id,
-                FromNodeId = idByKey[edge.FromKey],
-                FromPort = edge.FromPort,
-                ToNodeId = idByKey[edge.ToKey],
-            });
-        }
+        var (templateNodes, templateEdges) = FlowTemplateInstantiator.Instantiate(definition, flow.Id);
+        db.FlowNodes.AddRange(templateNodes);
+        db.FlowEdges.AddRange(templateEdges);
 
         await db.SaveChangesAsync(ct);
 

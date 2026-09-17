@@ -36,7 +36,12 @@ public record UpdateFlowGraphRequest(IReadOnlyList<FlowNodeInput> Nodes, IReadOn
 
 public record FlowNodeStat(Guid NodeId, int ContactCount);
 
-public record FlowStats(int TotalSessions, int FinishedSessions, int ActiveOrWaitingSessions, int FailedSessions, IReadOnlyList<FlowNodeStat> Nodes);
+/// <summary>Барои дидани сабаби воқеии "Ноком" дар статистика — Error-и FlowSession, бе он ки Stats API-ро аз нав тарҳрезӣ кунем.</summary>
+public record FlowFailure(Guid SessionId, string Error, DateTimeOffset CreatedAt);
+
+public record FlowStats(
+    int TotalSessions, int FinishedSessions, int ActiveOrWaitingSessions, int FailedSessions,
+    IReadOnlyList<FlowNodeStat> Nodes, IReadOnlyList<FlowFailure> RecentFailures);
 
 public record FlowTemplateListItem(Guid Id, string Name, string? Description);
 
