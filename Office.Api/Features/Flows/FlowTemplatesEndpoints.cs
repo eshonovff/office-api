@@ -32,7 +32,8 @@ public static class FlowTemplatesEndpoints
     }
 
     private static async Task<IResult> ListAsync(AppDbContext db, CancellationToken ct) =>
-        Results.Ok(await db.FlowTemplates.Select(t => new FlowTemplateListItem(t.Id, t.Name, t.Description)).ToListAsync(ct));
+        Results.Ok(await db.FlowTemplates.OrderBy(t => t.CreatedAt)
+            .Select(t => new FlowTemplateListItem(t.Id, t.Name, t.Description)).ToListAsync(ct));
 
     private static async Task<IResult> InstantiateAsync(
         Guid channelId, Guid templateId, CreateFlowRequest request, AppDbContext db,
