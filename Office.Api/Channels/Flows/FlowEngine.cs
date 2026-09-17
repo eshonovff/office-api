@@ -3,6 +3,7 @@ using System.Text.Json;
 using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using Office.Api.Channels.Instagram;
+using Office.Api.Common;
 using Office.Api.Data;
 using Office.Api.Data.Entities;
 
@@ -30,9 +31,20 @@ public class FlowEngine(AppDbContext db, InstagramProvider instagramProvider, IB
     /// triggerExternalId (comment_id/message_id) — танҳо захира мешавад, ИДЕМПОТЕНТӢ дар ин ҷо
     /// САНҶИДА НАМЕШАВАД (масъулияти FlowTriggerProcessor, ки пеш аз даъвати StartAsync тафтиш
     /// мекунад) — чунки goto_flow низ StartAsync-ро даъват мекунад, бе ягон рӯйдоди берунӣ.
+    ///
+    /// gotoChain: занҷири flow-ҳои аллакай тайшуда дар ҳамин силсилаи ҳамзамони goto_flow (на
+    /// байни сессияҳои алоҳида). Бе ин, ду flow ки ба ҳам goto_flow доранд (A→B→A→...)
+    /// StackOverflowException месозанд (реcursия бе марз, ки процесси .NET-ро мекушад — на
+    /// хатои қобили catch). null=аввалин даъват (аз FlowTriggerProcessor), goto_flow худаш
+    /// занҷири ҷориро мегузаронад.
     /// </summary>
-    public async Task StartAsync(Flow flow, Guid contactId, CancellationToken ct, string? triggerExternalId = null)
+    public async Task StartAsync(
+        Flow flow, Guid contactId, CancellationToken ct, string? triggerExternalId = null, HashSet<Guid>? gotoChain = null)
     {
+        gotoChain ??= [];
+        if (!gotoChain.Add(flow.Id))
+            throw new InvalidOperationException($"goto_flow: ҳалқаи бемарҳила ёфт шуд — flow {flow.Id} аллакай дар ҳамин занҷир аст.");
+
         var (nodes, edges) = await LoadGraphAsync(flow.Id, ct);
         var nodesById = nodes.ToDictionary(n => n.Id);
 
@@ -56,7 +68,7 @@ public class FlowEngine(AppDbContext db, InstagramProvider instagramProvider, IB
         };
         db.FlowSessions.Add(session);
 
-        await RunLoopAsync(session, nodesById, edges, startNode.Id, ct);
+        await RunLoopAsync(session, nodesById, edges, startNode.Id, ct, gotoChain);
     }
 
     public async Task ResumeFromDelayAsync(Guid sessionId, CancellationToken ct)
@@ -152,8 +164,15 @@ public class FlowEngine(AppDbContext db, InstagramProvider instagramProvider, IB
         await RunLoopAsync(session, nodesById, edges, edge.ToNodeId, ct);
     }
 
-    private async Task RunLoopAsync(FlowSession session, Dictionary<Guid, FlowNode> nodesById, List<FlowEdge> edges, Guid currentNodeId, CancellationToken ct)
+    private async Task RunLoopAsync(
+        FlowSession session, Dictionary<Guid, FlowNode> nodesById, List<FlowEdge> edges, Guid currentNodeId, CancellationToken ct,
+        HashSet<Guid>? gotoChain = null)
     {
+        // Резюме (на StartAsync-и тоза) ин параметрро намедиҳад — бо flow-и ХУДИ ҳамин сессия
+        // сар мешавад, то агар граф баъдтар ба goto_flow бирасад ва ба ҳамин flow БАРГАРДАД,
+        // ин ҳам ҳамчун ҳалқа ҳисоб шавад (на танҳо ҳалқаҳои дар лаҳзаи StartAsync оғозёфта).
+        gotoChain ??= [session.FlowId];
+
         while (true)
         {
             if (FlowSessionLoopGuard.ShouldStop(session.StepCount))
@@ -175,7 +194,7 @@ public class FlowEngine(AppDbContext db, InstagramProvider instagramProvider, IB
             NodeOutcome outcome;
             try
             {
-                outcome = await ExecuteNodeAsync(session, node, ct);
+                outcome = await ExecuteNodeAsync(session, node, ct, gotoChain);
             }
             catch (Exception ex)
             {
@@ -227,11 +246,11 @@ public class FlowEngine(AppDbContext db, InstagramProvider instagramProvider, IB
         await db.SaveChangesAsync(ct);
     }
 
-    private Task<NodeOutcome> ExecuteNodeAsync(FlowSession session, FlowNode node, CancellationToken ct) => node.Type switch
+    private Task<NodeOutcome> ExecuteNodeAsync(FlowSession session, FlowNode node, CancellationToken ct, HashSet<Guid> gotoChain) => node.Type switch
     {
         FlowNodeType.Message => ExecuteMessageNodeAsync(session, node, ct),
         FlowNodeType.Condition => ExecuteConditionNodeAsync(session, node, ct),
-        FlowNodeType.Action => ExecuteActionNodeAsync(session, node, ct),
+        FlowNodeType.Action => ExecuteActionNodeAsync(session, node, ct, gotoChain),
         _ => Task.FromResult(new NodeOutcome("default", null)), // Note: аннотатсияи canvas-и холис, ба иҷро дахл надорад.
     };
 
@@ -354,13 +373,15 @@ public class FlowEngine(AppDbContext db, InstagramProvider instagramProvider, IB
             : [];
 
         var variables = await LoadVariablesAsync(session, ct);
-        var context = new ConditionContext(variables, tags, isFollowing, DateTimeOffset.UtcNow);
+        // Вақти МАҲАЛЛӢ (Душанбе, +5), на UTC-и хом — вагарна шарти "аз соати 9 то 18" воқеан
+        // аз 14:00 то 23:00 UTC санҷида мешуд (5 соат нодуруст), бе ягон хатои возеҳ дар лог.
+        var context = new ConditionContext(variables, tags, isFollowing, OfficeLocalDate.Now(DateTimeOffset.UtcNow));
         var matched = ConditionEvaluator.Evaluate(config, context);
 
         return new NodeOutcome(matched ? "match" : "nomatch", null);
     }
 
-    private async Task<NodeOutcome> ExecuteActionNodeAsync(FlowSession session, FlowNode node, CancellationToken ct)
+    private async Task<NodeOutcome> ExecuteActionNodeAsync(FlowSession session, FlowNode node, CancellationToken ct, HashSet<Guid> gotoChain)
     {
         var config = Deserialize<ActionNodeConfig>(node.ConfigJson);
 
@@ -401,7 +422,7 @@ public class FlowEngine(AppDbContext db, InstagramProvider instagramProvider, IB
             {
                 var targetFlow = await db.Flows.FirstOrDefaultAsync(f => f.Id == config.TargetFlowId && f.IsActive, ct);
                 if (targetFlow is not null)
-                    await StartAsync(targetFlow, session.ContactId, ct);
+                    await StartAsync(targetFlow, session.ContactId, ct, gotoChain: gotoChain);
                 return new NodeOutcome(null, null, EndSession: true);
             }
 

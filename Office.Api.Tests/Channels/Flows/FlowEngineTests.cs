@@ -632,7 +632,7 @@ public class FlowEngineTests
         var session = await db.FlowSessions.SingleAsync();
         Assert.Equal(FlowSessionStatus.Failed, session.Status);
         Assert.Equal(FlowSessionLoopGuard.MaxSteps, session.StepCount);
-        Assert.Contains("50", session.Error);
+        Assert.Contains(FlowSessionLoopGuard.MaxSteps.ToString(), session.Error);
     }
 
     [Fact]
@@ -659,6 +659,40 @@ public class FlowEngineTests
         Assert.Single(sessions, s => s.FlowId == sourceFlow.Id && s.Status == FlowSessionStatus.Finished);
         Assert.Single(sessions, s => s.FlowId == targetFlow.Id && s.Status == FlowSessionStatus.Finished);
         Assert.Single(handler.RequestUrls);
+    }
+
+    /// <summary>
+    /// Регрессия ҷиддӣ: пеш аз ин ислоҳ, ду flow ки ба ҳам goto_flow доранд (A→B→A→...)
+    /// StackOverflowException месохтанд — реcursия бе марз тавассути StartAsync, ки процесси
+    /// .NET-ро abadan мекушт (на хатои қобили catch, на танҳо як сессияи Failed). Ҳоло бояд
+    /// бехатар қатъ шавад: сессияи аввал Finished (ба B "супоридааст"), сессияи дуюм Failed бо
+    /// сабаби возеҳи ҳалқа — бе StackOverflow, бе сессияи сеюм/чорум.
+    /// </summary>
+    [Fact]
+    public async Task Action_GotoFlow_MutualCycle_FailsSecondSessionInsteadOfCrashing()
+    {
+        await using var db = CreateDb();
+        var channel = MakeChannel();
+        var contact = MakeContact(channel.Id);
+        var flowA = MakeFlow(channel.Id);
+        var flowB = MakeFlow(channel.Id);
+        var gotoB = MakeNode(flowA.Id, FlowNodeType.Action, new ActionNodeConfig(ActionNodeConfig.KindGotoFlow, TargetFlowId: flowB.Id));
+        var gotoA = MakeNode(flowB.Id, FlowNodeType.Action, new ActionNodeConfig(ActionNodeConfig.KindGotoFlow, TargetFlowId: flowA.Id));
+        db.Channels.Add(channel);
+        db.Conversations.Add(contact);
+        db.Flows.AddRange(flowA, flowB);
+        db.FlowNodes.AddRange(gotoB, gotoA);
+        await db.SaveChangesAsync();
+
+        var (_, _, _, engine) = MakeEngine(db);
+        await engine.StartAsync(flowA, contact.Id, CancellationToken.None);
+
+        var sessions = await db.FlowSessions.ToListAsync();
+        Assert.Equal(2, sessions.Count); // на 3+ — занҷир дар ҳамин ҷо қатъ шуд, на такрор
+        Assert.Single(sessions, s => s.FlowId == flowA.Id && s.Status == FlowSessionStatus.Finished);
+        var failed = Assert.Single(sessions, s => s.FlowId == flowB.Id);
+        Assert.Equal(FlowSessionStatus.Failed, failed.Status);
+        Assert.Contains("ҳалқа", failed.Error);
     }
 
     [Fact]
