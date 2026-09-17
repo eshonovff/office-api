@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Office.Api.Channels.Instagram;
 using Office.Api.Data.Entities;
+using Office.Api.Media;
 
 namespace Office.Api.Channels.Flows;
 
@@ -63,7 +64,7 @@ public static class FlowTemplateInstantiator
     /// </summary>
     public static async Task AttachDefaultImagesAsync(
         FlowTemplateDefinition definition, List<FlowNode> nodes, Channel channel,
-        InstagramProvider instagramProvider, ILogger logger, CancellationToken ct)
+        InstagramProvider instagramProvider, IMediaProcessor mediaProcessor, ILogger logger, CancellationToken ct)
     {
         if (channel.Type != ChannelType.Instagram || string.IsNullOrEmpty(channel.CredentialsEncrypted))
             return;
@@ -83,17 +84,43 @@ public static class FlowTemplateInstantiator
                     continue;
                 }
 
-                await using var stream = File.OpenRead(assetPath);
-                var attachmentId = await instagramProvider.UploadMediaAsync(channel, stream, "image/png", templateNode.DefaultImageAsset, ct);
+                string attachmentId;
+                await using (var stream = File.OpenRead(assetPath))
+                    attachmentId = await instagramProvider.UploadMediaAsync(channel, stream, "image/png", templateNode.DefaultImageAsset, ct);
+
+                var previewDataUri = await TryGenerateThumbnailDataUriAsync(assetPath, mediaProcessor, logger, ct);
 
                 var config = JsonSerializer.Deserialize<MessageNodeConfig>(node.ConfigJson, FlowJsonOptions.Options)!;
-                var blocks = config.Blocks.Append(new MessageBlock(MessageBlock.TypeImage, null, attachmentId)).ToArray();
+                var blocks = config.Blocks.Append(new MessageBlock(MessageBlock.TypeImage, null, attachmentId, previewDataUri)).ToArray();
                 node.ConfigJson = JsonSerializer.Serialize(config with { Blocks = blocks }, FlowJsonOptions.Options);
             }
             catch (Exception ex)
             {
                 logger.LogWarning(ex, "Flow template: боркунии расми пешфарз ноком шуд (Channel {ChannelId})", channel.Id);
             }
+        }
+    }
+
+    /// <summary>128px JPEG хурд — ниг. FlowsEndpoints.TryGenerateThumbnailDataUriAsync (ҳамон
+    /// мақсад, вале сарчашма аллакай файли диск аст, на IFormFile). Ноком шудан хатои сохтани
+    /// flow-ро намебандад (caller-и AttachDefaultImagesAsync ҳамаи истисноҳоро catch мекунад).</summary>
+    private static async Task<string?> TryGenerateThumbnailDataUriAsync(string assetPath, IMediaProcessor mediaProcessor, ILogger logger, CancellationToken ct)
+    {
+        var thumbPath = Path.Combine(Path.GetTempPath(), $"{Guid.CreateVersion7()}.jpg");
+        try
+        {
+            await mediaProcessor.GenerateImageThumbnailAsync(assetPath, thumbPath, 128, ct);
+            var bytes = await File.ReadAllBytesAsync(thumbPath, ct);
+            return $"data:image/jpeg;base64,{Convert.ToBase64String(bytes)}";
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Flow template: сохтани thumbnail-и расми пешфарз ноком шуд: {AssetPath}", assetPath);
+            return null;
+        }
+        finally
+        {
+            if (File.Exists(thumbPath)) File.Delete(thumbPath);
         }
     }
 }

@@ -45,5 +45,9 @@ public record FlowStats(
 
 public record FlowTemplateListItem(Guid Id, string Name, string? Description);
 
-/// <summary>MediaId — attachment_id-и дубора-истифодашавандаи Meta (ниг. InstagramProvider.UploadMediaAsync).</summary>
-public record UploadFlowMediaResult(string MediaId, string BlockType);
+/// <summary>
+/// MediaId — attachment_id-и дубора-истифодашавандаи Meta (ниг. InstagramProvider.UploadMediaAsync).
+/// PreviewDataUri (ихтиёрӣ, барои image/video) — thumbnail-и хурди base64, то фронтенд онро дар
+/// config-и блок нигоҳ дошта, баъд аз reload низ нишон диҳад (ниг. MessageBlock.PreviewDataUri).
+/// </summary>
+public record UploadFlowMediaResult(string MediaId, string BlockType, string? PreviewDataUri = null);

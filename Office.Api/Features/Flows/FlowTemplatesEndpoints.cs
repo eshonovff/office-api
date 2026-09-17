@@ -6,6 +6,7 @@ using Office.Api.Channels.Instagram;
 using Office.Api.Common;
 using Office.Api.Data;
 using Office.Api.Data.Entities;
+using Office.Api.Media;
 
 namespace Office.Api.Features.Flows;
 
@@ -37,7 +38,7 @@ public static class FlowTemplatesEndpoints
 
     private static async Task<IResult> InstantiateAsync(
         Guid channelId, Guid templateId, CreateFlowRequest request, AppDbContext db,
-        InstagramProvider instagramProvider, ILogger<Program> logger, CancellationToken ct)
+        InstagramProvider instagramProvider, IMediaProcessor mediaProcessor, ILogger<Program> logger, CancellationToken ct)
     {
         var channel = await db.Channels.FirstOrDefaultAsync(c => c.Id == channelId, ct);
         if (channel is null)
@@ -63,7 +64,7 @@ public static class FlowTemplatesEndpoints
         db.Flows.Add(flow);
 
         var (templateNodes, templateEdges) = FlowTemplateInstantiator.Instantiate(definition, flow.Id);
-        await FlowTemplateInstantiator.AttachDefaultImagesAsync(definition, templateNodes, channel, instagramProvider, logger, ct);
+        await FlowTemplateInstantiator.AttachDefaultImagesAsync(definition, templateNodes, channel, instagramProvider, mediaProcessor, logger, ct);
         db.FlowNodes.AddRange(templateNodes);
         db.FlowEdges.AddRange(templateEdges);
 

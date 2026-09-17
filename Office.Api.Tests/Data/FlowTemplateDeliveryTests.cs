@@ -13,6 +13,7 @@ using Office.Api.Channels.Flows;
 using Office.Api.Channels.Instagram;
 using Office.Api.Data;
 using Office.Api.Data.Entities;
+using Office.Api.Media;
 using Office.Api.Realtime;
 
 namespace Office.Api.Tests.Data;
@@ -39,6 +40,26 @@ public class FlowTemplateDeliveryTests
         IsActive = true,
         CreatedAt = DateTimeOffset.UtcNow,
     };
+
+    /// <summary>AttachDefaultImagesAsync-ро caller-и он ба ffmpeg-и воқеӣ вобаста намекунад
+    /// (thumbnail — best-effort, ноком шудани он паёми асосиро намебандад) — ин ҷо ҳамон
+    /// алгуи MediaDownloadJobContentTypeTests/MediaSendJobTests: NotSupportedException.</summary>
+    private class NoOpMediaProcessor : IMediaProcessor
+    {
+        public Task TranscodeToOggOpusAsync(string inputPath, string outputPath, CancellationToken ct) => throw new NotSupportedException();
+        public Task TranscodeToAacAsync(string inputPath, string outputPath, CancellationToken ct) => throw new NotSupportedException();
+        public Task<int?> GetAudioDurationSecondsAsync(string inputPath, CancellationToken ct) => throw new NotSupportedException();
+        public virtual Task GenerateImageThumbnailAsync(string inputPath, string outputPath, int maxDimension, CancellationToken ct) => throw new NotSupportedException();
+        public Task<IReadOnlyList<short>> GenerateWaveformPeaksAsync(string inputPath, int peakCount, CancellationToken ct) => throw new NotSupportedException();
+    }
+
+    /// <summary>ffmpeg-и воқеиро тақлид мекунад — байтҳои сохта ба outputPath менависад, то
+    /// PreviewDataUri-и натиҷа санҷида шавад, бе ниёз ба ffmpeg-и воқеӣ дар CI.</summary>
+    private sealed class StubThumbnailMediaProcessor : NoOpMediaProcessor
+    {
+        public override async Task GenerateImageThumbnailAsync(string inputPath, string outputPath, int maxDimension, CancellationToken ct) =>
+            await File.WriteAllBytesAsync(outputPath, [0xFF, 0xD8, 0xFF, 0xD9], ct); // сарлавҳа/интиҳои JPEG — контенти воқеӣ лозим нест
+    }
 
     private sealed class FakeHttpMessageHandler(Func<HttpRequestMessage, HttpResponseMessage> respond) : HttpMessageHandler
     {
@@ -142,7 +163,7 @@ public class FlowTemplateDeliveryTests
                 []);
 
             var (nodes, _) = FlowTemplateInstantiator.Instantiate(definition, Guid.CreateVersion7());
-            await FlowTemplateInstantiator.AttachDefaultImagesAsync(definition, nodes, channel, provider, NullLogger<InstagramProvider>.Instance, CancellationToken.None);
+            await FlowTemplateInstantiator.AttachDefaultImagesAsync(definition, nodes, channel, provider, new NoOpMediaProcessor(), NullLogger<InstagramProvider>.Instance, CancellationToken.None);
 
             Assert.Single(handler.Bodies);
             Assert.Contains("is_reusable", handler.Bodies[0]); // қисми JSON-и multipart body-и UploadMediaAsync
@@ -151,6 +172,53 @@ public class FlowTemplateDeliveryTests
             var imageBlock = Assert.Single(config.Blocks, b => b.Type == MessageBlock.TypeImage);
             Assert.Equal("fake_attach_123", imageBlock.MediaId);
             Assert.Contains(config.Blocks, b => b.Type == MessageBlock.TypeText); // матни аслӣ гум нашуд
+            // NoOpMediaProcessor.GenerateImageThumbnailAsync хато медиҳад — расм бояд ҳамоно
+            // замима шавад (attachment_id аз он вобаста нест), танҳо PreviewDataUri холӣ мемонад.
+            Assert.Null(imageBlock.PreviewDataUri);
+        }
+        finally
+        {
+            File.Delete(assetPath);
+        }
+    }
+
+    /// <summary>Регрессия барои MessageBlock.PreviewDataUri: агар сохтани thumbnail муваффақ
+    /// шавад, натиҷа (data URI) дар config-и нод захира мешавад — то фронтенд баъд аз reload
+    /// низ расмро (бе такя ба MediaId-и опаку) нишон дода тавонад.</summary>
+    [Fact]
+    public async Task AttachDefaultImagesAsync_ThumbnailGenerationSucceeds_StoresPreviewDataUriOnBlock()
+    {
+        var assetDir = Path.Combine(AppContext.BaseDirectory, "Assets", "DefaultTemplateImages");
+        Directory.CreateDirectory(assetDir);
+        var assetPath = Path.Combine(assetDir, "test-lead-magnet-2.png");
+        await File.WriteAllBytesAsync(assetPath, [0x89, 0x50, 0x4E, 0x47]);
+        try
+        {
+            var channel = MakeChannel();
+            var handler = new FakeHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"attachment_id":"fake_attach_456"}""", Encoding.UTF8, "application/json"),
+            });
+            var provider = new InstagramProvider(
+                new HttpClient(handler), new PassthroughProtector(), new ConfigurationBuilder().Build(), CreateDb(),
+                new NoOpNotificationService(), new MemoryCache(new MemoryCacheOptions()),
+                new InstagramFollowCheckRateLimiter(), NullLogger<InstagramProvider>.Instance);
+
+            var definition = new FlowTemplateDefinition(
+                [new FlowTemplateNodeDefinition("intro", "message",
+                    JsonSerializer.SerializeToElement(new MessageNodeConfig([new MessageBlock(MessageBlock.TypeText, "Салом!", null)], []), FlowJsonOptions.Options),
+                    0, 0, DefaultImageAsset: "test-lead-magnet-2.png")],
+                []);
+
+            var (nodes, _) = FlowTemplateInstantiator.Instantiate(definition, Guid.CreateVersion7());
+            await FlowTemplateInstantiator.AttachDefaultImagesAsync(
+                definition, nodes, channel, provider, new StubThumbnailMediaProcessor(), NullLogger<InstagramProvider>.Instance, CancellationToken.None);
+
+            var config = JsonSerializer.Deserialize<MessageNodeConfig>(nodes.Single().ConfigJson, FlowJsonOptions.Options)!;
+            var imageBlock = Assert.Single(config.Blocks, b => b.Type == MessageBlock.TypeImage);
+            Assert.Equal("fake_attach_456", imageBlock.MediaId);
+            Assert.NotNull(imageBlock.PreviewDataUri);
+            Assert.StartsWith("data:image/jpeg;base64,", imageBlock.PreviewDataUri);
         }
         finally
         {

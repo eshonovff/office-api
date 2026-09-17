@@ -177,8 +177,9 @@ public static class FlowsEndpoints
             }
             else
             {
-                await using var stream = file.OpenReadStream();
-                attachmentId = await instagramProvider.UploadMediaAsync(channel, stream, mimeType, file.FileName, ct);
+                await using (var stream = file.OpenReadStream())
+                    attachmentId = await instagramProvider.UploadMediaAsync(channel, stream, mimeType, file.FileName, ct);
+
                 blockType = messageType switch
                 {
                     MessageType.Image => MessageBlock.TypeImage,
@@ -187,7 +188,11 @@ public static class FlowsEndpoints
                 };
             }
 
-            return Results.Ok(new UploadFlowMediaResult(attachmentId, blockType));
+            string? previewDataUri = messageType is MessageType.Image or MessageType.Video
+                ? await TryGenerateThumbnailDataUriAsync(file, mediaProcessor, channelId, logger, ct)
+                : null;
+
+            return Results.Ok(new UploadFlowMediaResult(attachmentId, blockType, previewDataUri));
         }
         catch (GraphApiException ex)
         {
@@ -198,6 +203,43 @@ public static class FlowsEndpoints
         {
             logger.LogError(ex, "Flow media: transcode ноком шуд (Channel {ChannelId})", channelId);
             return Results.Problem(title: "Файл коркард нашуд", detail: "Формати файл дастгирӣ намешавад.", statusCode: StatusCodes.Status400BadRequest);
+        }
+    }
+
+    /// <summary>32 barobar 128px JPEG хурд (якчанд KB) — дар config_json ҳамчун data URI захира
+    /// мешавад (ниг. MessageBlock.PreviewDataUri), пас панел/canvas баъд аз reload низ расмро
+    /// нишон дода метавонанд, бе он ки MediaId (attachment_id-и опаку) лозим шавад. Ноком шудани
+    /// ин — боркунии асосиро намебандад, танҳо thumbnail намемонад (бе хатои возеҳ ба корбар).</summary>
+    private const int ThumbnailMaxDimension = 128;
+
+    private static async Task<string?> TryGenerateThumbnailDataUriAsync(
+        IFormFile file, IMediaProcessor mediaProcessor, Guid channelId, ILogger<Program> logger, CancellationToken ct)
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), "flow-media-thumbs");
+        Directory.CreateDirectory(tempDir);
+        var sourcePath = Path.Combine(tempDir, $"{Guid.CreateVersion7()}{Path.GetExtension(file.FileName)}");
+        var thumbPath = Path.Combine(tempDir, $"{Guid.CreateVersion7()}.jpg");
+        try
+        {
+            await using (var sourceStream = File.Create(sourcePath))
+            {
+                await using var uploadStream = file.OpenReadStream();
+                await uploadStream.CopyToAsync(sourceStream, ct);
+            }
+
+            await mediaProcessor.GenerateImageThumbnailAsync(sourcePath, thumbPath, ThumbnailMaxDimension, ct);
+            var bytes = await File.ReadAllBytesAsync(thumbPath, ct);
+            return $"data:image/jpeg;base64,{Convert.ToBase64String(bytes)}";
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Flow media: сохтани thumbnail ноком шуд (Channel {ChannelId})", channelId);
+            return null;
+        }
+        finally
+        {
+            if (File.Exists(sourcePath)) File.Delete(sourcePath);
+            if (File.Exists(thumbPath)) File.Delete(thumbPath);
         }
     }
 

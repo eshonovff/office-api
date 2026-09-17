@@ -1,7 +1,13 @@
 namespace Office.Api.Channels.Flows;
 
-/// <summary>Як блоки паём — матн то 500 аломат (санҷида дар FluentValidation, ниг. Features/Flows/Validators.cs).</summary>
-public record MessageBlock(string Type, string? Text, string? MediaId)
+/// <summary>
+/// Як блоки паём — матн то 500 аломат (санҷида дар FluentValidation, ниг. Features/Flows/Validators.cs).
+/// PreviewDataUri (ихтиёрӣ): thumbnail-и хурди "data:image/jpeg;base64,..." — MediaId (attachment_id-и
+/// Meta) баъд аз reload аз он расм бозгашт кардан НАМЕШАВАД (опаку, GET-и оммавӣ надорад), пас ин
+/// thumbnail-и мустақил дар ҳамин JSON захира мешавад, то панел/canvas пас аз reload низ расмро
+/// нишон диҳанд — ниг. FlowsEndpoints.UploadMediaAsync ва FlowTemplateInstantiator.AttachDefaultImagesAsync.
+/// </summary>
+public record MessageBlock(string Type, string? Text, string? MediaId, string? PreviewDataUri = null)
 {
     public const string TypeText = "text";
     public const string TypeImage = "image";
