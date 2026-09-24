@@ -1,7 +1,7 @@
 namespace Office.Api.Data.Entities;
 
 /// <summary>
-/// Пайвасти як ҳисоби Customer ба як "sub" (provider user id) — то як мизоз бо Google ВА
+/// Пайвасти як ҳисоби Customer ба як "sub" (provider user id) — то як мизоҷ бо Google ВА
 /// Apple ВА email+parol якҷоя ба ҳамон як ҳисоб ворид шавад (пайваст аз рӯи email-и
 /// тасдиқшудаи провайдер, ниг. ExternalLoginResolver).
 /// </summary>

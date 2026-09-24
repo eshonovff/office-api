@@ -13,7 +13,7 @@ public class CustomerExternalLoginConfiguration : IEntityTypeConfiguration<Custo
         builder.Property(l => l.Provider).HasConversion<string>().HasMaxLength(20);
         builder.Property(l => l.ProviderUserId).HasMaxLength(200).IsRequired();
 
-        // Як "sub" — як мизоз. (Provider, ProviderUserId) якҷоя, чун Google-и sub=123 ва
+        // Як "sub" — як мизоҷ. (Provider, ProviderUserId) якҷоя, чун Google-и sub=123 ва
         // Apple-и sub=123 ду корбари гуногунанд.
         builder.HasIndex(l => new { l.Provider, l.ProviderUserId }).IsUnique();
         builder.HasIndex(l => l.CustomerId);

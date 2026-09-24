@@ -13,9 +13,9 @@ using Office.Api.Features.Subscriptions;
 namespace Office.Api.Features.CustomerAuth;
 
 /// <summary>
-/// Сабти худии мизоз (email+parol, Google, Apple) — комилан ҷудо аз /api/auth-и кормандон:
+/// Сабти худии мизоҷ (email+parol, Google, Apple) — комилан ҷудо аз /api/auth-и кормандон:
 /// entity-и худ (Customer), JWT scheme-и худ ("Customer", ниг. Program.cs), cookie-и худ.
-/// Дастрасӣ бе RequirePermission — мизоз ҳеҷ гоҳ роль надорад.
+/// Дастрасӣ бе RequirePermission — мизоҷ ҳеҷ гоҳ роль надорад.
 /// </summary>
 public static class CustomerAuthEndpoints
 {
@@ -71,7 +71,7 @@ public static class CustomerAuthEndpoints
 
         group.MapGet("/me", MeAsync)
             .RequireAuthorization(AuthSchemes.CustomerOnlyPolicy)
-            .WithSummary("Профили мизози ҷорӣ")
+            .WithSummary("Профили мизоҷи ҷорӣ")
             .Produces<CustomerMeResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status401Unauthorized);
 

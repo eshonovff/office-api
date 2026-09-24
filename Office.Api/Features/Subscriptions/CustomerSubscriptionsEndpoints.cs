@@ -26,7 +26,7 @@ public static class CustomerSubscriptionsEndpoints
             .Produces<SubscriptionCatalogResponse>(StatusCodes.Status200OK);
 
         group.MapGet("/requests", ListMyRequestsAsync)
-            .WithSummary("Дархостҳои обунаи худи мизоз — аз нав ба кӯҳна")
+            .WithSummary("Дархостҳои обунаи худи мизоҷ — аз нав ба кӯҳна")
             .Produces<IEnumerable<SubscriptionRequestDto>>(StatusCodes.Status200OK);
 
         group.MapPost("/requests", CreateRequestAsync)

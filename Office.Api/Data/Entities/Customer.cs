@@ -3,7 +3,7 @@ namespace Office.Api.Data.Entities;
 /// <summary>
 /// Ҳисоби мизоҷи беруна (сабти худӣ — email+parol, баъдтар Google/Apple) — комилан ҷудо аз
 /// User (кормандони дохилӣ, admin-provisioned). Ин ҷудоӣ қасдӣ аст: Customer ҳеҷ гоҳ роль ё
-/// permission надорад, пас хатои конфигуратсия наметавонад мизозро ба системаи дохилӣ бирасонад.
+/// permission надорад, пас хатои конфигуратсия наметавонад мизоҷро ба системаи дохилӣ бирасонад.
 /// </summary>
 public class Customer
 {

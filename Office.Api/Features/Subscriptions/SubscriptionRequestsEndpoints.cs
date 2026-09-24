@@ -41,7 +41,7 @@ public static class SubscriptionRequestsEndpoints
 
         group.MapPost("/{id:guid}/approve", ApproveAsync)
             .RequirePermission(Permissions.Subscriptions.Manage)
-            .WithSummary("Тасдиқ — тарифи мизоз фаъол/тамдид мешавад")
+            .WithSummary("Тасдиқ — тарифи мизоҷ фаъол/тамдид мешавад")
             .Produces<ModeratorSubscriptionRequestDto>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden)
@@ -51,7 +51,7 @@ public static class SubscriptionRequestsEndpoints
         group.MapPost("/{id:guid}/reject", RejectAsync)
             .WithValidation<RejectSubscriptionRequest>()
             .RequirePermission(Permissions.Subscriptions.Manage)
-            .WithSummary("Рад кардан — сабаб ҳатмист, ба мизоз нишон дода мешавад")
+            .WithSummary("Рад кардан — сабаб ҳатмист, ба мизоҷ нишон дода мешавад")
             .Produces<ModeratorSubscriptionRequestDto>(StatusCodes.Status200OK)
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status401Unauthorized)

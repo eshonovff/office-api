@@ -20,7 +20,7 @@ public interface ICustomerTokenService
 /// Ҳамон алгуи TokenService (кормандон), вале бо калиди имзои ҷудогона (Jwt:CustomerKey) —
 /// пас токени мизоҷ ҳатто аз рӯи имзо ба схемаи пешфарзи staff мувофиқ намеояд. Претензияҳо
 /// қасдан бе роль/permission: мизоҷ ҳеҷ гоҳ "perm" claim надорад, пас RequirePermission ҳеҷ
-/// гоҳ токени мизозро қабул карда наметавонад, ҳатто агар касе хато дар scheme кунад.
+/// гоҳ токени мизоҷро қабул карда наметавонад, ҳатто агар касе хато дар scheme кунад.
 /// </summary>
 public class CustomerTokenService(IConfiguration configuration) : ICustomerTokenService
 {
