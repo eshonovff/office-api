@@ -350,7 +350,15 @@ builder.Services.AddScoped<InstagramContactProfileBackfillJob>();
 builder.Services.AddScoped<CommentAutomationProcessor>();
 builder.Services.AddScoped<CommentAutomationJob>();
 builder.Services.AddSingleton<InstagramFollowCheckRateLimiter>();
-builder.Services.AddHttpClient<FlowEngine>(client => client.DefaultRequestHeaders.UserAgent.ParseAdd(BrowserUserAgent));
+// A flow's http_request goes to URLs written by мизоҷон (untrusted): the handler refuses any
+// non-public address at connect time, and the short timeout keeps a slow target from pinning
+// a Hangfire worker.
+builder.Services.AddHttpClient<FlowEngine>(client =>
+    {
+        client.DefaultRequestHeaders.UserAgent.ParseAdd(BrowserUserAgent);
+        client.Timeout = TimeSpan.FromSeconds(15);
+    })
+    .ConfigurePrimaryHttpMessageHandler(SsrfSafeHttpHandler.Create);
 builder.Services.AddScoped<FlowEngineJob>();
 builder.Services.AddScoped<FlowTriggerProcessor>();
 
