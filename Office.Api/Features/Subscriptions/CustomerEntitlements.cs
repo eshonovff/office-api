@@ -1,3 +1,5 @@
+using Microsoft.EntityFrameworkCore;
+using Office.Api.Data;
 using Office.Api.Data.Entities;
 
 namespace Office.Api.Features.Subscriptions;
@@ -17,6 +19,19 @@ public static class CustomerEntitlements
 
         var tier = access.Status == CustomerAccessStatus.Trial ? CustomerPlanTier.Pro : access.Tier;
         return tier is null ? null : catalog.Plans.FirstOrDefault(p => p.Tier == tier)?.Limits;
+    }
+
+    /// <summary>The caller's current limits (null = no access), computed from the stored plan fields.</summary>
+    public static async Task<PlanLimitsOptions?> LoadLimitsAsync(
+        Guid customerId, AppDbContext db, IConfiguration configuration, CancellationToken ct)
+    {
+        var customer = await db.Customers.AsNoTracking().FirstOrDefaultAsync(c => c.Id == customerId, ct);
+        if (customer is null)
+            return null;
+
+        var access = CustomerAccessResolver.Resolve(
+            DateTimeOffset.UtcNow, customer.TrialEndsAt, customer.PlanTier, customer.PlanExpiresAt);
+        return ResolveLimits(access, SubscriptionCatalog.Load(configuration));
     }
 
     /// <summary>Whether one more can be added: a null limit is unlimited.</summary>

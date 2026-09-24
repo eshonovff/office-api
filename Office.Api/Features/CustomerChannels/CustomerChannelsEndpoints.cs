@@ -84,7 +84,7 @@ public static class CustomerChannelsEndpoints
         CancellationToken ct)
     {
         var customerId = principal.GetUserId();
-        if (await LoadLimitsAsync(customerId, db, configuration, ct) is null)
+        if (await CustomerEntitlements.LoadLimitsAsync(customerId, db, configuration, ct) is null)
             return CustomerEntitlements.NoAccessProblem();
 
         var redirectUri = ChannelOAuthEndpoints.BuildRedirectUri(configuration, Provider);
@@ -119,7 +119,7 @@ public static class CustomerChannelsEndpoints
         if (account is null)
             return ChannelOAuthEndpoints.ConnectionExpiredProblem();
 
-        var limits = await LoadLimitsAsync(customerId, db, configuration, ct);
+        var limits = await CustomerEntitlements.LoadLimitsAsync(customerId, db, configuration, ct);
         if (limits is null)
             return CustomerEntitlements.NoAccessProblem();
 
@@ -165,15 +165,4 @@ public static class CustomerChannelsEndpoints
         return Results.NoContent();
     }
 
-    private static async Task<PlanLimitsOptions?> LoadLimitsAsync(
-        Guid customerId, AppDbContext db, IConfiguration configuration, CancellationToken ct)
-    {
-        var customer = await db.Customers.AsNoTracking().FirstOrDefaultAsync(c => c.Id == customerId, ct);
-        if (customer is null)
-            return null;
-
-        var access = CustomerAccessResolver.Resolve(
-            DateTimeOffset.UtcNow, customer.TrialEndsAt, customer.PlanTier, customer.PlanExpiresAt);
-        return CustomerEntitlements.ResolveLimits(access, SubscriptionCatalog.Load(configuration));
-    }
 }
