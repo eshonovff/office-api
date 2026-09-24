@@ -1,3 +1,4 @@
+using System.IdentityModel.Tokens.Jwt;
 using Microsoft.AspNetCore.HttpOverrides;
 using System.Text;
 using System.Threading.RateLimiting;
@@ -39,6 +40,7 @@ using Office.Api.Features.Projects;
 using Office.Api.Features.Roles;
 using Office.Api.Features.Tasks;
 using Office.Api.Features.Subscriptions;
+using Office.Api.Features.CustomerAccount;
 using Office.Api.Features.CustomerChannels;
 using Office.Api.Features.CustomerFlows;
 using Office.Api.Features.DataDeletion;
@@ -212,6 +214,24 @@ var authenticationBuilder = builder.Services
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtCustomerKey)),
             ClockSkew = TimeSpan.Zero,
             AuthenticationType = AuthSchemes.Customer,
+        };
+
+        // A valid signature isn't enough: the мизоҷ must still exist and be active. Without this
+        // a deleted (or deactivated) account kept working for the rest of its 15-minute access
+        // token — and requests that insert rows for it failed with a 500 on the missing customer.
+        // One indexed lookup per request, the staff side's PermissionsVersionMiddleware does the same.
+        options.Events = new JwtBearerEvents
+        {
+            OnTokenValidated = async context =>
+            {
+                var sub = context.Principal?.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
+                var db = context.HttpContext.RequestServices.GetRequiredService<AppDbContext>();
+                if (!Guid.TryParse(sub, out var customerId) ||
+                    !await db.Customers.AnyAsync(c => c.Id == customerId && c.IsActive, context.HttpContext.RequestAborted))
+                {
+                    context.Fail("Customer no longer exists or is inactive.");
+                }
+            },
         };
     });
 
@@ -458,6 +478,7 @@ app.MapCustomerAuthEndpoints(builder.Configuration);
 app.MapCustomerSubscriptionsEndpoints();
 app.MapCustomerChannelsEndpoints();
 app.MapCustomerFlowsEndpoints();
+app.MapCustomerAccountEndpoints();
 app.MapSubscriptionRequestsEndpoints();
 app.MapUsersEndpoints();
 app.MapRolesEndpoints();
