@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Office.Api.Auth;
 using Office.Api.Common;
@@ -38,7 +39,7 @@ public static class CustomerSubscriptionsEndpoints
 
         group.MapPost("/requests/{id:guid}/receipt", UploadReceiptAsync)
             .DisableAntiforgery()
-            .WithSummary("Бор кардани чеки пардохт (jpg/png/webp/pdf, то 10 МБ) — дархост ба навбати модератор меравад")
+            .WithSummary("Бор кардани чеки пардохт (jpg/png/webp/pdf, то 10 МБ) + `cardNumber`-и корте, ки ба он гузаронида шуд — дархост ба навбати модератор меравад")
             .Produces<SubscriptionRequestDto>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound)
@@ -134,6 +135,7 @@ public static class CustomerSubscriptionsEndpoints
     private static async Task<IResult> UploadReceiptAsync(
         Guid id,
         IFormFile file,
+        [FromForm] string? cardNumber,
         ClaimsPrincipal principal,
         AppDbContext db,
         IConfiguration configuration,
@@ -157,6 +159,16 @@ public static class CustomerSubscriptionsEndpoints
                 statusCode: StatusCodes.Status409Conflict);
         }
 
+        // Without it the moderator would have to search every bank's history for the amount.
+        var card = SubscriptionCatalog.Load(configuration).FindPaymentCard(cardNumber);
+        if (card is null)
+        {
+            return Results.Problem(
+                title: "Корт интихоб нашудааст",
+                detail: "Лутфан корте, ки ба он пул гузаронидед, интихоб кунед.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
         var validationError = SubscriptionReceiptStorage.Validate(file);
         if (validationError is not null)
             return validationError;
@@ -166,6 +178,8 @@ public static class CustomerSubscriptionsEndpoints
 
         subscriptionRequest.ReceiptPath = await SubscriptionReceiptStorage.SaveAsync(rootPath, customerId, file, ct);
         subscriptionRequest.ReceiptFileName = file.FileName;
+        subscriptionRequest.PaidToBank = card.Bank;
+        subscriptionRequest.PaidToCardNumber = card.CardNumber;
         subscriptionRequest.Status = SubscriptionRequestStatus.Pending;
         subscriptionRequest.SubmittedAt = DateTimeOffset.UtcNow;
 

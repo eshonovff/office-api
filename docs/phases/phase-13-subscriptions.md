@@ -32,6 +32,10 @@
    рӯзҳои боқимондаро намесӯзонад — на рӯзҳои тарифи ҷорӣ, на рӯзҳои trial.
 7. **Чек** — jpg/jpeg/png/webp/pdf, то 10 МБ, `uploads/subscription-receipts/{customerId}/`.
    Ҳеҷ гоҳ ҷамъиятӣ нест — танҳо endpoint-и модератор бо `subscriptions.manage`.
+7а. **Корти пардохт** — ҳангоми бор кардани чек мизоз корте, ки ба он гузаронд, интихоб
+   мекунад (`cardNumber`, ҳатмӣ, бояд дар `Subscriptions:PaymentCards` бошад). Бонк ва рақам
+   snapshot мешаванд (`PaidToBank`/`PaidToCardNumber`), то модератор донад таърихи кадом
+   бонкро бинад — ҳатто агар корт баъдтар аз конфигуратсия бардошта шавад.
 8. **Permission-и нав `subscriptions.manage`** — Owner/Admin (seeder онро ба ролҳои
    мавҷуда худкор илова мекунад).
 9. **Trial** — `TrialEndsAt = лаҳзаи тасдиқи email + Subscriptions:TrialDays` (пешфарз 7),

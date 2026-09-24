@@ -43,4 +43,14 @@ public record SubscriptionCatalog(
 
     public decimal? FindMonthlyPrice(CustomerPlanTier tier) =>
         Plans.FirstOrDefault(p => p.Tier == tier)?.MonthlyPrice;
+
+    /// <summary>Matches on digits only — config may write "5058 2703 …", the client sends either form.</summary>
+    public PaymentCardOptions? FindPaymentCard(string? cardNumber)
+    {
+        var digits = DigitsOnly(cardNumber);
+        return digits.Length == 0 ? null : PaymentCards.FirstOrDefault(c => DigitsOnly(c.CardNumber) == digits);
+    }
+
+    private static string DigitsOnly(string? value) =>
+        new((value ?? "").Where(char.IsAsciiDigit).ToArray());
 }

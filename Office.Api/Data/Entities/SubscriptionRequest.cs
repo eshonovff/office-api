@@ -21,6 +21,14 @@ public class SubscriptionRequest
     public string? ReceiptPath { get; set; }
     public string? ReceiptFileName { get; set; }
 
+    /// <summary>
+    /// The company card the customer says they paid to — tells the moderator which bank's
+    /// history to look in. Snapshotted (not a key into config) so the record stays readable
+    /// after a card is replaced or removed from Subscriptions:PaymentCards.
+    /// </summary>
+    public string? PaidToBank { get; set; }
+    public string? PaidToCardNumber { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset? SubmittedAt { get; set; }
 

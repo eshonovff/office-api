@@ -15,6 +15,8 @@ public class SubscriptionRequestConfiguration : IEntityTypeConfiguration<Subscri
         builder.Property(r => r.ExpectedAmount).HasPrecision(12, 2);
         builder.Property(r => r.ReceiptPath).HasMaxLength(500);
         builder.Property(r => r.ReceiptFileName).HasMaxLength(300);
+        builder.Property(r => r.PaidToBank).HasMaxLength(100);
+        builder.Property(r => r.PaidToCardNumber).HasMaxLength(30);
         builder.Property(r => r.ReviewedByUserName).HasMaxLength(200);
         builder.Property(r => r.ReviewNote).HasMaxLength(1000);
 

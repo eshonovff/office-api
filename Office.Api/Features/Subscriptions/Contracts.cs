@@ -33,6 +33,8 @@ public record SubscriptionRequestDto(
     decimal ExpectedAmount,
     string Status,
     bool HasReceipt,
+    string? PaidToBank,
+    string? PaidToCardNumber,
     DateTimeOffset CreatedAt,
     DateTimeOffset? SubmittedAt,
     DateTimeOffset? ReviewedAt,
@@ -40,7 +42,7 @@ public record SubscriptionRequestDto(
 {
     public static SubscriptionRequestDto From(SubscriptionRequest r) => new(
         r.Id, r.Tier.ToString(), r.DurationMonths, r.ExpectedAmount, r.Status.ToString(), r.ReceiptPath is not null,
-        r.CreatedAt, r.SubmittedAt, r.ReviewedAt, r.ReviewNote);
+        r.PaidToBank, r.PaidToCardNumber, r.CreatedAt, r.SubmittedAt, r.ReviewedAt, r.ReviewNote);
 }
 
 /// <summary>What a moderator sees — adds who the customer is and where the receipt is.</summary>
@@ -55,6 +57,8 @@ public record ModeratorSubscriptionRequestDto(
     string Status,
     string? ReceiptUrl,
     string? ReceiptFileName,
+    string? PaidToBank,
+    string? PaidToCardNumber,
     DateTimeOffset CreatedAt,
     DateTimeOffset? SubmittedAt,
     string? ReviewedByUserName,
@@ -65,5 +69,6 @@ public record ModeratorSubscriptionRequestDto(
         r.Id, r.CustomerId, r.Customer.Email, r.Customer.FullName, r.Tier.ToString(), r.DurationMonths,
         r.ExpectedAmount, r.Status.ToString(),
         r.ReceiptPath is not null ? $"/api/subscription-requests/{r.Id}/receipt" : null,
-        r.ReceiptFileName, r.CreatedAt, r.SubmittedAt, r.ReviewedByUserName, r.ReviewedAt, r.ReviewNote);
+        r.ReceiptFileName, r.PaidToBank, r.PaidToCardNumber,
+        r.CreatedAt, r.SubmittedAt, r.ReviewedByUserName, r.ReviewedAt, r.ReviewNote);
 }
