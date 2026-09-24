@@ -34,15 +34,22 @@ internal static class SubscriptionReceiptStorage
 
         var extension = Path.GetExtension(file.FileName);
         if (string.IsNullOrEmpty(extension) || !AllowedExtensions.Contains(extension))
-        {
-            return Results.Problem(
-                title: "Навъи файл иҷозат дода нашудааст",
-                detail: "Танҳо расм (jpg, png, webp) ё PDF.",
-                statusCode: StatusCodes.Status400BadRequest);
-        }
+            return NotAnImageOrPdf();
+
+        // The name says png — do the bytes? (A renamed HTML page must never reach a moderator.)
+        Span<byte> header = stackalloc byte[ReceiptFileSignature.HeaderLength];
+        using var stream = file.OpenReadStream();
+        var read = stream.ReadAtLeast(header, header.Length, throwOnEndOfStream: false);
+        if (!ReceiptFileSignature.Matches(extension, header[..read]))
+            return NotAnImageOrPdf();
 
         return null;
     }
+
+    private static IResult NotAnImageOrPdf() => Results.Problem(
+        title: "Навъи файл иҷозат дода нашудааст",
+        detail: "Танҳо расм (jpg, png, webp) ё PDF.",
+        statusCode: StatusCodes.Status400BadRequest);
 
     public static async Task<string> SaveAsync(string rootPath, Guid customerId, IFormFile file, CancellationToken ct)
     {

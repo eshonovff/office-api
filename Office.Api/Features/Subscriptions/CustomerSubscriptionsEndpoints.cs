@@ -5,6 +5,8 @@ using Office.Api.Auth;
 using Office.Api.Common;
 using Office.Api.Data;
 using Office.Api.Data.Entities;
+using Office.Api.Realtime;
+using Permissions = Office.Api.Auth.Permissions;
 
 namespace Office.Api.Features.Subscriptions;
 
@@ -149,6 +151,8 @@ public static class CustomerSubscriptionsEndpoints
         AppDbContext db,
         IConfiguration configuration,
         IWebHostEnvironment env,
+        INotificationService notifications,
+        ILogger<SubscriptionRequest> logger,
         CancellationToken ct)
     {
         var customerId = principal.GetUserId();
@@ -209,6 +213,24 @@ public static class CustomerSubscriptionsEndpoints
         subscriptionRequest.SubmittedAt = DateTimeOffset.UtcNow;
 
         await db.SaveChangesAsync(ct);
+
+        // Tell the moderators there is something to check. Tier and amount only — no customer
+        // identity or receipt in a notification that outlives any later change of permissions.
+        // A failed notification must never fail the customer's upload.
+        try
+        {
+            var moderatorIds = await StaffWithPermission.FindUserIdsAsync(db, Permissions.Subscriptions.Manage, ct);
+            foreach (var moderatorId in moderatorIds)
+            {
+                await notifications.PushAsync(moderatorId, "subscription_receipt",
+                    new { tier = subscriptionRequest.Tier.ToString(), amount = subscriptionRequest.ExpectedAmount, currency = catalog.Currency }, ct);
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogError(ex, "Moderator notification for subscription request {RequestId} failed", subscriptionRequest.Id);
+        }
+
         return Results.Ok(SubscriptionRequestDto.From(subscriptionRequest, catalog.PaymentWindow));
     }
 }

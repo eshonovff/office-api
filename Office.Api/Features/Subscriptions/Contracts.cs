@@ -68,6 +68,8 @@ public record SubscriptionRequestDto(
         r.SubmittedAt, r.ReviewedAt, r.ReviewNote);
 }
 
+public record PendingCountResponse(int Count);
+
 /// <summary>What a moderator sees — adds who the customer is and where the receipt is.</summary>
 public record ModeratorSubscriptionRequestDto(
     Guid Id,

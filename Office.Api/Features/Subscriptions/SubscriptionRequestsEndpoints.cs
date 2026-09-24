@@ -31,6 +31,11 @@ public static class SubscriptionRequestsEndpoints
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden);
 
+        group.MapGet("/pending-count", PendingCountAsync)
+            .RequirePermission(Permissions.Subscriptions.Manage)
+            .WithSummary("Шумораи чекҳои дар навбат — барои нишонаи меню")
+            .Produces<PendingCountResponse>(StatusCodes.Status200OK);
+
         group.MapGet("/{id:guid}/receipt", DownloadReceiptAsync)
             .RequirePermission(Permissions.Subscriptions.Manage)
             .WithSummary("Чеки пардохт (inline — расм ё PDF)")
@@ -95,8 +100,12 @@ public static class SubscriptionRequestsEndpoints
         return Results.Ok(requests.Select(ModeratorSubscriptionRequestDto.From));
     }
 
+    private static async Task<IResult> PendingCountAsync(AppDbContext db, CancellationToken ct) =>
+        Results.Ok(new PendingCountResponse(
+            await db.SubscriptionRequests.CountAsync(r => r.Status == SubscriptionRequestStatus.Pending, ct)));
+
     private static async Task<IResult> DownloadReceiptAsync(
-        Guid id, AppDbContext db, IConfiguration configuration, IWebHostEnvironment env, CancellationToken ct)
+        Guid id, HttpContext http, AppDbContext db, IConfiguration configuration, IWebHostEnvironment env, CancellationToken ct)
     {
         var receiptPath = await db.SubscriptionRequests.AsNoTracking()
             .Where(r => r.Id == id)
@@ -110,7 +119,10 @@ public static class SubscriptionRequestsEndpoints
         if (!ContentTypes.TryGetContentType(fullPath, out var contentType))
             contentType = "application/octet-stream";
 
-        // No download file name → served inline, so the moderator sees the image/PDF in place.
+        // Defense in depth on top of the upload's content check: never sniff the type, and if the
+        // response is ever rendered as a document, it may run nothing. No file name → inline.
+        http.Response.Headers.XContentTypeOptions = "nosniff";
+        http.Response.Headers.ContentSecurityPolicy = "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox";
         return Results.File(fullPath, contentType);
     }
 
