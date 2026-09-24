@@ -70,8 +70,8 @@ public static class SubscriptionRequestsEndpoints
     private static async Task<IResult> ListAsync(
         string? status, AppDbContext db, IConfiguration configuration, CancellationToken ct)
     {
-        await SubscriptionRequestExpiry.ExpireOverdueAsync(
-            db, SubscriptionCatalog.Load(configuration).PaymentWindow, DateTimeOffset.UtcNow, ct);
+        var catalog = SubscriptionCatalog.Load(configuration);
+        await SubscriptionRequestExpiry.ExpireOverdueAsync(db, catalog.PaymentWindow, DateTimeOffset.UtcNow, ct);
 
         var query = db.SubscriptionRequests.AsNoTracking().Include(r => r.Customer).AsQueryable();
 
@@ -97,7 +97,7 @@ public static class SubscriptionRequestsEndpoints
         }
 
         var requests = await query.Take(500).ToListAsync(ct);
-        return Results.Ok(requests.Select(ModeratorSubscriptionRequestDto.From));
+        return Results.Ok(requests.Select(r => ModeratorSubscriptionRequestDto.From(r, catalog.Currency)));
     }
 
     private static async Task<IResult> PendingCountAsync(AppDbContext db, CancellationToken ct) =>
@@ -127,7 +127,12 @@ public static class SubscriptionRequestsEndpoints
     }
 
     private static async Task<IResult> ApproveAsync(
-        Guid id, ClaimsPrincipal principal, AppDbContext db, IEmailSender emailSender, CancellationToken ct)
+        Guid id,
+        ClaimsPrincipal principal,
+        AppDbContext db,
+        IEmailSender emailSender,
+        IConfiguration configuration,
+        CancellationToken ct)
     {
         var reviewer = await LoadReviewerAsync(principal, db, ct);
         var now = DateTimeOffset.UtcNow;
@@ -156,7 +161,7 @@ public static class SubscriptionRequestsEndpoints
             $"{customer.PlanExpiresAt.Value.ToString("dd.MM.yyyy", CultureInfo.InvariantCulture)} фаъол аст.",
             ct);
 
-        return Results.Ok(ModeratorSubscriptionRequestDto.From(request));
+        return Results.Ok(ModeratorSubscriptionRequestDto.From(request, SubscriptionCatalog.Load(configuration).Currency));
     }
 
     private static async Task<IResult> RejectAsync(
@@ -165,6 +170,7 @@ public static class SubscriptionRequestsEndpoints
         ClaimsPrincipal principal,
         AppDbContext db,
         IEmailSender emailSender,
+        IConfiguration configuration,
         CancellationToken ct)
     {
         var reviewer = await LoadReviewerAsync(principal, db, ct);
@@ -183,7 +189,7 @@ public static class SubscriptionRequestsEndpoints
             $"Сабаб: {request.ReviewNote}\n\nЛутфан дархости нав фиристед ё ба мо муроҷиат кунед.",
             ct);
 
-        return Results.Ok(ModeratorSubscriptionRequestDto.From(request));
+        return Results.Ok(ModeratorSubscriptionRequestDto.From(request, SubscriptionCatalog.Load(configuration).Currency));
     }
 
     /// <summary>

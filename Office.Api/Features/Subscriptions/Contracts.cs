@@ -79,6 +79,7 @@ public record ModeratorSubscriptionRequestDto(
     string Tier,
     int DurationMonths,
     decimal ExpectedAmount,
+    string Currency,
     string Status,
     string? ReceiptUrl,
     string? ReceiptFileName,
@@ -90,9 +91,9 @@ public record ModeratorSubscriptionRequestDto(
     DateTimeOffset? ReviewedAt,
     string? ReviewNote)
 {
-    public static ModeratorSubscriptionRequestDto From(SubscriptionRequest r) => new(
+    public static ModeratorSubscriptionRequestDto From(SubscriptionRequest r, string currency) => new(
         r.Id, r.CustomerId, r.Customer.Email, r.Customer.FullName, r.Tier.ToString(), r.DurationMonths,
-        r.ExpectedAmount, r.Status.ToString(),
+        r.ExpectedAmount, currency, r.Status.ToString(),
         r.ReceiptPath is not null ? $"/api/subscription-requests/{r.Id}/receipt" : null,
         r.ReceiptFileName, r.PaidToBank, r.PaidToCardNumber,
         r.CreatedAt, r.SubmittedAt, r.ReviewedByUserName, r.ReviewedAt, r.ReviewNote);
