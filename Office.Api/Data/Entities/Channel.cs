@@ -9,6 +9,13 @@ public class Channel
     public string? CredentialsEncrypted { get; set; }
     public bool IsActive { get; set; } = true;
     public DateTimeOffset CreatedAt { get; set; }
+    /// <summary>
+    /// Соҳиби канал (Фазаи 14): null = канали ширкат (кормандон), вагарна мизоҷи худсабтшуда.
+    /// Ҳама чизи ба канал тобеъ (flow, conversation, message, …) соҳибро аз ин ҷо мерос мегирад —
+    /// ҷудокунӣ бо global query filter-и AppDbContext, на бо Where-и дастӣ.
+    /// </summary>
+    public Guid? CustomerId { get; set; }
+    public Customer? Customer { get; set; }
 
     /// <summary>
     /// Вақти анҷоми эътибори токен (Instagram long-lived: ~60 рӯз) — танҳо вақте провайдер
