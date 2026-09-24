@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.HttpOverrides;
 using System.Text;
 using System.Threading.RateLimiting;
 using FluentValidation;
@@ -373,7 +374,22 @@ if (string.IsNullOrEmpty(resendApiKey))
 else
     builder.Services.AddHttpClient<IEmailSender, ResendEmailSender>();
 
+// Behind nginx every request arrives from the proxy's address (the Docker bridge gateway in
+// production), so without this every per-IP rate limit is ONE bucket for the whole site — five
+// sign-ups a minute for everyone, and one attacker can lock everyone out of login. Trusted
+// senders: loopback and Docker bridge networks only. The API port is bound to 127.0.0.1, so
+// nothing outside the host can reach it to forge the header. ForwardLimit 1 = only the
+// address nginx appended; anything a client put into X-Forwarded-For itself is ignored.
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.ForwardLimit = 1;
+    options.KnownIPNetworks.Add(System.Net.IPNetwork.Parse("172.16.0.0/12"));
+});
+
 var app = builder.Build();
+
+app.UseForwardedHeaders();
 
 app.UseExceptionHandler(exceptionHandlerApp => exceptionHandlerApp.Run(async context =>
 {
