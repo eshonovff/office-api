@@ -86,7 +86,8 @@ public static class CustomerSubscriptionsEndpoints
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
-        if (!catalog.DurationMonths.Contains(request.Months))
+        var duration = catalog.FindDuration(request.Months);
+        if (duration is null)
         {
             return Results.Problem(
                 title: "Муддати нодуруст",
@@ -115,7 +116,7 @@ public static class CustomerSubscriptionsEndpoints
         foreach (var awaiting in open)
             awaiting.Status = SubscriptionRequestStatus.Cancelled;
 
-        var baseAmount = monthlyPrice.Value * request.Months;
+        var baseAmount = SubscriptionPriceCalculator.Calculate(monthlyPrice.Value, request.Months, duration.DiscountPercent);
         var takenAmounts = (await db.SubscriptionRequests.AsNoTracking()
                 .Where(r => (r.Status == SubscriptionRequestStatus.AwaitingPayment || r.Status == SubscriptionRequestStatus.Pending) &&
                             r.ExpectedAmount > baseAmount && r.ExpectedAmount < baseAmount + 1)

@@ -8,7 +8,7 @@ public class SubscriptionCatalogTests
         TrialDays: 7,
         PaymentWindow: TimeSpan.FromMinutes(5),
         Currency: "TJS",
-        DurationMonths: [1],
+        Durations: [new SubscriptionDurationOptions { Months = 1 }],
         Plans: [],
         PaymentCards:
         [

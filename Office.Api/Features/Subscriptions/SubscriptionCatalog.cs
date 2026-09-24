@@ -8,6 +8,12 @@ public class SubscriptionPlanOptions
     public decimal MonthlyPrice { get; set; }
 }
 
+public class SubscriptionDurationOptions
+{
+    public int Months { get; set; }
+    public decimal DiscountPercent { get; set; }
+}
+
 public class PaymentCardOptions
 {
     public string Bank { get; set; } = "";
@@ -26,7 +32,7 @@ public record SubscriptionCatalog(
     int TrialDays,
     TimeSpan PaymentWindow,
     string Currency,
-    IReadOnlyList<int> DurationMonths,
+    IReadOnlyList<SubscriptionDurationOptions> Durations,
     IReadOnlyList<SubscriptionPlanOptions> Plans,
     IReadOnlyList<PaymentCardOptions> PaymentCards)
 {
@@ -38,13 +44,17 @@ public record SubscriptionCatalog(
             section.GetValue("TrialDays", 7),
             TimeSpan.FromMinutes(section.GetValue("PaymentWindowMinutes", 5)),
             section.GetValue("Currency", "TJS")!,
-            section.GetSection("DurationMonths").Get<int[]>() ?? [1],
+            section.GetSection("Durations").Get<List<SubscriptionDurationOptions>>()
+                ?? [new SubscriptionDurationOptions { Months = 1 }],
             section.GetSection("Plans").Get<List<SubscriptionPlanOptions>>() ?? [],
             section.GetSection("PaymentCards").Get<List<PaymentCardOptions>>() ?? []);
     }
 
     public decimal? FindMonthlyPrice(CustomerPlanTier tier) =>
         Plans.FirstOrDefault(p => p.Tier == tier)?.MonthlyPrice;
+
+    public SubscriptionDurationOptions? FindDuration(int months) =>
+        Durations.FirstOrDefault(d => d.Months == months);
 
     /// <summary>Matches on digits only — config may write "5058 2703 …", the client sends either form.</summary>
     public PaymentCardOptions? FindPaymentCard(string? cardNumber)

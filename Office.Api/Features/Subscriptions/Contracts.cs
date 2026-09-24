@@ -2,23 +2,34 @@ using Office.Api.Data.Entities;
 
 namespace Office.Api.Features.Subscriptions;
 
-public record SubscriptionPlanDto(string Tier, decimal MonthlyPrice);
+/// <summary>What one duration of a plan costs — computed here so the page never re-derives it.</summary>
+public record SubscriptionPriceDto(int Months, decimal DiscountPercent, decimal FullPrice, decimal Total);
+
+public record SubscriptionPlanDto(string Tier, decimal MonthlyPrice, IReadOnlyList<SubscriptionPriceDto> Prices);
 
 public record PaymentCardDto(string Bank, string BankCode, string CardNumber, string HolderName);
 
 public record SubscriptionCatalogResponse(
     string Currency,
     int TrialDays,
-    IReadOnlyList<int> DurationMonths,
     IReadOnlyList<SubscriptionPlanDto> Plans,
     IReadOnlyList<PaymentCardDto> PaymentCards)
 {
     public static SubscriptionCatalogResponse From(SubscriptionCatalog catalog) => new(
         catalog.Currency,
         catalog.TrialDays,
-        catalog.DurationMonths,
-        catalog.Plans.Select(p => new SubscriptionPlanDto(p.Tier.ToString(), p.MonthlyPrice)).ToList(),
+        catalog.Plans.Select(p => PlanDto(p, catalog.Durations)).ToList(),
         catalog.PaymentCards.Select(c => new PaymentCardDto(c.Bank, c.BankCode, c.CardNumber, c.HolderName)).ToList());
+
+    private static SubscriptionPlanDto PlanDto(
+        SubscriptionPlanOptions plan, IReadOnlyList<SubscriptionDurationOptions> durations) => new(
+        plan.Tier.ToString(),
+        plan.MonthlyPrice,
+        durations.Select(d => new SubscriptionPriceDto(
+            d.Months,
+            d.DiscountPercent,
+            plan.MonthlyPrice * d.Months,
+            SubscriptionPriceCalculator.Calculate(plan.MonthlyPrice, d.Months, d.DiscountPercent))).ToList());
 }
 
 public record CreateSubscriptionRequest(string Tier, int Months);
