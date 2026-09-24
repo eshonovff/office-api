@@ -51,4 +51,23 @@ public class OAuthConnectPolicyTests
 
         Assert.Null(account);
     }
+
+    [Fact]
+    public void ResolveAccount_SessionOfAMizoj_IsNotUsableByStaffWithTheSameId()
+    {
+        // Staff and мизоҷ ids are separate id spaces — kind must match, not just the Guid.
+        var session = new OAuthConnectionSession(
+            ChannelType.Instagram, UserId, DateTimeOffset.UtcNow.AddMinutes(10), [Account], OAuthOwnerKind.Customer);
+
+        Assert.Null(OAuthConnectPolicy.ResolveAccount(session, ChannelType.Instagram, UserId, "page-1", OAuthOwnerKind.Staff));
+        Assert.Same(Account, OAuthConnectPolicy.ResolveAccount(session, ChannelType.Instagram, UserId, "page-1", OAuthOwnerKind.Customer));
+    }
+
+    [Fact]
+    public void ResolveAccount_StaffSession_IsNotUsableByAMizojWithTheSameId()
+    {
+        var session = MakeSession(ChannelType.Instagram, UserId); // Staff by default
+
+        Assert.Null(OAuthConnectPolicy.ResolveAccount(session, ChannelType.Instagram, UserId, "page-1", OAuthOwnerKind.Customer));
+    }
 }
