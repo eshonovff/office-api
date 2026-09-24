@@ -1,3 +1,4 @@
+using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
@@ -11,16 +12,16 @@ using Office.Api.Email;
 namespace Office.Api.Features.CustomerAuth;
 
 /// <summary>
-/// Сабти худии мизоз (email+parol — Google/Apple дар фазаҳои баъдӣ) — комилан ҷудо аз
-/// /api/auth-и кормандон: entity-и худ (Customer), JWT scheme-и худ ("Customer", ниг.
-/// Program.cs), cookie-и худ. Дастрасӣ бе RequirePermission — мизоз ҳеҷ гоҳ роль надорад.
+/// Сабти худии мизоз (email+parol, Google, Apple) — комилан ҷудо аз /api/auth-и кормандон:
+/// entity-и худ (Customer), JWT scheme-и худ ("Customer", ниг. Program.cs), cookie-и худ.
+/// Дастрасӣ бе RequirePermission — мизоз ҳеҷ гоҳ роль надорад.
 /// </summary>
 public static class CustomerAuthEndpoints
 {
     private static readonly TimeSpan ResendCooldown = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan CodeExpiry = TimeSpan.FromMinutes(15);
 
-    public static IEndpointRouteBuilder MapCustomerAuthEndpoints(this IEndpointRouteBuilder app)
+    public static IEndpointRouteBuilder MapCustomerAuthEndpoints(this IEndpointRouteBuilder app, IConfiguration configuration)
     {
         var group = app.MapGroup("/api/public/auth").WithTags("CustomerAuth");
 
@@ -72,6 +73,32 @@ public static class CustomerAuthEndpoints
             .WithSummary("Профили мизози ҷорӣ")
             .Produces<CustomerMeResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status401Unauthorized);
+
+        // Танҳо вақте сабт мешаванд, ки Client ID-и провайдер конфигуратсия шуда бошад —
+        // бе он схемаи JWT bearer-и дахлдор (Program.cs) ҳам сабт намешавад, пас endpoint
+        // санҷиши бесамар намекунад, танҳо намерасад (404), то соҳиби нокомили конфигуратсия
+        // тамоми app-ро аз кор наандозад.
+        if (!string.IsNullOrEmpty(configuration["Google:ClientId"]))
+        {
+            group.MapPost("/google", GoogleLoginAsync)
+                .RequireAuthorization(policy => policy.AddAuthenticationSchemes(AuthSchemes.Google).RequireAuthenticatedUser())
+                .WithSummary("Вуруд/сабти ном тавассути Google — Authorization: Bearer <Google ID token>")
+                .Produces<CustomerAuthResponse>(StatusCodes.Status200OK)
+                .ProducesProblem(StatusCodes.Status400BadRequest)
+                .ProducesProblem(StatusCodes.Status401Unauthorized)
+                .ProducesProblem(StatusCodes.Status409Conflict);
+        }
+
+        if (!string.IsNullOrEmpty(configuration["Apple:ClientId"]))
+        {
+            group.MapPost("/apple", AppleLoginAsync)
+                .RequireAuthorization(policy => policy.AddAuthenticationSchemes(AuthSchemes.Apple).RequireAuthenticatedUser())
+                .WithSummary("Вуруд/сабти ном тавассути Apple — Authorization: Bearer <Apple ID token>")
+                .Produces<CustomerAuthResponse>(StatusCodes.Status200OK)
+                .ProducesProblem(StatusCodes.Status400BadRequest)
+                .ProducesProblem(StatusCodes.Status401Unauthorized)
+                .ProducesProblem(StatusCodes.Status409Conflict);
+        }
 
         return app;
     }
@@ -264,6 +291,108 @@ public static class CustomerAuthEndpoints
         var customer = await db.Customers.AsNoTracking().FirstOrDefaultAsync(c => c.Id == customerId, ct);
         return customer is null ? Results.Unauthorized() : Results.Ok(CustomerMeResponse.From(customer));
     }
+
+    private static Task<IResult> GoogleLoginAsync(
+        ClaimsPrincipal principal, HttpContext context, AppDbContext db, ICustomerTokenService tokenService, CancellationToken ct) =>
+        ExternalLoginAsync(CustomerExternalLoginProvider.Google, principal, context, db, tokenService, ct);
+
+    private static Task<IResult> AppleLoginAsync(
+        ClaimsPrincipal principal, HttpContext context, AppDbContext db, ICustomerTokenService tokenService, CancellationToken ct) =>
+        ExternalLoginAsync(CustomerExternalLoginProvider.Apple, principal, context, db, tokenService, ct);
+
+    /// <summary>
+    /// principal аллакай тасдиқшуда аст — ASP.NET Core худи ID token-и Google/Apple-ро аз
+    /// рӯи JWKS-и он провайдер тасдиқ кардааст (Program.cs, Authority-based). Ин ҷо танҳо
+    /// қарори "кадом Customer" мемонад (ExternalLoginResolver, pure, тест шудааст).
+    /// </summary>
+    private static async Task<IResult> ExternalLoginAsync(
+        CustomerExternalLoginProvider provider,
+        ClaimsPrincipal principal,
+        HttpContext context,
+        AppDbContext db,
+        ICustomerTokenService tokenService,
+        CancellationToken ct)
+    {
+        var providerUserId = principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
+        if (string.IsNullOrEmpty(providerUserId))
+            return Results.Unauthorized();
+
+        var email = principal.FindFirst("email")?.Value;
+        var emailVerifiedClaim = principal.FindFirst("email_verified")?.Value;
+        // Apple (ва баъзан Google) "email_verified"-ро ҳамчун сатр мефиристад, на bool JSON.
+        var emailVerified = emailVerifiedClaim is "true" or "1";
+        var fullName = principal.FindFirst("name")?.Value;
+
+        var linkedCustomer = await db.Customers
+            .FirstOrDefaultAsync(c => c.ExternalLogins.Any(l => l.Provider == provider && l.ProviderUserId == providerUserId), ct);
+
+        if (linkedCustomer is null && string.IsNullOrEmpty(email))
+        {
+            // Apple email-ро танҳо дар аввалин авторизатсия мефиристад — агар пайванд
+            // набошад ва email ҳам набошад, ин корбарро муайян карда наметавонем.
+            return Results.Problem(
+                title: "Email лозим аст",
+                detail: "Провайдер email нафиристод. Лутфан бо email+parol сабти ном кунед.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        var normalizedEmail = email is null ? null : NormalizeEmail(email);
+        var customerByEmail = linkedCustomer is null && normalizedEmail is not null
+            ? await db.Customers.FirstOrDefaultAsync(c => c.Email == normalizedEmail, ct)
+            : null;
+
+        var action = ExternalLoginResolver.Resolve(linkedCustomer is not null, customerByEmail is not null, emailVerified);
+
+        Customer customer;
+        switch (action)
+        {
+            case ExternalLoginAction.UseLinkedCustomer:
+                customer = linkedCustomer!;
+                break;
+
+            case ExternalLoginAction.LinkToExistingCustomerByEmail:
+                customer = customerByEmail!;
+                db.CustomerExternalLogins.Add(NewExternalLogin(customer.Id, provider, providerUserId));
+                break;
+
+            case ExternalLoginAction.CreateNewCustomer:
+                customer = new Customer
+                {
+                    Id = Guid.CreateVersion7(),
+                    Email = normalizedEmail!,
+                    FullName = string.IsNullOrWhiteSpace(fullName) ? normalizedEmail! : fullName,
+                    PasswordHash = null,
+                    EmailVerifiedAt = DateTimeOffset.UtcNow,
+                    IsActive = true,
+                    CreatedAt = DateTimeOffset.UtcNow,
+                };
+                db.Customers.Add(customer);
+                db.CustomerExternalLogins.Add(NewExternalLogin(customer.Id, provider, providerUserId));
+                break;
+
+            case ExternalLoginAction.RejectUnverifiedEmail:
+            default:
+                return Results.Problem(
+                    title: "Email тасдиқ нашудааст",
+                    detail: "Ин email аллакай ба ҳисоби дигар тааллуқ дорад, вале провайдер онро тасдиқшуда надонист.",
+                    statusCode: StatusCodes.Status409Conflict);
+        }
+
+        customer.LastLoginAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(ct);
+
+        var accessToken = await CustomerAuthTokenIssuer.IssueAsync(context, db, tokenService, customer, ct);
+        return Results.Ok(new CustomerAuthResponse(accessToken, CustomerMeResponse.From(customer)));
+    }
+
+    private static CustomerExternalLogin NewExternalLogin(Guid customerId, CustomerExternalLoginProvider provider, string providerUserId) => new()
+    {
+        Id = Guid.CreateVersion7(),
+        CustomerId = customerId,
+        Provider = provider,
+        ProviderUserId = providerUserId,
+        CreatedAt = DateTimeOffset.UtcNow,
+    };
 
     private static bool IsResendCoolingDown(Customer customer, DateTimeOffset now) =>
         customer.EmailVerificationSentAt is not null && now - customer.EmailVerificationSentAt < ResendCooldown;

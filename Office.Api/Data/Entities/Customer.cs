@@ -11,7 +11,7 @@ public class Customer
 
     public required string Email { get; set; }
 
-    /// <summary>Null барои ҳисоби танҳо-OAuth (Google/Apple, ниг. фазаҳои баъдӣ) — email+parol ихтиёрист.</summary>
+    /// <summary>Null барои ҳисоби танҳо-OAuth (Google/Apple) — email+parol ихтиёрист.</summary>
     public string? PasswordHash { get; set; }
 
     public required string FullName { get; set; }
@@ -28,4 +28,5 @@ public class Customer
     public DateTimeOffset? LastLoginAt { get; set; }
 
     public ICollection<CustomerRefreshToken> RefreshTokens { get; set; } = [];
+    public ICollection<CustomerExternalLogin> ExternalLogins { get; set; } = [];
 }

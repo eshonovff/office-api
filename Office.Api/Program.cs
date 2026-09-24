@@ -149,7 +149,7 @@ var jwtKey = builder.Configuration["Jwt:Key"]
 var jwtCustomerKey = builder.Configuration["Jwt:CustomerKey"]
     ?? throw new InvalidOperationException("Jwt:CustomerKey танзим нашудааст.");
 
-builder.Services
+var authenticationBuilder = builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
@@ -199,6 +199,47 @@ builder.Services
             ClockSkew = TimeSpan.Zero,
         };
     });
+
+// Google/Apple — ихтиёрӣ: то Client ID-и воқеӣ (Google Cloud Console / Apple Developer,
+// Services ID) насб нашавад, схема сабт намешавад ва CustomerAuthEndpoints ҳам /google,
+// /apple-ро намесозад (на 500, балки 404 — то нокомилии конфигуратсия боқимондаи app-ро
+// аз кор наандозад). Authority = провайдер худаш JWKS-ро тавассути OIDC discovery
+// медиҳад — ID token-и Google/Apple бо калиди МО не, бо калиди ОНҲО тасдиқ мешавад.
+var googleClientId = builder.Configuration["Google:ClientId"];
+if (!string.IsNullOrEmpty(googleClientId))
+{
+    authenticationBuilder.AddJwtBearer(AuthSchemes.Google, options =>
+    {
+        options.MapInboundClaims = false;
+        options.Authority = "https://accounts.google.com";
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidIssuers = ["https://accounts.google.com", "accounts.google.com"],
+            ValidateAudience = true,
+            ValidAudience = googleClientId,
+            ValidateLifetime = true,
+        };
+    });
+}
+
+var appleClientId = builder.Configuration["Apple:ClientId"];
+if (!string.IsNullOrEmpty(appleClientId))
+{
+    authenticationBuilder.AddJwtBearer(AuthSchemes.Apple, options =>
+    {
+        options.MapInboundClaims = false;
+        options.Authority = "https://appleid.apple.com";
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidIssuer = "https://appleid.apple.com",
+            ValidateAudience = true,
+            ValidAudience = appleClientId,
+            ValidateLifetime = true,
+        };
+    });
+}
 
 builder.Services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();
 builder.Services.AddSingleton<IAuthorizationHandler, PermissionAuthorizationHandler>();
@@ -360,7 +401,7 @@ app.UseAuthorization();
 app.MapHealthChecks("/health");
 
 app.MapAuthEndpoints();
-app.MapCustomerAuthEndpoints();
+app.MapCustomerAuthEndpoints(builder.Configuration);
 app.MapUsersEndpoints();
 app.MapRolesEndpoints();
 app.MapProjectsEndpoints();
