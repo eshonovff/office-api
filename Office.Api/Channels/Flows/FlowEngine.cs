@@ -173,6 +173,17 @@ public class FlowEngine(AppDbContext db, InstagramProvider instagramProvider, IB
         // ин ҳам ҳамчун ҳалқа ҳисоб шавад (на танҳо ҳалқаҳои дар лаҳзаи StartAsync оғозёфта).
         gotoChain ??= [session.FlowId];
 
+        // Every run — a fresh start, a delay firing, a button, a reply — passes here, so this one
+        // check also stops sessions that were waiting when the мизоҷ's plan ran out.
+        var channelId = await db.Flows.Where(f => f.Id == session.FlowId).Select(f => f.ChannelId).FirstAsync(ct);
+        if (!await AutomationRunGate.CanRunAsync(channelId, db, ct))
+        {
+            session.Status = FlowSessionStatus.Failed;
+            session.Error = "Автоматизатсия қатъ шуд: тарифи соҳиби канал фаъол нест ё канал ҷудо шудааст.";
+            await db.SaveChangesAsync(ct);
+            return;
+        }
+
         while (true)
         {
             if (FlowSessionLoopGuard.ShouldStop(session.StepCount))

@@ -23,6 +23,10 @@ public class FlowTriggerProcessor(AppDbContext db, FlowEngine engine, ILogger<Fl
         if (evt.ActorExternalId == channel.ExternalId)
             return; // ҳамон филтри ҳалқаи CommentAutomationProcessor
 
+        // No plan (or a disconnected мизоҷ channel): don't even open a session.
+        if (!await AutomationRunGate.CanRunAsync(channel.Id, db, ct))
+            return;
+
         if (await db.FlowSessions.AnyAsync(s => s.Flow.ChannelId == channel.Id && s.TriggerExternalId == evt.CommentId, ct))
             return;
 
@@ -42,6 +46,9 @@ public class FlowTriggerProcessor(AppDbContext db, FlowEngine engine, ILogger<Fl
     public async Task ProcessMessageAsync(Channel channel, Conversation contact, ParsedWebhookMessage message, CancellationToken ct)
     {
         if (message.Direction != MessageDirection.Inbound)
+            return;
+
+        if (!await AutomationRunGate.CanRunAsync(channel.Id, db, ct))
             return;
 
         // Аввал: сессияи intizорӣ (waiting) барои ҳамин contact — новобаста аз кадом flow.
