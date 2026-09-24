@@ -8,6 +8,7 @@ using Office.Api.Common;
 using Office.Api.Data;
 using Office.Api.Data.Entities;
 using Office.Api.Features.Channels;
+using Office.Api.Features.CommentAutomation;
 using Office.Api.Features.Subscriptions;
 
 namespace Office.Api.Features.CustomerChannels;
@@ -61,6 +62,13 @@ public static class CustomerChannelsEndpoints
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status409Conflict);
+
+        // Post picker for a flow's comment trigger. Same handler as staff: it looks the channel up
+        // through the tenant-filtered context first, so another owner's channel is 404.
+        group.MapGet("/{channelId:guid}/instagram-media", CommentAutomationEndpoints.ListInstagramMediaAsync)
+            .WithSummary("Постҳои охирини Instagram-и канали худ (барои интихоби пост дар триггер)")
+            .Produces<InstagramMediaListResult>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         group.MapDelete("/{id:guid}", DisconnectAsync)
             .WithSummary("Ҷудо кардани канал — токен нест мешавад, автоматизатсияҳо қатъ мешаванд, маълумот мемонад")

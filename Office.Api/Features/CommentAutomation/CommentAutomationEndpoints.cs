@@ -199,7 +199,7 @@ public static class CommentAutomationEndpoints
         return Results.Ok(new DryRunAutomationRuleResult(true, match.MatchedKeyword, followCheckResult));
     }
 
-    private static async Task<IResult> ListInstagramMediaAsync(
+    internal static async Task<IResult> ListInstagramMediaAsync(
         Guid channelId, string? after, int? limit, AppDbContext db, InstagramProvider instagramProvider, IMemoryCache cache, CancellationToken ct)
     {
         var channel = await db.Channels.FirstOrDefaultAsync(c => c.Id == channelId && c.Type == ChannelType.Instagram, ct);
