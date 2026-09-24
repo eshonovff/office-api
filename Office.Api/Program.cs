@@ -21,12 +21,14 @@ using Office.Api.Channels.Meta;
 using Office.Api.Channels.WhatsApp;
 using Office.Api.Common;
 using Office.Api.Data;
+using Office.Api.Email;
 using Office.Api.Media;
 using Office.Api.Features.Auth;
 using Office.Api.Features.Automations;
 using Office.Api.Features.Channels;
 using Office.Api.Features.CommentAutomation;
 using Office.Api.Features.Conversations;
+using Office.Api.Features.CustomerAuth;
 using Office.Api.Features.Flows;
 using Office.Api.Features.Dashboard;
 using Office.Api.Features.Jobs;
@@ -43,6 +45,7 @@ using Serilog;
 
 const string FrontendCorsPolicy = "Frontend";
 const string LoginRateLimiterPolicy = "login";
+const string CustomerAuthRateLimiterPolicy = "customer-auth";
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -143,6 +146,9 @@ builder.Services.AddCors(options =>
 var jwtKey = builder.Configuration["Jwt:Key"]
     ?? throw new InvalidOperationException("Jwt:Key танзим нашудааст.");
 
+var jwtCustomerKey = builder.Configuration["Jwt:CustomerKey"]
+    ?? throw new InvalidOperationException("Jwt:CustomerKey танзим нашудааст.");
+
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
@@ -176,11 +182,32 @@ builder.Services
                 return Task.CompletedTask;
             },
         };
+    })
+    // Схемаи дуюм, бо калиди ИМЗОИ ҷудогона — барои Customer (мизози беруна). Калиди
+    // дигар маънои онро дорад, ки токени мизоз аз рӯи имзо ҳам ба схемаи болои (пешфарз,
+    // барои кормандон) мувофиқ намеояд, пас PermissionsVersionMiddleware ва RequirePermission
+    // ҳеҷ гоҳ токени мизозро сарфи назар аз хатои конфигуратсия қабул карда наметавонанд.
+    .AddJwtBearer(AuthSchemes.Customer, options =>
+    {
+        options.MapInboundClaims = false;
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = false,
+            ValidateAudience = false,
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtCustomerKey)),
+            ClockSkew = TimeSpan.Zero,
+        };
     });
 
 builder.Services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();
 builder.Services.AddSingleton<IAuthorizationHandler, PermissionAuthorizationHandler>();
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy(AuthSchemes.CustomerOnlyPolicy, policy => policy
+        .AddAuthenticationSchemes(AuthSchemes.Customer)
+        .RequireAuthenticatedUser());
+});
 // GET /api/dashboard — 60-сонияи кэш дар хотира (аввалин истифодаи IMemoryCache дар ин лоиҳа),
 // калидаш аз userId+нақшҳо, ниг. DashboardEndpoints.
 builder.Services.AddMemoryCache();
@@ -197,6 +224,19 @@ builder.Services.AddRateLimiter(options =>
                 PermitLimit = 5,
                 QueueLimit = 0,
             }));
+
+    // register/verify-email/resend-code/login якҷоя — ҳимояи асосии зидди brute-force-и
+    // коди 6-рақама EmailVerificationChecker.MaxAttempts (санадоки ба ҳисоб) аст, ин танҳо
+    // лояи дуюм (зидди flood аз як IP).
+    options.AddPolicy(CustomerAuthRateLimiterPolicy, context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                Window = TimeSpan.FromMinutes(1),
+                PermitLimit = 5,
+                QueueLimit = 0,
+            }));
 });
 
 builder.Services.AddValidatorsFromAssemblyContaining<Program>();
@@ -205,6 +245,7 @@ builder.Services.AddSignalR();
 
 builder.Services.AddScoped<IPermissionService, PermissionService>();
 builder.Services.AddScoped<ITokenService, TokenService>();
+builder.Services.AddScoped<ICustomerTokenService, CustomerTokenService>();
 builder.Services.AddScoped<ProjectAccessGuard>();
 builder.Services.AddScoped<IProjectAccessGuard>(sp => sp.GetRequiredService<ProjectAccessGuard>());
 builder.Services.AddScoped<ChannelAccessGuard>();
@@ -261,6 +302,14 @@ builder.Services.AddScoped<FlowTriggerProcessor>();
 
 builder.Services.AddHttpClient<ISmsSender, OsonSmsSender>();
 
+// Email:Resend:ApiKey холӣ бошад → LoggingEmailSender (dev — коди тасдиқ ба log мебарояд,
+// на ба email-и воқеӣ) — то провайдер интихоб нашуда бошад ҳам, тамоми ҷараён санҷида шавад.
+var resendApiKey = builder.Configuration["Email:Resend:ApiKey"];
+if (string.IsNullOrEmpty(resendApiKey))
+    builder.Services.AddSingleton<IEmailSender, LoggingEmailSender>();
+else
+    builder.Services.AddHttpClient<IEmailSender, ResendEmailSender>();
+
 var app = builder.Build();
 
 app.UseExceptionHandler(exceptionHandlerApp => exceptionHandlerApp.Run(async context =>
@@ -311,6 +360,7 @@ app.UseAuthorization();
 app.MapHealthChecks("/health");
 
 app.MapAuthEndpoints();
+app.MapCustomerAuthEndpoints();
 app.MapUsersEndpoints();
 app.MapRolesEndpoints();
 app.MapProjectsEndpoints();

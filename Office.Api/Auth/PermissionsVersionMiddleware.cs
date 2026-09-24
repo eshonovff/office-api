@@ -4,6 +4,12 @@ using Office.Api.Data;
 
 namespace Office.Api.Auth;
 
+/// <summary>
+/// Танҳо схемаи ПЕШФАРЗ (кормандон)-ро месанҷад — байни UseAuthentication (схемаи пешфарз
+/// танҳо) ва UseAuthorization (интихоби схема аз рӯи endpoint, аз ҷумла AuthSchemes.Customer)
+/// меистад. Токени Customer бо калиди дигар имзо шудааст, пас дар ин лаҳза ҳанӯз authenticate
+/// нашудааст (context.User.Identity.IsAuthenticated=false) — ин middleware барои он бехабар мегузарад.
+/// </summary>
 public class PermissionsVersionMiddleware(RequestDelegate next)
 {
     public async Task InvokeAsync(HttpContext context, AppDbContext db)
