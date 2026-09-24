@@ -19,7 +19,8 @@ public static class FlowTemplateSeeder
         await UpsertAsync(db, "Лид-магнит бо тасдиқи обуна",
             "Пеш аз фиристодани файл/линк, тафтиш мекунад ки корбар обуна ҳаст ё не.", LeadMagnetTemplate(), ct);
         await UpsertAsync(db, "Ҷавоб ба комментарий + DM",
-            "Як паёми оддии DM — кор мекунад ҳам барои триггери коментарий (тавассути Private Reply), ҳам барои DM. ДИҚҚАТ: дар худи коментарий ҷавоби ҷамъиятӣ намефиристад — Flow ин имкониятро надорад, танҳо automation_rules-и оддӣ дорад.",
+            // Shown to мизоҷон too — plain words, no internal names (it used to mention automation_rules).
+            "Ба ҳар касе, ки коментарий ё паём менависад, дар Direct ҷавоб мефиристад. Дар зери худи пост ҷавоби ҷамъиятӣ навишта намешавад.",
             CommentReplyTemplate(), ct);
         await UpsertAsync(db, "Ҷамъоварии контакт",
             "Ном → рақами телефон → тег — барои ҷамъоварии лидҳо тавассути DM.", ContactCollectionTemplate(), ct);
