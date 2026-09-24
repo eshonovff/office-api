@@ -351,7 +351,12 @@ public static class CustomerAuthEndpoints
                 break;
 
             case ExternalLoginAction.LinkToExistingCustomerByEmail:
+                // Ин шоха танҳо вақте мерасад, ки providerEmailVerified=true (ExternalLoginResolver) —
+                // пас агар customer аз сабти қаблии email+parol нотасдиқ монда бошад (масалан корбар
+                // коди тасдиқро гум карда буд), Google/Apple аллакай онро тасдиқ карда — набояд
+                // EmailVerifiedAt-ро null монем, вагарна POST /login (email+parol) баъдтар 403 медиҳад.
                 customer = customerByEmail!;
+                customer.EmailVerifiedAt ??= DateTimeOffset.UtcNow;
                 db.CustomerExternalLogins.Add(NewExternalLogin(customer.Id, provider, providerUserId));
                 break;
 
