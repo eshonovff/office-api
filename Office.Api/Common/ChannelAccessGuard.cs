@@ -40,15 +40,27 @@ public interface IChannelAccessGuard
     IQueryable<User> ApplyAssignableUsersFilter(IQueryable<User> query, Guid channelId);
 }
 
+/// <summary>
+/// The STAFF access guard: it only ever admits company channels (<c>CustomerId == null</c>),
+/// checked explicitly here on top of AppDbContext's tenant filter. Explicit because not every
+/// caller goes through a filtered query — InboxHub.JoinChannel for Owner/Admin used to answer
+/// "yes" without touching the database at all, which would have let staff subscribe to a
+/// мизоҷ channel's live messages by its id.
+/// </summary>
 public class ChannelAccessGuard(AppDbContext db) : IChannelAccessGuard
 {
     public static bool CanSeeAllChannels(ClaimsPrincipal principal) =>
         principal.IsInRole(RoleKeys.Owner) || principal.IsInRole(RoleKeys.Admin);
 
+    private Task<bool> IsCompanyChannelAsync(Guid channelId, CancellationToken ct) =>
+        db.Channels.AnyAsync(c => c.Id == channelId && c.CustomerId == null, ct);
+
     public async Task<IQueryable<Conversation>> ApplyAccessFilterAsync(
         IQueryable<Conversation> query, ClaimsPrincipal principal, CancellationToken ct)
     {
         var userId = principal.GetUserId();
+
+        query = query.Where(c => c.Channel.CustomerId == null);
 
         if (!CanSeeAllChannels(principal))
             query = query.Where(c => c.Channel.Members.Any(m => m.UserId == userId));
@@ -61,6 +73,9 @@ public class ChannelAccessGuard(AppDbContext db) : IChannelAccessGuard
 
     public async Task<bool> HasAccessAsync(ClaimsPrincipal principal, Guid channelId, Guid? assignedTo, CancellationToken ct)
     {
+        if (!await IsCompanyChannelAsync(channelId, ct))
+            return false;
+
         var userId = principal.GetUserId();
         var canSeeAll = CanSeeAllChannels(principal);
 
@@ -77,6 +92,8 @@ public class ChannelAccessGuard(AppDbContext db) : IChannelAccessGuard
         var onlyAssigned = await GetOnlyAssignedAsync(userId, ct);
         var policy = ChannelListAccessResolver.Resolve(CanSeeAllChannels(principal), onlyAssigned);
 
+        query = query.Where(c => c.CustomerId == null);
+
         var filtered = policy.Scope switch
         {
             ChannelListScope.All => query,
@@ -90,6 +107,9 @@ public class ChannelAccessGuard(AppDbContext db) : IChannelAccessGuard
 
     public async Task<bool> CanAccessChannelAsync(ClaimsPrincipal principal, Guid channelId, CancellationToken ct)
     {
+        if (!await IsCompanyChannelAsync(channelId, ct))
+            return false;
+
         var userId = principal.GetUserId();
         var onlyAssigned = await GetOnlyAssignedAsync(userId, ct);
         var policy = ChannelListAccessResolver.Resolve(CanSeeAllChannels(principal), onlyAssigned);
@@ -111,8 +131,9 @@ public class ChannelAccessGuard(AppDbContext db) : IChannelAccessGuard
 
     public IQueryable<User> ApplyAssignableUsersFilter(IQueryable<User> query, Guid channelId) =>
         query.Where(u =>
-            u.UserRoles.Any(ur => ur.Role.Key == RoleKeys.Owner || ur.Role.Key == RoleKeys.Admin) ||
-            db.ChannelMembers.Any(m => m.ChannelId == channelId && m.UserId == u.Id));
+            db.Channels.Any(c => c.Id == channelId && c.CustomerId == null) &&
+            (u.UserRoles.Any(ur => ur.Role.Key == RoleKeys.Owner || ur.Role.Key == RoleKeys.Admin) ||
+             db.ChannelMembers.Any(m => m.ChannelId == channelId && m.UserId == u.Id)));
 
     private Task<bool> GetOnlyAssignedAsync(Guid userId, CancellationToken ct) =>
         db.Users.Where(u => u.Id == userId).Select(u => u.OnlyAssigned).FirstAsync(ct);

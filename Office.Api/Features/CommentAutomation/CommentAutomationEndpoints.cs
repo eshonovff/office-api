@@ -176,6 +176,11 @@ public static class CommentAutomationEndpoints
     private static async Task<IResult> DryRunAsync(
         Guid channelId, DryRunAutomationRuleRequest request, AppDbContext db, InstagramProvider instagramProvider, CancellationToken ct)
     {
+        // Check first, like every endpoint under /api/channels/{channelId}: a channel the caller
+        // can't see (another owner's) is 404, even though the match below reads no data.
+        if (!await db.Channels.AnyAsync(c => c.Id == channelId, ct))
+            return Results.NotFound();
+
         var match = CommentAutomationMatcher.Match(request.TriggerConfig, request.CommentText, request.MediaId);
         if (!match.Matched)
             return Results.Ok(new DryRunAutomationRuleResult(false, null, null));
