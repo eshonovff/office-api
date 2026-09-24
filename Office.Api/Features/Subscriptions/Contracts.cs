@@ -4,7 +4,7 @@ namespace Office.Api.Features.Subscriptions;
 
 public record SubscriptionPlanDto(string Tier, decimal MonthlyPrice);
 
-public record PaymentCardDto(string Bank, string CardNumber, string HolderName);
+public record PaymentCardDto(string Bank, string BankCode, string CardNumber, string HolderName);
 
 public record SubscriptionCatalogResponse(
     string Currency,
@@ -18,7 +18,7 @@ public record SubscriptionCatalogResponse(
         catalog.TrialDays,
         catalog.DurationMonths,
         catalog.Plans.Select(p => new SubscriptionPlanDto(p.Tier.ToString(), p.MonthlyPrice)).ToList(),
-        catalog.PaymentCards.Select(c => new PaymentCardDto(c.Bank, c.CardNumber, c.HolderName)).ToList());
+        catalog.PaymentCards.Select(c => new PaymentCardDto(c.Bank, c.BankCode, c.CardNumber, c.HolderName)).ToList());
 }
 
 public record CreateSubscriptionRequest(string Tier, int Months);

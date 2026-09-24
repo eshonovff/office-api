@@ -11,6 +11,8 @@ public class SubscriptionPlanOptions
 public class PaymentCardOptions
 {
     public string Bank { get; set; } = "";
+    /// <summary>Stable key ("dc", "alif") the frontend maps to its own logo; unknown → no logo.</summary>
+    public string BankCode { get; set; } = "";
     public string CardNumber { get; set; } = "";
     public string HolderName { get; set; } = "";
 }
