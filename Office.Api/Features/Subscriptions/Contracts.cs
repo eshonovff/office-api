@@ -5,7 +5,11 @@ namespace Office.Api.Features.Subscriptions;
 /// <summary>What one duration of a plan costs — computed here so the page never re-derives it.</summary>
 public record SubscriptionPriceDto(int Months, decimal DiscountPercent, decimal FullPrice, decimal Total);
 
-public record SubscriptionPlanDto(string Tier, decimal MonthlyPrice, IReadOnlyList<SubscriptionPriceDto> Prices);
+/// <summary>Null count = unlimited.</summary>
+public record PlanLimitsDto(int? Accounts, int? ActiveAutomations, int? TeamMembers, bool WhatsAppBroadcasts);
+
+public record SubscriptionPlanDto(
+    string Tier, decimal MonthlyPrice, PlanLimitsDto Limits, IReadOnlyList<SubscriptionPriceDto> Prices);
 
 public record PaymentCardDto(string Bank, string BankCode, string CardNumber, string HolderName);
 
@@ -25,6 +29,8 @@ public record SubscriptionCatalogResponse(
         SubscriptionPlanOptions plan, IReadOnlyList<SubscriptionDurationOptions> durations) => new(
         plan.Tier.ToString(),
         plan.MonthlyPrice,
+        new PlanLimitsDto(
+            plan.Limits.Accounts, plan.Limits.ActiveAutomations, plan.Limits.TeamMembers, plan.Limits.WhatsAppBroadcasts),
         durations.Select(d => new SubscriptionPriceDto(
             d.Months,
             d.DiscountPercent,

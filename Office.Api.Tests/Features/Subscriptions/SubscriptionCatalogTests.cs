@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Configuration;
 using Office.Api.Features.Subscriptions;
 
 namespace Office.Api.Tests.Features.Subscriptions;
@@ -38,5 +39,49 @@ public class SubscriptionCatalogTests
     public void FindPaymentCard_MissingOrUnknown_ReturnsNull(string? cardNumber)
     {
         Assert.Null(Catalog.FindPaymentCard(cardNumber));
+    }
+
+    [Fact]
+    public void Load_PlanLimits_AbsentCountMeansUnlimited()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Subscriptions:Plans:0:Tier"] = "Pro",
+                ["Subscriptions:Plans:0:MonthlyPrice"] = "200",
+                ["Subscriptions:Plans:0:Limits:Accounts"] = "1",
+                ["Subscriptions:Plans:0:Limits:ActiveAutomations"] = "10",
+                ["Subscriptions:Plans:1:Tier"] = "Premium",
+                ["Subscriptions:Plans:1:MonthlyPrice"] = "1200",
+                ["Subscriptions:Plans:1:Limits:WhatsAppBroadcasts"] = "true",
+            })
+            .Build();
+
+        var plans = SubscriptionCatalog.Load(configuration).Plans;
+
+        Assert.Equal(10, plans[0].Limits.ActiveAutomations);
+        Assert.Equal(1, plans[0].Limits.Accounts);
+        Assert.False(plans[0].Limits.WhatsAppBroadcasts);
+        Assert.Null(plans[1].Limits.Accounts);
+        Assert.Null(plans[1].Limits.ActiveAutomations);
+        Assert.True(plans[1].Limits.WhatsAppBroadcasts);
+    }
+
+    [Fact]
+    public void Load_PlanWithoutLimitsSection_IsUnlimited()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Subscriptions:Plans:0:Tier"] = "Creator",
+                ["Subscriptions:Plans:0:MonthlyPrice"] = "450",
+            })
+            .Build();
+
+        var limits = SubscriptionCatalog.Load(configuration).Plans[0].Limits;
+
+        Assert.Null(limits.Accounts);
+        Assert.Null(limits.ActiveAutomations);
+        Assert.Null(limits.TeamMembers);
     }
 }

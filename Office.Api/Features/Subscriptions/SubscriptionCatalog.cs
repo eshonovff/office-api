@@ -6,6 +6,21 @@ public class SubscriptionPlanOptions
 {
     public CustomerPlanTier Tier { get; set; }
     public decimal MonthlyPrice { get; set; }
+    public PlanLimitsOptions Limits { get; set; } = new();
+}
+
+/// <summary>
+/// What a tier allows. A count left out of config (null) means unlimited — deliberately
+/// "absent", not JSON null, which the configuration binder doesn't reliably map to null.
+/// Shown on the pricing cards now; enforced once customers get their own channels and
+/// automations (the multi-tenancy phase).
+/// </summary>
+public class PlanLimitsOptions
+{
+    public int? Accounts { get; set; }
+    public int? ActiveAutomations { get; set; }
+    public int? TeamMembers { get; set; }
+    public bool WhatsAppBroadcasts { get; set; }
 }
 
 public class SubscriptionDurationOptions
