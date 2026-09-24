@@ -55,6 +55,12 @@ builder.Host.UseSerilog((context, configuration) =>
 
 builder.Services.AddProblemDetails();
 
+// Staff vs мизоҷ vs background job — decides which channels every AppDbContext query can see
+// (the context's global query filters). Singleton: it holds nothing, it reads the current
+// HttpContext on every use.
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddSingleton<ITenantContext, HttpTenantContext>();
+
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
 
@@ -162,6 +168,8 @@ var authenticationBuilder = builder.Services
             ValidateIssuerSigningKey = true,
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
             ClockSkew = TimeSpan.Zero,
+            // Who validated this identity — TenantResolver keys data isolation off it.
+            AuthenticationType = AuthSchemes.StaffIdentity,
         };
 
         // WebSocket-и браузер Authorization header гузошта наметавонад — токенро
@@ -198,6 +206,7 @@ var authenticationBuilder = builder.Services
             ValidateIssuerSigningKey = true,
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtCustomerKey)),
             ClockSkew = TimeSpan.Zero,
+            AuthenticationType = AuthSchemes.Customer,
         };
     });
 
@@ -220,6 +229,7 @@ if (!string.IsNullOrEmpty(googleClientId))
             ValidateAudience = true,
             ValidAudience = googleClientId,
             ValidateLifetime = true,
+            AuthenticationType = AuthSchemes.Google,
         };
     });
 }
@@ -238,6 +248,7 @@ if (!string.IsNullOrEmpty(appleClientId))
             ValidateAudience = true,
             ValidAudience = appleClientId,
             ValidateLifetime = true,
+            AuthenticationType = AuthSchemes.Apple,
         };
     });
 }

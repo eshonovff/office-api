@@ -10,6 +10,13 @@ public static class AuthSchemes
     public const string CustomerOnlyPolicy = "CustomerOnly";
 
     /// <summary>
+    /// AuthenticationType the default (staff) scheme stamps on its identities. Each scheme sets
+    /// its own (Staff / Customer / Google / Apple) so TenantResolver can tell who validated a
+    /// principal without trusting its claims.
+    /// </summary>
+    public const string StaffIdentity = "Staff";
+
+    /// <summary>
     /// Google/Apple — on та FALSE ID token-и провайдер аст (RS256, аз рӯи JWKS-и худи
     /// Google/Apple тасдиқ мешавад тавассути Authority, на калиди мо). Танҳо вақте сабт
     /// мешаванд, ки Google:ClientId/Apple:ClientId конфигуратсия шуда бошанд (ниг. Program.cs).
