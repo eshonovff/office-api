@@ -27,6 +27,12 @@ public class Customer
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset? LastLoginAt { get; set; }
 
+    // Effective access (trial / active / expired) is never stored — derived from these three
+    // plus "now" by CustomerAccessResolver, so an expiring plan needs no background job.
+    public DateTimeOffset? TrialEndsAt { get; set; }
+    public CustomerPlanTier? PlanTier { get; set; }
+    public DateTimeOffset? PlanExpiresAt { get; set; }
+
     public ICollection<CustomerRefreshToken> RefreshTokens { get; set; } = [];
     public ICollection<CustomerExternalLogin> ExternalLogins { get; set; } = [];
 }

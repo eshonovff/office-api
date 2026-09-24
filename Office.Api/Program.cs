@@ -37,6 +37,7 @@ using Office.Api.Features.Notifications;
 using Office.Api.Features.Projects;
 using Office.Api.Features.Roles;
 using Office.Api.Features.Tasks;
+using Office.Api.Features.Subscriptions;
 using Office.Api.Features.Users;
 using Office.Api.Realtime;
 using Office.Api.Sms;
@@ -402,6 +403,8 @@ app.MapHealthChecks("/health");
 
 app.MapAuthEndpoints();
 app.MapCustomerAuthEndpoints(builder.Configuration);
+app.MapCustomerSubscriptionsEndpoints();
+app.MapSubscriptionRequestsEndpoints();
 app.MapUsersEndpoints();
 app.MapRolesEndpoints();
 app.MapProjectsEndpoints();

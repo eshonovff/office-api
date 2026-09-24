@@ -28,6 +28,7 @@ tasks.delete        tasks.assign      tasks.move
 inbox.view          inbox.reply       inbox.assign
 inbox.close         inbox.delete
 channels.manage     templates.manage
+subscriptions.manage
 ```
 
 Дар `Auth/Permissions.cs` ҳамчун константа. **Калиди нав танҳо баъди тасдиқ.**
