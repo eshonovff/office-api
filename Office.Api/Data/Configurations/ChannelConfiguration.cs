@@ -20,6 +20,8 @@ public class ChannelConfiguration : IEntityTypeConfiguration<Channel>
         builder.HasIndex(c => new { c.Type, c.ExternalId }).IsUnique();
 
         builder.HasIndex(c => c.CustomerId);
+        builder.Property(c => c.MetaAppScopedUserId).HasMaxLength(100);
+        builder.HasIndex(c => c.MetaAppScopedUserId);
         // Restrict, like Conversation → Channel: removing a мизоҷ's data is an explicit
         // operation (Meta data-deletion callback), never a side effect of a cascade.
         builder.HasOne(c => c.Customer)

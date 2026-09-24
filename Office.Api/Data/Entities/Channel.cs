@@ -16,6 +16,13 @@ public class Channel
     /// </summary>
     public Guid? CustomerId { get; set; }
     public Customer? Customer { get; set; }
+    /// <summary>
+    /// Instagram's app-scoped user id (/me.id at connect), distinct from ExternalId (/me.user_id,
+    /// the business account id webhooks use). Meta's data-deletion callback may identify the user
+    /// by it, so it's what DataDeletionJob matches on (with ExternalId as a fallback).
+    /// Null for channels connected before this was recorded, and for non-Instagram channels.
+    /// </summary>
+    public string? MetaAppScopedUserId { get; set; }
 
     /// <summary>
     /// Вақти анҷоми эътибори токен (Instagram long-lived: ~60 рӯз) — танҳо вақте провайдер

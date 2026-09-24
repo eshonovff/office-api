@@ -65,6 +65,7 @@ public static class OAuthChannelConnection
                 CreatedAt = DateTimeOffset.UtcNow,
                 CredentialsExpiresAt = account.CredentialsExpiresAt,
                 CustomerId = ownerCustomerId,
+                MetaAppScopedUserId = account.AppScopedUserId,
             };
             db.Channels.Add(channel);
         }
@@ -74,6 +75,7 @@ public static class OAuthChannelConnection
             existing.CredentialsEncrypted = credentialsEncrypted;
             existing.IsActive = true;
             existing.CredentialsExpiresAt = account.CredentialsExpiresAt;
+            existing.MetaAppScopedUserId = account.AppScopedUserId ?? existing.MetaAppScopedUserId;
             // Пайвастшавии нав (дастӣ ё худкор) ҳамеша аломати "пайвастшавӣ лозим"-ро тоза мекунад —
             // ин маҳз он чизест, ки корбар ҳоло анҷом дод.
             existing.RequiresReconnect = false;

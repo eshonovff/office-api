@@ -10,4 +10,10 @@ public sealed record ConnectableAccount(
     string Name,
     string CredentialsJson,
     /// <summary>Танҳо Instagram медиҳад (ig_exchange_token-и response's expires_in) — Facebook null мемонад.</summary>
-    DateTimeOffset? CredentialsExpiresAt = null);
+    DateTimeOffset? CredentialsExpiresAt = null,
+    /// <summary>
+    /// Instagram only: the app-scoped user id (/me.id), which is NOT ExternalId (/me.user_id).
+    /// Meta's data-deletion callback identifies the user by an id of its own choosing — kept so
+    /// that request can be matched to this channel. Facebook: null.
+    /// </summary>
+    string? AppScopedUserId = null);
