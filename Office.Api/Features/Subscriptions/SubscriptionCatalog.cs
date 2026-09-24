@@ -24,6 +24,7 @@ public class PaymentCardOptions
 /// </summary>
 public record SubscriptionCatalog(
     int TrialDays,
+    TimeSpan PaymentWindow,
     string Currency,
     IReadOnlyList<int> DurationMonths,
     IReadOnlyList<SubscriptionPlanOptions> Plans,
@@ -35,6 +36,7 @@ public record SubscriptionCatalog(
 
         return new SubscriptionCatalog(
             section.GetValue("TrialDays", 7),
+            TimeSpan.FromMinutes(section.GetValue("PaymentWindowMinutes", 5)),
             section.GetValue("Currency", "TJS")!,
             section.GetSection("DurationMonths").Get<int[]>() ?? [1],
             section.GetSection("Plans").Get<List<SubscriptionPlanOptions>>() ?? [],

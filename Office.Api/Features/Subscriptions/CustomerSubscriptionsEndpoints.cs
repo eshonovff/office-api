@@ -31,7 +31,7 @@ public static class CustomerSubscriptionsEndpoints
 
         group.MapPost("/requests", CreateRequestAsync)
             .WithValidation<CreateSubscriptionRequest>()
-            .WithSummary("Дархости нав — маблағи ягонаи гузаронидан (мас. 200.37) медиҳад")
+            .WithSummary("Дархости нав — маблағи ягонаи гузаронидан (мас. 200.37) ва `paymentDeadline` (Subscriptions:PaymentWindowMinutes) медиҳад")
             .Produces<SubscriptionRequestDto>(StatusCodes.Status200OK)
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -51,15 +51,19 @@ public static class CustomerSubscriptionsEndpoints
     private static IResult GetCatalog(IConfiguration configuration) =>
         Results.Ok(SubscriptionCatalogResponse.From(SubscriptionCatalog.Load(configuration)));
 
-    private static async Task<IResult> ListMyRequestsAsync(ClaimsPrincipal principal, AppDbContext db, CancellationToken ct)
+    private static async Task<IResult> ListMyRequestsAsync(
+        ClaimsPrincipal principal, AppDbContext db, IConfiguration configuration, CancellationToken ct)
     {
         var customerId = principal.GetUserId();
+        var window = SubscriptionCatalog.Load(configuration).PaymentWindow;
+        await SubscriptionRequestExpiry.ExpireOverdueAsync(db, window, DateTimeOffset.UtcNow, ct);
+
         var requests = await db.SubscriptionRequests.AsNoTracking()
             .Where(r => r.CustomerId == customerId)
             .OrderByDescending(r => r.CreatedAt)
             .ToListAsync(ct);
 
-        return Results.Ok(requests.Select(SubscriptionRequestDto.From));
+        return Results.Ok(requests.Select(r => SubscriptionRequestDto.From(r, window)));
     }
 
     private static async Task<IResult> CreateRequestAsync(
@@ -89,6 +93,10 @@ public static class CustomerSubscriptionsEndpoints
                 detail: "Ин муддати обуна дастрас нест.",
                 statusCode: StatusCodes.Status400BadRequest);
         }
+
+        // Before reading "open" requests: an expired one neither blocks nor holds its amount.
+        var now = DateTimeOffset.UtcNow;
+        await SubscriptionRequestExpiry.ExpireOverdueAsync(db, catalog.PaymentWindow, now, ct);
 
         var open = await db.SubscriptionRequests
             .Where(r => r.CustomerId == customerId &&
@@ -123,13 +131,13 @@ public static class CustomerSubscriptionsEndpoints
             DurationMonths = request.Months,
             ExpectedAmount = PaymentAmountGenerator.Generate(baseAmount, takenAmounts, Random.Shared),
             Status = SubscriptionRequestStatus.AwaitingPayment,
-            CreatedAt = DateTimeOffset.UtcNow,
+            CreatedAt = now,
         };
 
         db.SubscriptionRequests.Add(subscriptionRequest);
         await db.SaveChangesAsync(ct);
 
-        return Results.Ok(SubscriptionRequestDto.From(subscriptionRequest));
+        return Results.Ok(SubscriptionRequestDto.From(subscriptionRequest, catalog.PaymentWindow));
     }
 
     private static async Task<IResult> UploadReceiptAsync(
@@ -150,6 +158,22 @@ public static class CustomerSubscriptionsEndpoints
         if (subscriptionRequest is null)
             return Results.NotFound();
 
+        var catalog = SubscriptionCatalog.Load(configuration);
+        if (subscriptionRequest.Status == SubscriptionRequestStatus.AwaitingPayment &&
+            PaymentWindow.IsTooLateToUpload(subscriptionRequest.CreatedAt, catalog.PaymentWindow, DateTimeOffset.UtcNow))
+        {
+            subscriptionRequest.Status = SubscriptionRequestStatus.Expired;
+            await db.SaveChangesAsync(ct);
+        }
+
+        if (subscriptionRequest.Status == SubscriptionRequestStatus.Expired)
+        {
+            return Results.Problem(
+                title: "Вақти пардохт тамом шуд",
+                detail: "Ин дархост бекор шуд. Лутфан аз нав тариф интихоб кунед.",
+                statusCode: StatusCodes.Status409Conflict);
+        }
+
         // Re-upload is allowed until a moderator has decided (a wrong screenshot is common).
         if (subscriptionRequest.Status is not (SubscriptionRequestStatus.AwaitingPayment or SubscriptionRequestStatus.Pending))
         {
@@ -160,7 +184,7 @@ public static class CustomerSubscriptionsEndpoints
         }
 
         // Without it the moderator would have to search every bank's history for the amount.
-        var card = SubscriptionCatalog.Load(configuration).FindPaymentCard(cardNumber);
+        var card = catalog.FindPaymentCard(cardNumber);
         if (card is null)
         {
             return Results.Problem(
@@ -184,6 +208,6 @@ public static class CustomerSubscriptionsEndpoints
         subscriptionRequest.SubmittedAt = DateTimeOffset.UtcNow;
 
         await db.SaveChangesAsync(ct);
-        return Results.Ok(SubscriptionRequestDto.From(subscriptionRequest));
+        return Results.Ok(SubscriptionRequestDto.From(subscriptionRequest, catalog.PaymentWindow));
     }
 }

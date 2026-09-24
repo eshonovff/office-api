@@ -36,13 +36,19 @@ public record SubscriptionRequestDto(
     string? PaidToBank,
     string? PaidToCardNumber,
     DateTimeOffset CreatedAt,
+    DateTimeOffset? PaymentDeadline,
     DateTimeOffset? SubmittedAt,
     DateTimeOffset? ReviewedAt,
     string? ReviewNote)
 {
-    public static SubscriptionRequestDto From(SubscriptionRequest r) => new(
+    /// <param name="paymentWindow">Only AwaitingPayment gets a deadline — the customer's countdown.</param>
+    public static SubscriptionRequestDto From(SubscriptionRequest r, TimeSpan paymentWindow) => new(
         r.Id, r.Tier.ToString(), r.DurationMonths, r.ExpectedAmount, r.Status.ToString(), r.ReceiptPath is not null,
-        r.PaidToBank, r.PaidToCardNumber, r.CreatedAt, r.SubmittedAt, r.ReviewedAt, r.ReviewNote);
+        r.PaidToBank, r.PaidToCardNumber, r.CreatedAt,
+        r.Status == SubscriptionRequestStatus.AwaitingPayment
+            ? PaymentWindow.DeadlineFor(r.CreatedAt, paymentWindow)
+            : null,
+        r.SubmittedAt, r.ReviewedAt, r.ReviewNote);
 }
 
 /// <summary>What a moderator sees — adds who the customer is and where the receipt is.</summary>

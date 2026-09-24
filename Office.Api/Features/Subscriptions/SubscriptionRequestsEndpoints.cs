@@ -62,8 +62,12 @@ public static class SubscriptionRequestsEndpoints
         return app;
     }
 
-    private static async Task<IResult> ListAsync(string? status, AppDbContext db, CancellationToken ct)
+    private static async Task<IResult> ListAsync(
+        string? status, AppDbContext db, IConfiguration configuration, CancellationToken ct)
     {
+        await SubscriptionRequestExpiry.ExpireOverdueAsync(
+            db, SubscriptionCatalog.Load(configuration).PaymentWindow, DateTimeOffset.UtcNow, ct);
+
         var query = db.SubscriptionRequests.AsNoTracking().Include(r => r.Customer).AsQueryable();
 
         if (!string.IsNullOrEmpty(status))

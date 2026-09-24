@@ -6,6 +6,7 @@ public class SubscriptionCatalogTests
 {
     private static readonly SubscriptionCatalog Catalog = new(
         TrialDays: 7,
+        PaymentWindow: TimeSpan.FromMinutes(5),
         Currency: "TJS",
         DurationMonths: [1],
         Plans: [],

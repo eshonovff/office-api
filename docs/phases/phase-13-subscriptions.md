@@ -36,6 +36,11 @@
    мекунад (`cardNumber`, ҳатмӣ, бояд дар `Subscriptions:PaymentCards` бошад). Бонк ва рақам
    snapshot мешаванд (`PaidToBank`/`PaidToCardNumber`), то модератор донад таърихи кадом
    бонкро бинад — ҳатто агар корт баъдтар аз конфигуратсия бардошта шавад.
+7б. **Мӯҳлати пардохт** — `Subscriptions:PaymentWindowMinutes` (5): AwaitingPayment баъд аз
+   ин мӯҳлат `Expired` мешавад ва маблағаш озод. Job нест — ҳар хондан/дархости нав аввал
+   `SubscriptionRequestExpiry` мегузаронад. Upload боз 1 дақ grace дорад (чеке, ки дар 4:59
+   интихоб шуд, метавонад баъди 5:00 расад). Frontend таймер нишон медиҳад ва дар 0 ба
+   `/account` мебарад.
 8. **Permission-и нав `subscriptions.manage`** — Owner/Admin (seeder онро ба ролҳои
    мавҷуда худкор илова мекунад).
 9. **Trial** — `TrialEndsAt = лаҳзаи тасдиқи email + Subscriptions:TrialDays` (пешфарз 7),
