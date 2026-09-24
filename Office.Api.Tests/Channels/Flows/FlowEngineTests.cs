@@ -767,6 +767,33 @@ public class FlowEngineTests
         Assert.Single(handler.RequestUrls);
     }
 
+    [Fact]
+    public async Task Action_GotoFlow_NeverStartsAFlowOnAnotherChannel()
+    {
+        // Another owner's flow (another мизоҷ, or the company) must not run for this contact,
+        // even with its exact id — the engine has no tenant filter to stop it otherwise.
+        await using var db = CreateDb();
+        var ownChannel = MakeChannel();
+        var otherChannel = MakeChannel();
+        otherChannel.ExternalId = "other-account";
+        var contact = MakeContact(ownChannel.Id);
+        var foreignFlow = MakeFlow(otherChannel.Id);
+        var foreignNode = MakeNode(foreignFlow.Id, FlowNodeType.Message, new MessageNodeConfig([new MessageBlock(MessageBlock.TypeText, "Паёми бегона", null)], []));
+        var sourceFlow = MakeFlow(ownChannel.Id);
+        var gotoNode = MakeNode(sourceFlow.Id, FlowNodeType.Action, new ActionNodeConfig(ActionNodeConfig.KindGotoFlow, TargetFlowId: foreignFlow.Id));
+        db.Channels.AddRange(ownChannel, otherChannel);
+        db.Conversations.Add(contact);
+        db.Flows.AddRange(foreignFlow, sourceFlow);
+        db.FlowNodes.AddRange(foreignNode, gotoNode);
+        await db.SaveChangesAsync();
+
+        var (_, handler, _, engine) = MakeEngine(db);
+        await engine.StartAsync(sourceFlow, contact.Id, CancellationToken.None);
+
+        Assert.DoesNotContain(await db.FlowSessions.ToListAsync(), s => s.FlowId == foreignFlow.Id);
+        Assert.Empty(handler.RequestUrls); // nothing was sent
+    }
+
     /// <summary>
     /// Регрессия ҷиддӣ: пеш аз ин ислоҳ, ду flow ки ба ҳам goto_flow доранд (A→B→A→...)
     /// StackOverflowException месохтанд — реcursия бе марз тавассути StartAsync, ки процесси

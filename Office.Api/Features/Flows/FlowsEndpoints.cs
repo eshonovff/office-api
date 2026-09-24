@@ -63,7 +63,8 @@ public static class FlowsEndpoints
             .Produces<FlowDetail>(StatusCodes.Status200OK)
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status400BadRequest)
-            .ProducesProblem(StatusCodes.Status404NotFound);
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
 
         byFlow.MapPatch("/active", SetActiveAsync)
             .RequirePermission(Permissions.Channels.Manage)
@@ -284,6 +285,10 @@ public static class FlowsEndpoints
             if (error is not null)
                 return Results.Problem(title: "Config-и нод нодуруст аст", detail: $"Нод {node.Id}: {error}", statusCode: StatusCodes.Status400BadRequest);
         }
+
+        var guardError = await FlowGraphGuard.CheckAsync(flow, request, db, ct);
+        if (guardError is not null)
+            return guardError;
 
         // Иваз кардани пурра — canvas ҳамеша ҳолати комили худро мефиристад (ниг. шарҳи
         // UpdateFlowGraphRequest барои сабаб). Соддатар ва бехатартар аз diff барои autosave.

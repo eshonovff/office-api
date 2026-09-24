@@ -435,7 +435,13 @@ public class FlowEngine(AppDbContext db, InstagramProvider instagramProvider, IB
 
             case ActionNodeConfig.KindGotoFlow when config.TargetFlowId is not null:
             {
-                var targetFlow = await db.Flows.FirstOrDefaultAsync(f => f.Id == config.TargetFlowId && f.IsActive, ct);
+                // Same channel only. The contact belongs to this flow's channel, and the engine runs
+                // in a background job with no tenant filter — a bare id lookup let one owner's flow
+                // start another owner's (another мизоҷ's or the company's) flow for this contact.
+                var currentChannelId = await db.Flows
+                    .Where(f => f.Id == session.FlowId).Select(f => f.ChannelId).FirstAsync(ct);
+                var targetFlow = await db.Flows.FirstOrDefaultAsync(
+                    f => f.Id == config.TargetFlowId && f.IsActive && f.ChannelId == currentChannelId, ct);
                 if (targetFlow is not null)
                     await StartAsync(targetFlow, session.ContactId, ct, gotoChain: gotoChain);
                 return new NodeOutcome(null, null, EndSession: true);
