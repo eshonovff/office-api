@@ -56,6 +56,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options, ITenantContext
     public DbSet<ContactTag> ContactTags => Set<ContactTag>();
     public DbSet<ContactVariable> ContactVariables => Set<ContactVariable>();
     public DbSet<FlowTemplate> FlowTemplates => Set<FlowTemplate>();
+    public DbSet<DataDeletionRequest> DataDeletionRequests => Set<DataDeletionRequest>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

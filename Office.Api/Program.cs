@@ -41,6 +41,7 @@ using Office.Api.Features.Tasks;
 using Office.Api.Features.Subscriptions;
 using Office.Api.Features.CustomerChannels;
 using Office.Api.Features.CustomerFlows;
+using Office.Api.Features.DataDeletion;
 using Office.Api.Features.Users;
 using Office.Api.Realtime;
 using Office.Api.Sms;
@@ -50,6 +51,7 @@ using Serilog;
 const string FrontendCorsPolicy = "Frontend";
 const string LoginRateLimiterPolicy = "login";
 const string CustomerAuthRateLimiterPolicy = "customer-auth";
+const string PublicCallbackRateLimiterPolicy = "public-callback";
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -293,6 +295,18 @@ builder.Services.AddRateLimiter(options =>
                 PermitLimit = 5,
                 QueueLimit = 0,
             }));
+
+    // Anonymous endpoints called by Meta (data deletion) or by anyone holding a status link:
+    // generous for real traffic, a wall against flooding and code guessing.
+    options.AddPolicy(PublicCallbackRateLimiterPolicy, context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                Window = TimeSpan.FromMinutes(1),
+                PermitLimit = 30,
+                QueueLimit = 0,
+            }));
 });
 
 builder.Services.AddValidatorsFromAssemblyContaining<Program>();
@@ -362,6 +376,7 @@ builder.Services.AddHttpClient<FlowEngine>(client =>
     })
     .ConfigurePrimaryHttpMessageHandler(SsrfSafeHttpHandler.Create);
 builder.Services.AddScoped<FlowEngineJob>();
+builder.Services.AddScoped<DataDeletionJob>();
 builder.Services.AddScoped<FlowTriggerProcessor>();
 
 builder.Services.AddHttpClient<ISmsSender, OsonSmsSender>();
@@ -462,6 +477,7 @@ app.MapFlowsEndpoints();
 app.MapFlowTemplatesEndpoints();
 app.MapAutomationsEndpoints();
 app.MapLegalEndpoints();
+app.MapDataDeletionEndpoints();
 app.MapConversationsEndpoints();
 app.MapMessagesEndpoints();
 app.MapDashboardEndpoints();
