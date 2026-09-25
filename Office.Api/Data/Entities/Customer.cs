@@ -24,6 +24,13 @@ public class Customer
     public DateTimeOffset? EmailVerificationSentAt { get; set; }
 
     public bool IsActive { get; set; } = true;
+
+    /// <summary>
+    /// Carried as "sv" in every access token and checked on each request (Program.cs,
+    /// OnTokenValidated). A password reset bumps it, so every earlier token — even a 15-minute
+    /// access token — stops working at once.
+    /// </summary>
+    public int SessionVersion { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset? LastLoginAt { get; set; }
 
@@ -35,4 +42,5 @@ public class Customer
 
     public ICollection<CustomerRefreshToken> RefreshTokens { get; set; } = [];
     public ICollection<CustomerExternalLogin> ExternalLogins { get; set; } = [];
+    public ICollection<CustomerPasswordReset> PasswordResets { get; set; } = [];
 }

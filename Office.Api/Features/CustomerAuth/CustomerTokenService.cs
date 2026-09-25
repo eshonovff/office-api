@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
@@ -36,6 +37,9 @@ public class CustomerTokenService(IConfiguration configuration) : ICustomerToken
             new(JwtRegisteredClaimNames.Sub, customer.Id.ToString()),
             new(ClaimTypes.Email, customer.Email),
             new("type", "customer"),
+            // Checked on every request against Customer.SessionVersion (Program.cs) — a password
+            // reset bumps it and every earlier token dies at once.
+            new("sv", customer.SessionVersion.ToString(CultureInfo.InvariantCulture)),
         };
 
         var token = new JwtSecurityToken(

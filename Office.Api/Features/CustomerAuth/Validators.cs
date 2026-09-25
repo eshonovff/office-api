@@ -37,3 +37,23 @@ public class CustomerLoginRequestValidator : AbstractValidator<CustomerLoginRequ
         RuleFor(x => x.Password).NotEmpty();
     }
 }
+
+public class ForgotPasswordRequestValidator : AbstractValidator<ForgotPasswordRequest>
+{
+    public ForgotPasswordRequestValidator()
+    {
+        RuleFor(x => x.Email).NotEmpty().EmailAddress().MaximumLength(200);
+    }
+}
+
+public class ResetPasswordRequestValidator : AbstractValidator<ResetPasswordRequest>
+{
+    public ResetPasswordRequestValidator()
+    {
+        RuleFor(x => x.Token).NotEmpty().MaximumLength(128);
+        // BCrypt only reads the first 72 bytes; 128 characters is a sane ceiling.
+        RuleFor(x => x.NewPassword)
+            .MinimumLength(8).WithMessage("Рамз бояд ҳадди ақал 8 аломат бошад.")
+            .MaximumLength(128).WithMessage("Рамз набояд аз 128 аломат зиёд бошад.");
+    }
+}

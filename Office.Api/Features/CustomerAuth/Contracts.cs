@@ -36,3 +36,8 @@ public record CustomerMeResponse(
 public record CustomerAuthMessageResponse(string Message);
 
 public record CustomerAuthResponse(string AccessToken, CustomerMeResponse Customer);
+
+public record ForgotPasswordRequest(string Email);
+
+/// <param name="Token">From the emailed link's #token= fragment.</param>
+public record ResetPasswordRequest(string Token, string NewPassword);

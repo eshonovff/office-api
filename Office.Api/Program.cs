@@ -225,11 +225,15 @@ var authenticationBuilder = builder.Services
             OnTokenValidated = async context =>
             {
                 var sub = context.Principal?.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
+                // Tokens from before "sv" existed count as version 0 — valid until the first reset.
+                var sessionVersion = int.TryParse(context.Principal?.FindFirst("sv")?.Value, out var sv) ? sv : 0;
                 var db = context.HttpContext.RequestServices.GetRequiredService<AppDbContext>();
                 if (!Guid.TryParse(sub, out var customerId) ||
-                    !await db.Customers.AnyAsync(c => c.Id == customerId && c.IsActive, context.HttpContext.RequestAborted))
+                    !await db.Customers.AnyAsync(
+                        c => c.Id == customerId && c.IsActive && c.SessionVersion == sessionVersion,
+                        context.HttpContext.RequestAborted))
                 {
-                    context.Fail("Customer no longer exists or is inactive.");
+                    context.Fail("Customer no longer exists, is inactive, or this session was ended by a password reset.");
                 }
             },
         };
@@ -336,6 +340,9 @@ builder.Services.AddSignalR();
 builder.Services.AddScoped<IPermissionService, PermissionService>();
 builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<ICustomerTokenService, CustomerTokenService>();
+builder.Services.AddSingleton<PasswordResetQueue>();
+builder.Services.AddScoped<PasswordResetSender>();
+builder.Services.AddHostedService<PasswordResetWorker>();
 builder.Services.AddScoped<ProjectAccessGuard>();
 builder.Services.AddScoped<IProjectAccessGuard>(sp => sp.GetRequiredService<ProjectAccessGuard>());
 builder.Services.AddScoped<ChannelAccessGuard>();
@@ -475,6 +482,7 @@ app.MapHealthChecks("/health");
 
 app.MapAuthEndpoints();
 app.MapCustomerAuthEndpoints(builder.Configuration);
+app.MapCustomerPasswordResetEndpoints();
 app.MapCustomerSubscriptionsEndpoints();
 app.MapCustomerChannelsEndpoints();
 app.MapCustomerFlowsEndpoints();

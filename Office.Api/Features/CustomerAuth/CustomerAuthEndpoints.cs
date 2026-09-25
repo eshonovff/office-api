@@ -439,7 +439,7 @@ public static class CustomerAuthEndpoints
     private static string HashCode(string code) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(code)));
 
-    private static string NormalizeEmail(string email) => email.Trim().ToLowerInvariant();
+    internal static string NormalizeEmail(string email) => email.Trim().ToLowerInvariant();
 
     private static IResult InvalidCodeProblem() => Results.Problem(
         title: "Коди нодуруст",
