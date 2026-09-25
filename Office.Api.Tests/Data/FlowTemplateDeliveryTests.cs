@@ -16,6 +16,8 @@ using Office.Api.Data.Entities;
 using Office.Api.Media;
 using Office.Api.Realtime;
 
+using Office.Api.Tests.Channels.Comments;
+
 namespace Office.Api.Tests.Data;
 
 /// <summary>
@@ -100,7 +102,7 @@ public class FlowTemplateDeliveryTests
             new NoOpNotificationService(), new MemoryCache(new MemoryCacheOptions()),
             new InstagramFollowCheckRateLimiter(), NullLogger<InstagramProvider>.Instance);
         var engine = new FlowEngine(db, provider, new RecordingBackgroundJobClient(), new HttpClient(handler), NullLogger<FlowEngine>.Instance);
-        var trigger = new FlowTriggerProcessor(db, engine, NullLogger<FlowTriggerProcessor>.Instance);
+        var trigger = new FlowTriggerProcessor(db, engine, new RecordingPublicReplyScheduler(), NullLogger<FlowTriggerProcessor>.Instance);
         return (handler, trigger);
     }
 

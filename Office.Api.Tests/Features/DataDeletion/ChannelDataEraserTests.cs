@@ -65,10 +65,15 @@ public class ChannelDataEraserTests
         db.FlowEdges.Add(new FlowEdge { Id = Guid.NewGuid(), FlowId = flowId, FromNodeId = nodeId, FromPort = "default", ToNodeId = nodeId });
         db.FlowSessions.Add(new FlowSession { Id = sessionId, FlowId = flowId, ContactId = contactId, CreatedAt = now });
         db.FlowSessionSteps.Add(new FlowSessionStep { Id = Guid.NewGuid(), SessionId = sessionId, NodeId = nodeId, CreatedAt = now });
+        db.InstagramComments.Add(new InstagramComment
+        {
+            Id = Guid.NewGuid(), ChannelId = channelId, ExternalId = tag, MediaExternalId = tag,
+            AuthorExternalId = tag, Text = tag, CommentedAt = now, ReceivedAt = now,
+        });
         return channelId;
     }
 
-    /// <summary>Row counts in all 14 channel-owned tables — read unfiltered (System).</summary>
+    /// <summary>Row counts in all 15 channel-owned tables — read unfiltered (System).</summary>
     private int[] CountsFor(string tag)
     {
         using var db = Open(null);
@@ -93,11 +98,12 @@ public class ChannelDataEraserTests
             db.FlowEdges.Count(e => flows.Contains(e.FlowId)),
             sessions.Count,
             db.FlowSessionSteps.Count(s => sessions.Contains(s.SessionId)),
+            db.InstagramComments.Count(c => c.ChannelId == channelId),
         ];
     }
 
-    private static readonly int[] Full = Enumerable.Repeat(1, 14).ToArray();
-    private static readonly int[] Gone = new int[14];
+    private static readonly int[] Full = Enumerable.Repeat(1, 15).ToArray();
+    private static readonly int[] Gone = new int[15];
 
     [Fact]
     public async Task Erase_RemovesTheWholeTree_AndNothingElse()

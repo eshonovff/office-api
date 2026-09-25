@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using Office.Api.Channels.Automation;
+using Office.Api.Channels.Comments;
 using Office.Api.Channels.Flows;
 using Office.Api.Channels.Instagram;
 using Office.Api.Data;
@@ -24,6 +25,7 @@ public class WebhookProcessor(
     IBackgroundJobClient backgroundJobs,
     CommentAutomationProcessor commentAutomation,
     FlowTriggerProcessor flowTrigger,
+    CommentStore commentStore,
     ILogger<WebhookProcessor> logger)
 {
     public async Task ProcessAsync(Guid webhookLogId, CancellationToken ct)
@@ -129,6 +131,9 @@ public class WebhookProcessor(
             // Every comment of the entry, not just the first — Meta batches them too.
             foreach (var commentEvent in comments)
             {
+                // Stored first, so the comments page has it and the automations below can mark
+                // what they did on it (the Direct message they sent).
+                await commentStore.RecordAsync(channel, commentEvent, ct);
                 await commentAutomation.ProcessAsync(channel, commentEvent, ct);
                 // Паҳлӯи automation_rules-и Фазаи 10 (боло), на ба ҷои он — ниг. шарҳи FlowTriggerProcessor.
                 await flowTrigger.ProcessCommentAsync(channel, commentEvent, ct);

@@ -1,3 +1,4 @@
+using Office.Api.Channels.Comments;
 using System.Text.Json;
 using Hangfire.Common;
 using Hangfire.States;
@@ -14,6 +15,8 @@ using Office.Api.Channels.WhatsApp;
 using Office.Api.Data;
 using Office.Api.Data.Entities;
 using Office.Api.Realtime;
+
+using Office.Api.Tests.Channels.Comments;
 
 namespace Office.Api.Tests.Integration;
 
@@ -109,6 +112,7 @@ public class WebhookProcessorRealtimeTests
             db, new FakeChannelProviderFactory(), events, backgroundJobs,
             new CommentAutomationProcessor(db, backgroundJobs, NullLogger<CommentAutomationProcessor>.Instance),
             MakeFlowTriggerProcessor(db),
+            new CommentStore(db, new RecordingCommentEventPublisher(), NullLogger<CommentStore>.Instance),
             NullLogger<WebhookProcessor>.Instance);
 
         await processor.ProcessAsync(log.Id, CancellationToken.None);
@@ -143,6 +147,7 @@ public class WebhookProcessorRealtimeTests
             db, new FakeChannelProviderFactory(), events, backgroundJobs,
             new CommentAutomationProcessor(db, backgroundJobs, NullLogger<CommentAutomationProcessor>.Instance),
             MakeFlowTriggerProcessor(db),
+            new CommentStore(db, new RecordingCommentEventPublisher(), NullLogger<CommentStore>.Instance),
             NullLogger<WebhookProcessor>.Instance);
 
         await processor.ProcessAsync(log.Id, CancellationToken.None);
@@ -172,6 +177,7 @@ public class WebhookProcessorRealtimeTests
             db, new FakeChannelProviderFactory(), events, backgroundJobs,
             new CommentAutomationProcessor(db, backgroundJobs, NullLogger<CommentAutomationProcessor>.Instance),
             MakeFlowTriggerProcessor(db),
+            new CommentStore(db, new RecordingCommentEventPublisher(), NullLogger<CommentStore>.Instance),
             NullLogger<WebhookProcessor>.Instance);
 
         await processor.ProcessAsync(log.Id, CancellationToken.None);
@@ -231,6 +237,7 @@ public class WebhookProcessorRealtimeTests
             db, new FakeChannelProviderFactory(), events, backgroundJobs,
             new CommentAutomationProcessor(db, backgroundJobs, NullLogger<CommentAutomationProcessor>.Instance),
             MakeFlowTriggerProcessor(db),
+            new CommentStore(db, new RecordingCommentEventPublisher(), NullLogger<CommentStore>.Instance),
             NullLogger<WebhookProcessor>.Instance);
 
         await processor.ProcessAsync(log.Id, CancellationToken.None);
@@ -376,7 +383,7 @@ public class WebhookProcessorRealtimeTests
             new NoOpNotificationService(), new MemoryCache(new MemoryCacheOptions()),
             new InstagramFollowCheckRateLimiter(), NullLogger<InstagramProvider>.Instance);
         var engine = new FlowEngine(db, provider, new NonFunctionalBackgroundJobClient(), httpClient, NullLogger<FlowEngine>.Instance);
-        return new FlowTriggerProcessor(db, engine, NullLogger<FlowTriggerProcessor>.Instance);
+        return new FlowTriggerProcessor(db, engine, new RecordingPublicReplyScheduler(), NullLogger<FlowTriggerProcessor>.Instance);
     }
 
     private sealed class NonFunctionalHttpMessageHandler : HttpMessageHandler

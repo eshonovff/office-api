@@ -7,7 +7,7 @@ namespace Office.Api.Features.DataDeletion;
 /// <summary>
 /// Removes channels and everything under them: contacts (conversations) with their messages,
 /// tags, variables and assignment history; flows with nodes, edges, sessions and steps;
-/// comment-automation rules and runs; members; the channel itself. Used by Meta's data-deletion
+/// comment-automation rules and runs; stored Instagram comments; members; the channel itself. Used by Meta's data-deletion
 /// callback (DataDeletionJob) and by a мизоҷ deleting their account.
 ///
 /// Rows are loaded and removed in ONE SaveChanges — EF orders the deletes by foreign key, and
@@ -42,6 +42,7 @@ public static class ChannelDataEraser
         db.AutomationRules.RemoveRange(await db.AutomationRules.Where(r => ruleIds.Contains(r.Id)).ToListAsync(ct));
 
         db.ContactTags.RemoveRange(await db.ContactTags.Where(t => conversationIds.Contains(t.ContactId)).ToListAsync(ct));
+        db.InstagramComments.RemoveRange(await db.InstagramComments.Where(c => channelIds.Contains(c.ChannelId)).ToListAsync(ct));
         db.ContactVariables.RemoveRange(await db.ContactVariables.Where(v => conversationIds.Contains(v.ContactId)).ToListAsync(ct));
         db.ConversationAssignmentEvents.RemoveRange(
             await db.ConversationAssignmentEvents.Where(e => conversationIds.Contains(e.ConversationId)).ToListAsync(ct));

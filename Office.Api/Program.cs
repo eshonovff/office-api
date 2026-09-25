@@ -16,6 +16,7 @@ using Microsoft.OpenApi;
 using Office.Api.Auth;
 using Office.Api.Channels;
 using Office.Api.Channels.Automation;
+using Office.Api.Channels.Comments;
 using Office.Api.Channels.Flows;
 using Office.Api.Channels.Facebook;
 using Office.Api.Channels.Instagram;
@@ -376,6 +377,10 @@ builder.Services.AddScoped<DashboardQueryService>();
 builder.Services.AddScoped<DashboardStatsQueryService>();
 builder.Services.AddScoped<IBoardEventPublisher, BoardEventPublisher>();
 builder.Services.AddScoped<IInboxEventPublisher, InboxEventPublisher>();
+builder.Services.AddScoped<ICommentEventPublisher, CommentEventPublisher>();
+builder.Services.AddScoped<ICommentPublicReplyScheduler, CommentPublicReplyScheduler>();
+builder.Services.AddScoped<CommentStore>();
+builder.Services.AddScoped<CommentPublicReplyJob>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddHostedService<DeadlineNotificationBackgroundService>();
 
