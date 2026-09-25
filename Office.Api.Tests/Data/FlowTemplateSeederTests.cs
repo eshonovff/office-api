@@ -24,7 +24,7 @@ public class FlowTemplateSeederTests
         await FlowTemplateSeeder.SeedAsync(db, CancellationToken.None);
 
         var templates = await db.FlowTemplates.ToListAsync();
-        Assert.Equal(3, templates.Count);
+        Assert.Equal(4, templates.Count);
 
         foreach (var template in templates)
         {
@@ -78,13 +78,15 @@ public class FlowTemplateSeederTests
     {
         await using var db = CreateDb();
         await FlowTemplateSeeder.SeedAsync(db, CancellationToken.None);
-        var original = await db.FlowTemplates.FirstAsync(t => t.Name.Contains("обуна"));
+        const string leadMagnet = "Лид-магнит бо тасдиқи обуна";
+        var original = await db.FlowTemplates.FirstAsync(t => t.Name == leadMagnet);
         var originalId = original.Id;
+        var countBefore = await db.FlowTemplates.CountAsync();
 
         await FlowTemplateSeeder.SeedAsync(db, CancellationToken.None);
 
-        var all = await db.FlowTemplates.Where(t => t.Name.Contains("обуна")).ToListAsync();
-        var updated = Assert.Single(all);
+        Assert.Equal(countBefore, await db.FlowTemplates.CountAsync());
+        var updated = Assert.Single(await db.FlowTemplates.Where(t => t.Name == leadMagnet).ToListAsync());
         Assert.Equal(originalId, updated.Id);
 
         var definition = JsonSerializer.Deserialize<FlowTemplateDefinition>(updated.DefinitionJson, FlowJsonOptions.Options)!;
