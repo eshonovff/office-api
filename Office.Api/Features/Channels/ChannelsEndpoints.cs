@@ -157,7 +157,10 @@ public static class ChannelsEndpoints
     {
         var type = Enum.Parse<ChannelType>(request.Type, ignoreCase: true);
 
-        var exists = await db.Channels.AnyAsync(c => c.Type == type && c.ExternalId == request.ExternalId, ct);
+        // IgnoreQueryFilters: (Type, ExternalId) is unique across every owner, including мизоҷон
+        // whose channels staff can't see — without it this check misses them and the insert 500s.
+        var exists = await db.Channels.IgnoreQueryFilters()
+            .AnyAsync(c => c.Type == type && c.ExternalId == request.ExternalId, ct);
         if (exists)
         {
             return Results.Problem(

@@ -83,4 +83,24 @@ public class OAuthStateCodecTests
         Assert.False(ok);
         Assert.Null(payload);
     }
+
+    [Fact]
+    public void TryDecode_RoundTripsTheOwnerKind()
+    {
+        var token = OAuthStateCodec.Encode("instagram", UserId, "n", Now.AddMinutes(10), SigningKey, OAuthOwnerKind.Customer);
+
+        Assert.True(OAuthStateCodec.TryDecode(token, SigningKey, Now, out var payload));
+        Assert.Equal(OAuthOwnerKind.Customer, payload!.OwnerKind);
+    }
+
+    [Fact]
+    public void TryDecode_DefaultsToStaff_ForStatesWithoutAnOwnerKind()
+    {
+        // A state encoded without the kind (the default parameter) is a staff state — the only
+        // kind that could start OAuth before мизоҷон existed.
+        var token = OAuthStateCodec.Encode("instagram", UserId, "n", Now.AddMinutes(10), SigningKey);
+
+        Assert.True(OAuthStateCodec.TryDecode(token, SigningKey, Now, out var payload));
+        Assert.Equal(OAuthOwnerKind.Staff, payload!.OwnerKind);
+    }
 }

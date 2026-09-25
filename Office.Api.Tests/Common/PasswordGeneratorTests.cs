@@ -21,4 +21,14 @@ public class PasswordGeneratorTests
 
         Assert.NotEqual(first, second);
     }
+
+    [Fact]
+    public void GenerateNumeric_LengthSix_ReturnsSixDigits()
+    {
+        // CustomerAuthEndpoints истифода мебарад — коди тасдиқи email.
+        var code = PasswordGenerator.GenerateNumeric(6);
+
+        Assert.Equal(6, code.Length);
+        Assert.All(code, c => Assert.True(char.IsDigit(c)));
+    }
 }

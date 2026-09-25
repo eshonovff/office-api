@@ -22,6 +22,128 @@ namespace Office.Api.Data.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("Office.Api.Data.Entities.AutomationRule", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ActionConfigJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("action_config_json");
+
+                    b.Property<Guid>("ChannelId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("channel_id");
+
+                    b.Property<string>("ConditionConfigJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("condition_config_json");
+
+                    b.Property<int>("CooldownMinutes")
+                        .HasColumnType("integer")
+                        .HasColumnName("cooldown_minutes");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_active");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("TriggerConfigJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("trigger_config_json");
+
+                    b.Property<string>("TriggerType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("trigger_type");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ChannelId");
+
+                    b.ToTable("automation_rules");
+                });
+
+            modelBuilder.Entity("Office.Api.Data.Entities.AutomationRun", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ActorExternalId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("actor_external_id");
+
+                    b.Property<string>("CommentReplyStatus")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("comment_reply_status");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("DmStatus")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("dm_status");
+
+                    b.Property<string>("Error")
+                        .HasColumnType("text")
+                        .HasColumnName("error");
+
+                    b.Property<string>("FollowCheckResult")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("follow_check_result");
+
+                    b.Property<string>("MatchedKeyword")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("matched_keyword");
+
+                    b.Property<Guid>("RuleId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("rule_id");
+
+                    b.Property<string>("TargetMediaExternalId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("target_media_external_id");
+
+                    b.Property<string>("TriggerExternalId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("trigger_external_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RuleId", "ActorExternalId", "TargetMediaExternalId", "CreatedAt");
+
+                    b.ToTable("automation_runs");
+                });
+
             modelBuilder.Entity("Office.Api.Data.Entities.BoardColumn", b =>
                 {
                     b.Property<Guid>("Id")
@@ -73,6 +195,10 @@ namespace Office.Api.Data.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("credentials_expires_at");
 
+                    b.Property<Guid?>("CustomerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("customer_id");
+
                     b.Property<string>("ExternalId")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -82,6 +208,11 @@ namespace Office.Api.Data.Migrations
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean")
                         .HasColumnName("is_active");
+
+                    b.Property<string>("MetaAppScopedUserId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("meta_app_scoped_user_id");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -106,6 +237,10 @@ namespace Office.Api.Data.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("CustomerId");
+
+                    b.HasIndex("MetaAppScopedUserId");
+
                     b.HasIndex("Type", "ExternalId")
                         .IsUnique();
 
@@ -127,6 +262,48 @@ namespace Office.Api.Data.Migrations
                     b.HasIndex("UserId");
 
                     b.ToTable("channel_members");
+                });
+
+            modelBuilder.Entity("Office.Api.Data.Entities.ContactTag", b =>
+                {
+                    b.Property<Guid>("ContactId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("contact_id");
+
+                    b.Property<string>("Tag")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("tag");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.HasKey("ContactId", "Tag");
+
+                    b.ToTable("contact_tags");
+                });
+
+            modelBuilder.Entity("Office.Api.Data.Entities.ContactVariable", b =>
+                {
+                    b.Property<Guid>("ContactId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("contact_id");
+
+                    b.Property<string>("Key")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("key");
+
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("value");
+
+                    b.HasKey("ContactId", "Key");
+
+                    b.ToTable("contact_variables");
                 });
 
             modelBuilder.Entity("Office.Api.Data.Entities.Conversation", b =>
@@ -255,6 +432,528 @@ namespace Office.Api.Data.Migrations
                     b.HasIndex("ConversationId", "CreatedAt");
 
                     b.ToTable("conversation_assignment_events");
+                });
+
+            modelBuilder.Entity("Office.Api.Data.Entities.Customer", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AvatarUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("avatar_url");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("email");
+
+                    b.Property<int>("EmailVerificationAttempts")
+                        .HasColumnType("integer")
+                        .HasColumnName("email_verification_attempts");
+
+                    b.Property<DateTimeOffset?>("EmailVerificationCodeExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("email_verification_code_expires_at");
+
+                    b.Property<string>("EmailVerificationCodeHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("email_verification_code_hash");
+
+                    b.Property<DateTimeOffset?>("EmailVerificationSentAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("email_verification_sent_at");
+
+                    b.Property<DateTimeOffset?>("EmailVerifiedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("email_verified_at");
+
+                    b.Property<string>("FullName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("full_name");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("is_active");
+
+                    b.Property<DateTimeOffset?>("LastLoginAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_login_at");
+
+                    b.Property<string>("PasswordHash")
+                        .HasColumnType("text")
+                        .HasColumnName("password_hash");
+
+                    b.Property<DateTimeOffset?>("PlanExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("plan_expires_at");
+
+                    b.Property<string>("PlanTier")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("plan_tier");
+
+                    b.Property<int>("SessionVersion")
+                        .HasColumnType("integer")
+                        .HasColumnName("session_version");
+
+                    b.Property<DateTimeOffset?>("TrialEndsAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("trial_ends_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Email")
+                        .IsUnique();
+
+                    b.ToTable("customers");
+                });
+
+            modelBuilder.Entity("Office.Api.Data.Entities.CustomerExternalLogin", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("CustomerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("customer_id");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("provider");
+
+                    b.Property<string>("ProviderUserId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("provider_user_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CustomerId");
+
+                    b.HasIndex("Provider", "ProviderUserId")
+                        .IsUnique();
+
+                    b.ToTable("customer_external_logins");
+                });
+
+            modelBuilder.Entity("Office.Api.Data.Entities.CustomerPasswordReset", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset?>("ConsumedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("consumed_at");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("CustomerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("customer_id");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("token_hash");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique();
+
+                    b.HasIndex("CustomerId", "CreatedAt");
+
+                    b.ToTable("customer_password_resets");
+                });
+
+            modelBuilder.Entity("Office.Api.Data.Entities.CustomerRefreshToken", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedByIp")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("created_by_ip");
+
+                    b.Property<Guid>("CustomerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("customer_id");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<DateTimeOffset?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("revoked_at");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("token_hash");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CustomerId");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique();
+
+                    b.ToTable("customer_refresh_tokens");
+                });
+
+            modelBuilder.Entity("Office.Api.Data.Entities.DataDeletionRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("ChannelsDeleted")
+                        .HasColumnType("integer")
+                        .HasColumnName("channels_deleted");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("completed_at");
+
+                    b.Property<string>("ConfirmationCode")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("confirmation_code");
+
+                    b.Property<string>("MetaUserId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("meta_user_id");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("provider");
+
+                    b.Property<DateTimeOffset>("ReceivedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("received_at");
+
+                    b.Property<string>("SignedRequestHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("signed_request_hash");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("status");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ConfirmationCode")
+                        .IsUnique();
+
+                    b.HasIndex("SignedRequestHash")
+                        .IsUnique();
+
+                    b.ToTable("data_deletion_requests");
+                });
+
+            modelBuilder.Entity("Office.Api.Data.Entities.Flow", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("ChannelId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("channel_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_active");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("TriggerConfigJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("trigger_config_json");
+
+                    b.Property<string>("TriggerType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("trigger_type");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ChannelId");
+
+                    b.ToTable("flows");
+                });
+
+            modelBuilder.Entity("Office.Api.Data.Entities.FlowEdge", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("FlowId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("flow_id");
+
+                    b.Property<Guid>("FromNodeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("from_node_id");
+
+                    b.Property<string>("FromPort")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("from_port");
+
+                    b.Property<Guid>("ToNodeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("to_node_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FlowId", "FromNodeId");
+
+                    b.ToTable("flow_edges");
+                });
+
+            modelBuilder.Entity("Office.Api.Data.Entities.FlowNode", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ConfigJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("config_json");
+
+                    b.Property<Guid>("FlowId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("flow_id");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("type");
+
+                    b.Property<double>("X")
+                        .HasColumnType("double precision")
+                        .HasColumnName("x");
+
+                    b.Property<double>("Y")
+                        .HasColumnType("double precision")
+                        .HasColumnName("y");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FlowId");
+
+                    b.ToTable("flow_nodes");
+                });
+
+            modelBuilder.Entity("Office.Api.Data.Entities.FlowSession", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("ContactId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("contact_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CurrentNodeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("current_node_id");
+
+                    b.Property<string>("Error")
+                        .HasColumnType("text")
+                        .HasColumnName("error");
+
+                    b.Property<Guid>("FlowId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("flow_id");
+
+                    b.Property<DateTimeOffset?>("ResumeAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("resume_at");
+
+                    b.Property<string>("ScheduledJobId")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("scheduled_job_id");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("status");
+
+                    b.Property<int>("StepCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("step_count");
+
+                    b.Property<string>("TriggerExternalId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("trigger_external_id");
+
+                    b.Property<string>("VariablesJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("variables_json");
+
+                    b.Property<string>("WaitReason")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("wait_reason");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ContactId");
+
+                    b.HasIndex("ResumeAt");
+
+                    b.HasIndex("FlowId", "TriggerExternalId");
+
+                    b.HasIndex("FlowId", "ContactId", "Status");
+
+                    b.ToTable("flow_sessions");
+                });
+
+            modelBuilder.Entity("Office.Api.Data.Entities.FlowSessionStep", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("FromPort")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("from_port");
+
+                    b.Property<Guid>("NodeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("node_id");
+
+                    b.Property<Guid>("SessionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("session_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NodeId");
+
+                    b.HasIndex("SessionId");
+
+                    b.ToTable("flow_session_steps");
+                });
+
+            modelBuilder.Entity("Office.Api.Data.Entities.FlowTemplate", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("DefinitionJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("definition_json");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("description");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("name");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("flow_templates");
                 });
 
             modelBuilder.Entity("Office.Api.Data.Entities.Label", b =>
@@ -679,6 +1378,95 @@ namespace Office.Api.Data.Migrations
                     b.ToTable("role_permissions");
                 });
 
+            modelBuilder.Entity("Office.Api.Data.Entities.SubscriptionRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("CustomerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("customer_id");
+
+                    b.Property<int>("DurationMonths")
+                        .HasColumnType("integer")
+                        .HasColumnName("duration_months");
+
+                    b.Property<decimal>("ExpectedAmount")
+                        .HasPrecision(12, 2)
+                        .HasColumnType("numeric(12,2)")
+                        .HasColumnName("expected_amount");
+
+                    b.Property<string>("PaidToBank")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("paid_to_bank");
+
+                    b.Property<string>("PaidToCardNumber")
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("paid_to_card_number");
+
+                    b.Property<string>("ReceiptFileName")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("receipt_file_name");
+
+                    b.Property<string>("ReceiptPath")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("receipt_path");
+
+                    b.Property<string>("ReviewNote")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("review_note");
+
+                    b.Property<DateTimeOffset?>("ReviewedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("reviewed_at");
+
+                    b.Property<Guid?>("ReviewedByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("reviewed_by_user_id");
+
+                    b.Property<string>("ReviewedByUserName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("reviewed_by_user_name");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("status");
+
+                    b.Property<DateTimeOffset?>("SubmittedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("submitted_at");
+
+                    b.Property<string>("Tier")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("tier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ReviewedByUserId");
+
+                    b.HasIndex("CustomerId", "Status");
+
+                    b.HasIndex("Status", "SubmittedAt");
+
+                    b.ToTable("subscription_requests");
+                });
+
             modelBuilder.Entity("Office.Api.Data.Entities.TaskActivity", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1057,6 +1845,28 @@ namespace Office.Api.Data.Migrations
                     b.ToTable("webhook_logs");
                 });
 
+            modelBuilder.Entity("Office.Api.Data.Entities.AutomationRule", b =>
+                {
+                    b.HasOne("Office.Api.Data.Entities.Channel", "Channel")
+                        .WithMany()
+                        .HasForeignKey("ChannelId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Channel");
+                });
+
+            modelBuilder.Entity("Office.Api.Data.Entities.AutomationRun", b =>
+                {
+                    b.HasOne("Office.Api.Data.Entities.AutomationRule", "Rule")
+                        .WithMany("Runs")
+                        .HasForeignKey("RuleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Rule");
+                });
+
             modelBuilder.Entity("Office.Api.Data.Entities.BoardColumn", b =>
                 {
                     b.HasOne("Office.Api.Data.Entities.Project", "Project")
@@ -1066,6 +1876,16 @@ namespace Office.Api.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("Project");
+                });
+
+            modelBuilder.Entity("Office.Api.Data.Entities.Channel", b =>
+                {
+                    b.HasOne("Office.Api.Data.Entities.Customer", "Customer")
+                        .WithMany()
+                        .HasForeignKey("CustomerId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Customer");
                 });
 
             modelBuilder.Entity("Office.Api.Data.Entities.ChannelMember", b =>
@@ -1085,6 +1905,28 @@ namespace Office.Api.Data.Migrations
                     b.Navigation("Channel");
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("Office.Api.Data.Entities.ContactTag", b =>
+                {
+                    b.HasOne("Office.Api.Data.Entities.Conversation", "Contact")
+                        .WithMany()
+                        .HasForeignKey("ContactId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Contact");
+                });
+
+            modelBuilder.Entity("Office.Api.Data.Entities.ContactVariable", b =>
+                {
+                    b.HasOne("Office.Api.Data.Entities.Conversation", "Contact")
+                        .WithMany()
+                        .HasForeignKey("ContactId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Contact");
                 });
 
             modelBuilder.Entity("Office.Api.Data.Entities.Conversation", b =>
@@ -1124,6 +1966,102 @@ namespace Office.Api.Data.Migrations
                         .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("Conversation");
+                });
+
+            modelBuilder.Entity("Office.Api.Data.Entities.CustomerExternalLogin", b =>
+                {
+                    b.HasOne("Office.Api.Data.Entities.Customer", "Customer")
+                        .WithMany("ExternalLogins")
+                        .HasForeignKey("CustomerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Customer");
+                });
+
+            modelBuilder.Entity("Office.Api.Data.Entities.CustomerPasswordReset", b =>
+                {
+                    b.HasOne("Office.Api.Data.Entities.Customer", "Customer")
+                        .WithMany("PasswordResets")
+                        .HasForeignKey("CustomerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Customer");
+                });
+
+            modelBuilder.Entity("Office.Api.Data.Entities.CustomerRefreshToken", b =>
+                {
+                    b.HasOne("Office.Api.Data.Entities.Customer", "Customer")
+                        .WithMany("RefreshTokens")
+                        .HasForeignKey("CustomerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Customer");
+                });
+
+            modelBuilder.Entity("Office.Api.Data.Entities.Flow", b =>
+                {
+                    b.HasOne("Office.Api.Data.Entities.Channel", "Channel")
+                        .WithMany()
+                        .HasForeignKey("ChannelId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Channel");
+                });
+
+            modelBuilder.Entity("Office.Api.Data.Entities.FlowEdge", b =>
+                {
+                    b.HasOne("Office.Api.Data.Entities.Flow", "Flow")
+                        .WithMany("Edges")
+                        .HasForeignKey("FlowId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Flow");
+                });
+
+            modelBuilder.Entity("Office.Api.Data.Entities.FlowNode", b =>
+                {
+                    b.HasOne("Office.Api.Data.Entities.Flow", "Flow")
+                        .WithMany("Nodes")
+                        .HasForeignKey("FlowId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Flow");
+                });
+
+            modelBuilder.Entity("Office.Api.Data.Entities.FlowSession", b =>
+                {
+                    b.HasOne("Office.Api.Data.Entities.Conversation", "Contact")
+                        .WithMany()
+                        .HasForeignKey("ContactId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Office.Api.Data.Entities.Flow", "Flow")
+                        .WithMany()
+                        .HasForeignKey("FlowId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Contact");
+
+                    b.Navigation("Flow");
+                });
+
+            modelBuilder.Entity("Office.Api.Data.Entities.FlowSessionStep", b =>
+                {
+                    b.HasOne("Office.Api.Data.Entities.FlowSession", "Session")
+                        .WithMany()
+                        .HasForeignKey("SessionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Session");
                 });
 
             modelBuilder.Entity("Office.Api.Data.Entities.Label", b =>
@@ -1216,6 +2154,22 @@ namespace Office.Api.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("Role");
+                });
+
+            modelBuilder.Entity("Office.Api.Data.Entities.SubscriptionRequest", b =>
+                {
+                    b.HasOne("Office.Api.Data.Entities.Customer", "Customer")
+                        .WithMany()
+                        .HasForeignKey("CustomerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Office.Api.Data.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("ReviewedByUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Customer");
                 });
 
             modelBuilder.Entity("Office.Api.Data.Entities.TaskActivity", b =>
@@ -1358,6 +2312,11 @@ namespace Office.Api.Data.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("Office.Api.Data.Entities.AutomationRule", b =>
+                {
+                    b.Navigation("Runs");
+                });
+
             modelBuilder.Entity("Office.Api.Data.Entities.BoardColumn", b =>
                 {
                     b.Navigation("Tasks");
@@ -1373,6 +2332,22 @@ namespace Office.Api.Data.Migrations
             modelBuilder.Entity("Office.Api.Data.Entities.Conversation", b =>
                 {
                     b.Navigation("Messages");
+                });
+
+            modelBuilder.Entity("Office.Api.Data.Entities.Customer", b =>
+                {
+                    b.Navigation("ExternalLogins");
+
+                    b.Navigation("PasswordResets");
+
+                    b.Navigation("RefreshTokens");
+                });
+
+            modelBuilder.Entity("Office.Api.Data.Entities.Flow", b =>
+                {
+                    b.Navigation("Edges");
+
+                    b.Navigation("Nodes");
                 });
 
             modelBuilder.Entity("Office.Api.Data.Entities.Label", b =>

@@ -18,6 +18,55 @@ public static class InstagramPayloadParser
     /// <summary>Пешвои санадест, ки ин рекорд аз навъи "unsupported"-и ин парсер аст — InstagramProvider инро log мекунад.</summary>
     public const string UnsupportedTypeBodyPrefix = "[навъи дастгирӣнашуда: ";
 
+    /// <summary>
+    /// entry[].changes[] бо field="comments" (шакли расмии Meta барои webhook-и коментарии
+    /// Instagram — фарқ аз entry[].messaging[]-и паём боло). Тасдиқшуда бо payload-и воқеии
+    /// production (ниг. ҳуҷҷати фазаи 10).
+    /// </summary>
+    public static bool TryParseCommentEvent(JsonElement payload, out ParsedCommentEvent evt)
+    {
+        evt = default!;
+
+        if (!payload.TryGetProperty("entry", out var entryEl) || entryEl.ValueKind != JsonValueKind.Array || entryEl.GetArrayLength() == 0)
+            return false;
+
+        var entry = entryEl[0];
+        if (!entry.TryGetProperty("changes", out var changesEl) || changesEl.ValueKind != JsonValueKind.Array)
+            return false;
+
+        foreach (var change in changesEl.EnumerateArray())
+        {
+            if (!change.TryGetProperty("field", out var fieldEl) || fieldEl.GetString() != "comments")
+                continue;
+
+            if (!change.TryGetProperty("value", out var valueEl))
+                continue;
+
+            if (!valueEl.TryGetProperty("id", out var commentIdEl) ||
+                !valueEl.TryGetProperty("from", out var fromEl) ||
+                !fromEl.TryGetProperty("id", out var actorIdEl))
+            {
+                continue;
+            }
+
+            var commentId = commentIdEl.GetString();
+            var actorId = actorIdEl.GetString();
+            if (commentId is null || actorId is null)
+                continue;
+
+            var text = valueEl.TryGetProperty("text", out var textEl) ? textEl.GetString() ?? "" : "";
+            var username = fromEl.TryGetProperty("username", out var usernameEl) ? usernameEl.GetString() : null;
+            var mediaId = valueEl.TryGetProperty("media", out var mediaEl) && mediaEl.TryGetProperty("id", out var mediaIdEl)
+                ? mediaIdEl.GetString()
+                : null;
+
+            evt = new ParsedCommentEvent(commentId, actorId, username, text, mediaId);
+            return true;
+        }
+
+        return false;
+    }
+
     public static string? ExtractChannelExternalId(JsonElement payload) =>
         payload.TryGetProperty("entry", out var entryEl) && entryEl.ValueKind == JsonValueKind.Array && entryEl.GetArrayLength() > 0 &&
         entryEl[0].TryGetProperty("id", out var idEl)
@@ -40,6 +89,19 @@ public static class InstagramPayloadParser
             var senderId = messagingEvent.GetProperty("sender").GetProperty("id").GetString()!;
             var timestampMs = messagingEvent.GetProperty("timestamp").GetInt64();
             var sentAt = DateTimeOffset.FromUnixTimeMilliseconds(timestampMs);
+
+            // "postback" пеш аз "message" САНҶИДА МЕШАВАД (2026-09-17, санҷиши зиндаи флоу бо
+            // тугма): агар Meta ҳарду майдонро дар як рӯйдод фиристад (масалан title-и тугма
+            // ҳамчун матни оддии эхо низ илова кунад — тасдиқнашуда расман, вале дар санҷиши
+            // зинда рафтори "тугма пахш шуд, вале flow онро ҳамчун матни оддии нав тафсир кард"
+            // мушоҳида шуд), ниятAСЛИИ пахши тугма (postback.payload) бояд бартарӣ дошта бошад,
+            // на матни ҳамрадифи он — вагарна FlowEngine ҳеҷ гоҳ ResumeFromButtonAsync-ро
+            // намебинад ва flow-и MatchMode=all худро аз сифр сар медиҳад (ниг. огоҳии чат).
+            if (messagingEvent.TryGetProperty("postback", out var postbackEl))
+            {
+                result.Add(ParsePostback(senderId, timestampMs, sentAt, postbackEl));
+                continue;
+            }
 
             if (messagingEvent.TryGetProperty("message", out var messageEl))
             {
@@ -82,6 +144,31 @@ public static class InstagramPayloadParser
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Пахши тугмаи "postback" (аз паёми Flow Builder-и Фазаи 12, ниг.
+    /// InstagramProvider.SendButtonMessageAsync) — {title, payload}, ҳамон шакли Facebook
+    /// (тасдиқшуда бо ҳуҷҷати расмии Meta, 2026-09-15). Бар хилофи Facebook (ки title/payload-ро
+    /// дар як майдон омехта мекунад), ин ҷо ҳарду ҷудо нигоҳ дошта мешаванд — FlowEngine ба
+    /// PostbackPayload ниёз дорад, на ба title-и намоишӣ.
+    /// </summary>
+    private static ParsedWebhookMessage ParsePostback(string senderId, long timestampMs, DateTimeOffset sentAt, JsonElement postbackEl)
+    {
+        var title = postbackEl.TryGetProperty("title", out var titleEl) ? titleEl.GetString() : null;
+        var payload = postbackEl.TryGetProperty("payload", out var payloadEl) ? payloadEl.GetString() : null;
+
+        return new ParsedWebhookMessage(
+            ConversationExternalId: senderId,
+            ContactName: null,
+            ContactAvatarUrl: null,
+            MessageExternalId: $"postback:{senderId}:{timestampMs}",
+            Direction: MessageDirection.Inbound,
+            Type: MessageType.Text,
+            Body: title ?? payload,
+            MediaUrl: null,
+            SentAt: sentAt,
+            PostbackPayload: payload);
     }
 
     private static ParsedWebhookMessage ParseReaction(string senderId, long timestampMs, DateTimeOffset sentAt, JsonElement reactionEl)

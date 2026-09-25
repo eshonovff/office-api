@@ -309,6 +309,73 @@ public class InstagramPayloadParserTests
         }
         """;
 
+    private const string PostbackPayload = """
+        {
+          "object": "instagram",
+          "entry": [
+            {
+              "id": "17841400000000000",
+              "messaging": [
+                {
+                  "sender": { "id": "1254001234567890" },
+                  "recipient": { "id": "17841400000000000" },
+                  "timestamp": 1569262486134,
+                  "postback": { "title": "Ҳа, мехоҳам", "payload": "flow_button:node-1:0" }
+                }
+              ]
+            }
+          ]
+        }
+        """;
+
+    [Fact]
+    public void ParseMessages_Postback_SeparatesTitleFromPayload()
+    {
+        var messages = InstagramPayloadParser.ParseMessages(Parse(PostbackPayload));
+
+        var message = Assert.Single(messages);
+        Assert.Equal(MessageDirection.Inbound, message.Direction);
+        Assert.Equal("Ҳа, мехоҳам", message.Body);
+        Assert.Equal("flow_button:node-1:0", message.PostbackPayload);
+        Assert.Equal("postback:1254001234567890:1569262486134", message.MessageExternalId);
+    }
+
+    private const string PostbackWithMessageEchoPayload = """
+        {
+          "object": "instagram",
+          "entry": [
+            {
+              "id": "17841400000000000",
+              "messaging": [
+                {
+                  "sender": { "id": "1254001234567890" },
+                  "recipient": { "id": "17841400000000000" },
+                  "timestamp": 1569262486134,
+                  "message": { "mid": "aWdfZAG1fMID", "text": "Ҳа, мехоҳам" },
+                  "postback": { "title": "Ҳа, мехоҳам", "payload": "flow_button:node-1:0" }
+                }
+              ]
+            }
+          ]
+        }
+        """;
+
+    /// <summary>
+    /// Регрессия (2026-09-17, санҷиши зиндаи флоу бо тугма): агар Meta ҳарду майдонро дар як
+    /// рӯйдод фиристад, "postback" бояд бартарӣ дошта бошад — вагарна FlowEngine пахши тугмаро
+    /// ҳамчун паёми матнии нав тафсир мекунад ва flow-и MatchMode=all худро аз сифр сар медиҳад
+    /// (ниг. огоҳии чат: паёми аввал бепоён такрор мешуд).
+    /// </summary>
+    [Fact]
+    public void ParseMessages_PostbackWithMessageEcho_PostbackTakesPriority()
+    {
+        var messages = InstagramPayloadParser.ParseMessages(Parse(PostbackWithMessageEchoPayload));
+
+        var message = Assert.Single(messages);
+        Assert.Equal("flow_button:node-1:0", message.PostbackPayload);
+        Assert.Equal("postback:1254001234567890:1569262486134", message.MessageExternalId);
+    }
+
     private const string UnreactPayload = """
         {
           "object": "instagram",
@@ -732,5 +799,110 @@ public class InstagramPayloadParserTests
     public void ParseStatusUpdates_Read_IsIgnored()
     {
         Assert.Empty(InstagramPayloadParser.ParseStatusUpdates(Parse(ReadPayload)));
+    }
+
+    // Payload-и тасдиқшуда дар истеҳсол — ниг. phase-10-instagram-automation.md.
+    private const string CommentPayload = """
+        {
+          "object": "instagram",
+          "entry": [{
+            "id": "17841437397996064",
+            "changes": [{
+              "field": "comments",
+              "value": {
+                "id": "18069000008730547",
+                "from": { "id": "2169710770261037", "username": "eshonov.f1" },
+                "text": "🔥👏",
+                "media": { "id": "17977626660078004", "media_product_type": "FEED" }
+              }
+            }]
+          }]
+        }
+        """;
+
+    [Fact]
+    public void TryParseCommentEvent_RealProductionPayload_ExtractsAllFields()
+    {
+        var parsed = InstagramPayloadParser.TryParseCommentEvent(Parse(CommentPayload), out var evt);
+
+        Assert.True(parsed);
+        Assert.Equal("18069000008730547", evt.CommentId);
+        Assert.Equal("2169710770261037", evt.ActorExternalId);
+        Assert.Equal("eshonov.f1", evt.ActorUsername);
+        Assert.Equal("🔥👏", evt.Text);
+        Assert.Equal("17977626660078004", evt.MediaId);
+    }
+
+    [Fact]
+    public void TryParseCommentEvent_MessagingPayload_ReturnsFalse()
+    {
+        Assert.False(InstagramPayloadParser.TryParseCommentEvent(Parse(TextMessagePayload), out _));
+    }
+
+    [Fact]
+    public void TryParseCommentEvent_ChangesFieldNotComments_ReturnsFalse()
+    {
+        const string payload = """
+            {
+              "object": "instagram",
+              "entry": [{
+                "id": "17841437397996064",
+                "changes": [{ "field": "story_insights", "value": { "id": "1" } }]
+              }]
+            }
+            """;
+
+        Assert.False(InstagramPayloadParser.TryParseCommentEvent(Parse(payload), out _));
+    }
+
+    [Fact]
+    public void TryParseCommentEvent_MissingFromField_ReturnsFalse()
+    {
+        const string payload = """
+            {
+              "object": "instagram",
+              "entry": [{
+                "id": "17841437397996064",
+                "changes": [{
+                  "field": "comments",
+                  "value": { "id": "18069000008730547", "text": "hello" }
+                }]
+              }]
+            }
+            """;
+
+        Assert.False(InstagramPayloadParser.TryParseCommentEvent(Parse(payload), out _));
+    }
+
+    [Fact]
+    public void TryParseCommentEvent_EmptyEntryArray_ReturnsFalse()
+    {
+        const string payload = """{ "object": "instagram", "entry": [] }""";
+        Assert.False(InstagramPayloadParser.TryParseCommentEvent(Parse(payload), out _));
+    }
+
+    [Fact]
+    public void TryParseCommentEvent_NoTextField_DefaultsToEmptyString()
+    {
+        const string payload = """
+            {
+              "object": "instagram",
+              "entry": [{
+                "id": "17841437397996064",
+                "changes": [{
+                  "field": "comments",
+                  "value": {
+                    "id": "18069000008730547",
+                    "from": { "id": "2169710770261037" },
+                    "media": { "id": "17977626660078004" }
+                  }
+                }]
+              }]
+            }
+            """;
+
+        Assert.True(InstagramPayloadParser.TryParseCommentEvent(Parse(payload), out var evt));
+        Assert.Equal("", evt.Text);
+        Assert.Null(evt.ActorUsername);
     }
 }

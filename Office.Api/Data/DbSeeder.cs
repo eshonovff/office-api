@@ -11,6 +11,7 @@ public static class DbSeeder
     {
         await SeedRolesAsync(db, ct);
         await SeedOwnerAsync(db, configuration, ct);
+        await FlowTemplateSeeder.SeedAsync(db, ct);
     }
 
     private static async Task SeedRolesAsync(AppDbContext db, CancellationToken ct)

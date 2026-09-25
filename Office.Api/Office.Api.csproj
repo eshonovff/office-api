@@ -9,6 +9,13 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Расмҳои пешфарзи шаблонҳои flow (масалан "Лид-магнит") — FlowTemplatesEndpoints
+         ҳангоми сохтани flow аз шаблон онҳоро ба Meta бор мекунад (attachment_id-и худи
+         канал). Бояд дар output-и build-и воқеӣ бошанд, на танҳо дар дерахти манбаъ. -->
+    <None Update="Assets\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="BCrypt.Net-Next" Version="4.2.1" />
     <PackageReference Include="FluentValidation" Version="12.1.1" />
     <PackageReference Include="FluentValidation.DependencyInjectionExtensions" Version="12.1.1" />

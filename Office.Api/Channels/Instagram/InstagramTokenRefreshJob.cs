@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Office.Api.Auth;
 using Office.Api.Data;
 using Office.Api.Data.Entities;
+using Office.Api.Email;
 using Office.Api.Realtime;
 
 namespace Office.Api.Channels.Instagram;
@@ -21,6 +22,7 @@ public class InstagramTokenRefreshJob(
     HttpClient httpClient,
     IChannelCredentialsProtector protector,
     INotificationService notificationService,
+    IEmailSender emailSender,
     ILogger<InstagramTokenRefreshJob> logger)
 {
     public async Task RunAsync(CancellationToken ct)
@@ -30,6 +32,7 @@ public class InstagramTokenRefreshJob(
         // Шумораи каналҳо дар ин система хурд аст — филтр дар C# (на дар SQL), то ҳамон
         // InstagramTokenRefreshPolicy pure-ро истифода барем, на такрори мантиқ дар LINQ-и EF.
         var channels = await db.Channels
+            .Include(c => c.Customer)
             .Where(c => c.Type == ChannelType.Instagram && c.IsActive && c.CredentialsExpiresAt != null)
             .ToListAsync(ct);
 
@@ -94,6 +97,19 @@ public class InstagramTokenRefreshJob(
 
     private async Task NotifyOwnersAsync(Channel channel, string message, CancellationToken ct)
     {
+        // A мизоҷ's channel: tell the мизоҷ (their automations stop when the token dies), never
+        // the company's owners — it isn't their channel, and they must not learn about it.
+        if (channel.Customer is { } customer)
+        {
+            await emailSender.SendAsync(
+                customer.Email,
+                "Instagram-и шумо бояд аз нав пайваст шавад — office.nizom.tj",
+                $"Салом, {customer.FullName}!\n\n{message}\n\nДар office.nizom.tj → Танзимот → Аккаунтҳо Instagram-ро аз нав пайваст кунед, " +
+                "то автоматизатсияҳо қатъ нашаванд.",
+                ct);
+            return;
+        }
+
         var ownerIds = await db.Users
             .Where(u => u.IsActive && u.UserRoles.Any(ur => ur.Role.Key == RoleKeys.Owner))
             .Select(u => u.Id)

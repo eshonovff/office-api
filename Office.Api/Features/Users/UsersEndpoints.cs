@@ -217,6 +217,7 @@ public static class UsersEndpoints
         {
             Id = Guid.CreateVersion7(),
             FullName = fullName,
+            // Digits only — the shared sign-in page tells staff from мизоҷ by the "@" of an email.
             Username = normalizedPhone,
             Phone = normalizedPhone,
             Email = email,

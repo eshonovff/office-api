@@ -1,3 +1,5 @@
+using System.IdentityModel.Tokens.Jwt;
+using Microsoft.AspNetCore.HttpOverrides;
 using System.Text;
 using System.Threading.RateLimiting;
 using FluentValidation;
@@ -13,16 +15,23 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.OpenApi;
 using Office.Api.Auth;
 using Office.Api.Channels;
+using Office.Api.Channels.Automation;
+using Office.Api.Channels.Flows;
 using Office.Api.Channels.Facebook;
 using Office.Api.Channels.Instagram;
 using Office.Api.Channels.Meta;
 using Office.Api.Channels.WhatsApp;
 using Office.Api.Common;
 using Office.Api.Data;
+using Office.Api.Email;
 using Office.Api.Media;
 using Office.Api.Features.Auth;
+using Office.Api.Features.Automations;
 using Office.Api.Features.Channels;
+using Office.Api.Features.CommentAutomation;
 using Office.Api.Features.Conversations;
+using Office.Api.Features.CustomerAuth;
+using Office.Api.Features.Flows;
 using Office.Api.Features.Dashboard;
 using Office.Api.Features.Jobs;
 using Office.Api.Features.Legal;
@@ -30,6 +39,11 @@ using Office.Api.Features.Notifications;
 using Office.Api.Features.Projects;
 using Office.Api.Features.Roles;
 using Office.Api.Features.Tasks;
+using Office.Api.Features.Subscriptions;
+using Office.Api.Features.CustomerAccount;
+using Office.Api.Features.CustomerChannels;
+using Office.Api.Features.CustomerFlows;
+using Office.Api.Features.DataDeletion;
 using Office.Api.Features.Users;
 using Office.Api.Realtime;
 using Office.Api.Sms;
@@ -38,6 +52,8 @@ using Serilog;
 
 const string FrontendCorsPolicy = "Frontend";
 const string LoginRateLimiterPolicy = "login";
+const string CustomerAuthRateLimiterPolicy = "customer-auth";
+const string PublicCallbackRateLimiterPolicy = "public-callback";
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -45,6 +61,12 @@ builder.Host.UseSerilog((context, configuration) =>
     configuration.ReadFrom.Configuration(context.Configuration));
 
 builder.Services.AddProblemDetails();
+
+// Staff vs мизоҷ vs background job — decides which channels every AppDbContext query can see
+// (the context's global query filters). Singleton: it holds nothing, it reads the current
+// HttpContext on every use.
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddSingleton<ITenantContext, HttpTenantContext>();
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
@@ -138,7 +160,10 @@ builder.Services.AddCors(options =>
 var jwtKey = builder.Configuration["Jwt:Key"]
     ?? throw new InvalidOperationException("Jwt:Key танзим нашудааст.");
 
-builder.Services
+var jwtCustomerKey = builder.Configuration["Jwt:CustomerKey"]
+    ?? throw new InvalidOperationException("Jwt:CustomerKey танзим нашудааст.");
+
+var authenticationBuilder = builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
@@ -150,6 +175,8 @@ builder.Services
             ValidateIssuerSigningKey = true,
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
             ClockSkew = TimeSpan.Zero,
+            // Who validated this identity — TenantResolver keys data isolation off it.
+            AuthenticationType = AuthSchemes.StaffIdentity,
         };
 
         // WebSocket-и браузер Authorization header гузошта наметавонад — токенро
@@ -171,11 +198,98 @@ builder.Services
                 return Task.CompletedTask;
             },
         };
+    })
+    // Схемаи дуюм, бо калиди ИМЗОИ ҷудогона — барои Customer (мизоҷи беруна). Калиди
+    // дигар маънои онро дорад, ки токени мизоҷ аз рӯи имзо ҳам ба схемаи болои (пешфарз,
+    // барои кормандон) мувофиқ намеояд, пас PermissionsVersionMiddleware ва RequirePermission
+    // ҳеҷ гоҳ токени мизоҷро сарфи назар аз хатои конфигуратсия қабул карда наметавонанд.
+    .AddJwtBearer(AuthSchemes.Customer, options =>
+    {
+        options.MapInboundClaims = false;
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = false,
+            ValidateAudience = false,
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtCustomerKey)),
+            ClockSkew = TimeSpan.Zero,
+            AuthenticationType = AuthSchemes.Customer,
+        };
+
+        // A valid signature isn't enough: the мизоҷ must still exist and be active. Without this
+        // a deleted (or deactivated) account kept working for the rest of its 15-minute access
+        // token — and requests that insert rows for it failed with a 500 on the missing customer.
+        // One indexed lookup per request, the staff side's PermissionsVersionMiddleware does the same.
+        options.Events = new JwtBearerEvents
+        {
+            OnTokenValidated = async context =>
+            {
+                var sub = context.Principal?.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
+                // Tokens from before "sv" existed count as version 0 — valid until the first reset.
+                var sessionVersion = int.TryParse(context.Principal?.FindFirst("sv")?.Value, out var sv) ? sv : 0;
+                var db = context.HttpContext.RequestServices.GetRequiredService<AppDbContext>();
+                if (!Guid.TryParse(sub, out var customerId) ||
+                    !await db.Customers.AnyAsync(
+                        c => c.Id == customerId && c.IsActive && c.SessionVersion == sessionVersion,
+                        context.HttpContext.RequestAborted))
+                {
+                    context.Fail("Customer no longer exists, is inactive, or this session was ended by a password reset.");
+                }
+            },
+        };
     });
+
+// Google/Apple — ихтиёрӣ: то Client ID-и воқеӣ (Google Cloud Console / Apple Developer,
+// Services ID) насб нашавад, схема сабт намешавад ва CustomerAuthEndpoints ҳам /google,
+// /apple-ро намесозад (на 500, балки 404 — то нокомилии конфигуратсия боқимондаи app-ро
+// аз кор наандозад). Authority = провайдер худаш JWKS-ро тавассути OIDC discovery
+// медиҳад — ID token-и Google/Apple бо калиди МО не, бо калиди ОНҲО тасдиқ мешавад.
+var googleClientId = builder.Configuration["Google:ClientId"];
+if (!string.IsNullOrEmpty(googleClientId))
+{
+    authenticationBuilder.AddJwtBearer(AuthSchemes.Google, options =>
+    {
+        options.MapInboundClaims = false;
+        options.Authority = "https://accounts.google.com";
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidIssuers = ["https://accounts.google.com", "accounts.google.com"],
+            ValidateAudience = true,
+            ValidAudience = googleClientId,
+            ValidateLifetime = true,
+            AuthenticationType = AuthSchemes.Google,
+        };
+    });
+}
+
+var appleClientId = builder.Configuration["Apple:ClientId"];
+if (!string.IsNullOrEmpty(appleClientId))
+{
+    authenticationBuilder.AddJwtBearer(AuthSchemes.Apple, options =>
+    {
+        options.MapInboundClaims = false;
+        options.Authority = "https://appleid.apple.com";
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidIssuer = "https://appleid.apple.com",
+            ValidateAudience = true,
+            ValidAudience = appleClientId,
+            ValidateLifetime = true,
+            AuthenticationType = AuthSchemes.Apple,
+        };
+    });
+}
 
 builder.Services.AddSingleton<IAuthorizationPolicyProvider, PermissionPolicyProvider>();
 builder.Services.AddSingleton<IAuthorizationHandler, PermissionAuthorizationHandler>();
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy(AuthSchemes.CustomerOnlyPolicy, policy => policy
+        .AddAuthenticationSchemes(AuthSchemes.Customer)
+        .RequireAuthenticatedUser());
+});
 // GET /api/dashboard — 60-сонияи кэш дар хотира (аввалин истифодаи IMemoryCache дар ин лоиҳа),
 // калидаш аз userId+нақшҳо, ниг. DashboardEndpoints.
 builder.Services.AddMemoryCache();
@@ -192,6 +306,31 @@ builder.Services.AddRateLimiter(options =>
                 PermitLimit = 5,
                 QueueLimit = 0,
             }));
+
+    // register/verify-email/resend-code/login якҷоя — ҳимояи асосии зидди brute-force-и
+    // коди 6-рақама EmailVerificationChecker.MaxAttempts (санадоки ба ҳисоб) аст, ин танҳо
+    // лояи дуюм (зидди flood аз як IP).
+    options.AddPolicy(CustomerAuthRateLimiterPolicy, context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                Window = TimeSpan.FromMinutes(1),
+                PermitLimit = 5,
+                QueueLimit = 0,
+            }));
+
+    // Anonymous endpoints called by Meta (data deletion) or by anyone holding a status link:
+    // generous for real traffic, a wall against flooding and code guessing.
+    options.AddPolicy(PublicCallbackRateLimiterPolicy, context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                Window = TimeSpan.FromMinutes(1),
+                PermitLimit = 30,
+                QueueLimit = 0,
+            }));
 });
 
 builder.Services.AddValidatorsFromAssemblyContaining<Program>();
@@ -200,6 +339,10 @@ builder.Services.AddSignalR();
 
 builder.Services.AddScoped<IPermissionService, PermissionService>();
 builder.Services.AddScoped<ITokenService, TokenService>();
+builder.Services.AddScoped<ICustomerTokenService, CustomerTokenService>();
+builder.Services.AddSingleton<PasswordResetQueue>();
+builder.Services.AddScoped<PasswordResetSender>();
+builder.Services.AddHostedService<PasswordResetWorker>();
 builder.Services.AddScoped<ProjectAccessGuard>();
 builder.Services.AddScoped<IProjectAccessGuard>(sp => sp.GetRequiredService<ProjectAccessGuard>());
 builder.Services.AddScoped<ChannelAccessGuard>();
@@ -247,10 +390,48 @@ builder.Services.AddScoped<HtmlMediaCleanupJob>();
 builder.Services.AddScoped<InstagramTokenRefreshJob>();
 builder.Services.AddHttpClient<InstagramTokenRefreshJob>(client => client.DefaultRequestHeaders.UserAgent.ParseAdd(BrowserUserAgent));
 builder.Services.AddScoped<InstagramContactProfileBackfillJob>();
+builder.Services.AddScoped<CommentAutomationProcessor>();
+builder.Services.AddScoped<CommentAutomationJob>();
+builder.Services.AddSingleton<InstagramFollowCheckRateLimiter>();
+// A flow's http_request goes to URLs written by мизоҷон (untrusted): the handler refuses any
+// non-public address at connect time, and the short timeout keeps a slow target from pinning
+// a Hangfire worker.
+builder.Services.AddHttpClient<FlowEngine>(client =>
+    {
+        client.DefaultRequestHeaders.UserAgent.ParseAdd(BrowserUserAgent);
+        client.Timeout = TimeSpan.FromSeconds(15);
+    })
+    .ConfigurePrimaryHttpMessageHandler(SsrfSafeHttpHandler.Create);
+builder.Services.AddScoped<FlowEngineJob>();
+builder.Services.AddScoped<DataDeletionJob>();
+builder.Services.AddScoped<FlowTriggerProcessor>();
 
 builder.Services.AddHttpClient<ISmsSender, OsonSmsSender>();
 
+// Email:Resend:ApiKey холӣ бошад → LoggingEmailSender (dev — коди тасдиқ ба log мебарояд,
+// на ба email-и воқеӣ) — то провайдер интихоб нашуда бошад ҳам, тамоми ҷараён санҷида шавад.
+var resendApiKey = builder.Configuration["Email:Resend:ApiKey"];
+if (string.IsNullOrEmpty(resendApiKey))
+    builder.Services.AddSingleton<IEmailSender, LoggingEmailSender>();
+else
+    builder.Services.AddHttpClient<IEmailSender, ResendEmailSender>();
+
+// Behind nginx every request arrives from the proxy's address (the Docker bridge gateway in
+// production), so without this every per-IP rate limit is ONE bucket for the whole site — five
+// sign-ups a minute for everyone, and one attacker can lock everyone out of login. Trusted
+// senders: loopback and Docker bridge networks only. The API port is bound to 127.0.0.1, so
+// nothing outside the host can reach it to forge the header. ForwardLimit 1 = only the
+// address nginx appended; anything a client put into X-Forwarded-For itself is ignored.
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.ForwardLimit = 1;
+    options.KnownIPNetworks.Add(System.Net.IPNetwork.Parse("172.16.0.0/12"));
+});
+
 var app = builder.Build();
+
+app.UseForwardedHeaders();
 
 app.UseExceptionHandler(exceptionHandlerApp => exceptionHandlerApp.Run(async context =>
 {
@@ -300,6 +481,13 @@ app.UseAuthorization();
 app.MapHealthChecks("/health");
 
 app.MapAuthEndpoints();
+app.MapCustomerAuthEndpoints(builder.Configuration);
+app.MapCustomerPasswordResetEndpoints();
+app.MapCustomerSubscriptionsEndpoints();
+app.MapCustomerChannelsEndpoints();
+app.MapCustomerFlowsEndpoints();
+app.MapCustomerAccountEndpoints();
+app.MapSubscriptionRequestsEndpoints();
 app.MapUsersEndpoints();
 app.MapRolesEndpoints();
 app.MapProjectsEndpoints();
@@ -313,7 +501,12 @@ app.MapNotificationsEndpoints();
 app.MapChannelsEndpoints();
 app.MapChannelOAuthEndpoints();
 app.MapWebhookEndpoints();
+app.MapCommentAutomationEndpoints();
+app.MapFlowsEndpoints();
+app.MapFlowTemplatesEndpoints();
+app.MapAutomationsEndpoints();
 app.MapLegalEndpoints();
+app.MapDataDeletionEndpoints();
 app.MapConversationsEndpoints();
 app.MapMessagesEndpoints();
 app.MapDashboardEndpoints();

@@ -5,7 +5,9 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Office.Api.Channels;
 using Office.Api.Channels.Instagram;
 using Office.Api.Data;
+using Office.Api.Auth;
 using Office.Api.Data.Entities;
+using Office.Api.Email;
 using Office.Api.Realtime;
 
 namespace Office.Api.Tests.Integration;
@@ -39,8 +41,60 @@ public class InstagramTokenRefreshJobTests
         return channel;
     }
 
-    private static InstagramTokenRefreshJob MakeJob(AppDbContext db, FakeHttpMessageHandler handler) =>
-        new(db, new HttpClient(handler), new PassthroughProtector(), new NoOpNotificationService(), NullLogger<InstagramTokenRefreshJob>.Instance);
+    private static InstagramTokenRefreshJob MakeJob(
+        AppDbContext db, FakeHttpMessageHandler handler,
+        RecordingNotificationService? notifications = null, RecordingEmailSender? email = null) =>
+        new(db, new HttpClient(handler), new PassthroughProtector(), notifications ?? new RecordingNotificationService(),
+            email ?? new RecordingEmailSender(), NullLogger<InstagramTokenRefreshJob>.Instance);
+
+    private static FakeHttpMessageHandler FailingMeta() =>
+        new(_ => new HttpResponseMessage(HttpStatusCode.BadRequest) { Content = new StringContent("{}") });
+
+    private static Guid SeedOwner(AppDbContext db)
+    {
+        var role = new Role { Id = Guid.NewGuid(), Key = RoleKeys.Owner, Name = "Owner" };
+        var owner = new User { Id = Guid.NewGuid(), FullName = "Owner", Username = "owner", PasswordHash = "x", IsActive = true };
+        db.Roles.Add(role);
+        db.Users.Add(owner);
+        db.UserRoles.Add(new UserRole { UserId = owner.Id, RoleId = role.Id });
+        db.SaveChanges();
+        return owner.Id;
+    }
+
+    [Fact]
+    public async Task RunAsync_MizojChannelFails_EmailsTheMizoj_NotTheCompanyOwners()
+    {
+        var db = CreateDb();
+        SeedOwner(db);
+        var customer = new Customer { Id = Guid.NewGuid(), Email = "mizoj@example.com", FullName = "Мизоҷ" };
+        db.Customers.Add(customer);
+        var channel = SeedChannel(db, DateTimeOffset.UtcNow.AddDays(-1));
+        channel.CustomerId = customer.Id;
+        db.SaveChanges();
+        var notifications = new RecordingNotificationService();
+        var email = new RecordingEmailSender();
+
+        await MakeJob(db, FailingMeta(), notifications, email).RunAsync(CancellationToken.None);
+
+        Assert.Equal(["mizoj@example.com"], email.Recipients);
+        Assert.Empty(notifications.Pushes);
+        Assert.True((await db.Channels.SingleAsync()).RequiresReconnect);
+    }
+
+    [Fact]
+    public async Task RunAsync_CompanyChannelFails_NotifiesOwners_NoEmail()
+    {
+        var db = CreateDb();
+        var ownerId = SeedOwner(db);
+        SeedChannel(db, DateTimeOffset.UtcNow.AddDays(-1));
+        var notifications = new RecordingNotificationService();
+        var email = new RecordingEmailSender();
+
+        await MakeJob(db, FailingMeta(), notifications, email).RunAsync(CancellationToken.None);
+
+        Assert.Equal([ownerId], notifications.Pushes);
+        Assert.Empty(email.Recipients);
+    }
 
     [Fact]
     public async Task RunAsync_ChannelWithinRefreshWindow_RefreshesTokenAndExtendsExpiry()
@@ -140,8 +194,25 @@ public class InstagramTokenRefreshJobTests
         public string Unprotect(string protectedText) => protectedText;
     }
 
-    private sealed class NoOpNotificationService : INotificationService
+    private sealed class RecordingNotificationService : INotificationService
     {
-        public Task PushAsync(Guid userId, string type, object payload, CancellationToken ct) => Task.CompletedTask;
+        public List<Guid> Pushes { get; } = [];
+
+        public Task PushAsync(Guid userId, string type, object payload, CancellationToken ct)
+        {
+            Pushes.Add(userId);
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class RecordingEmailSender : IEmailSender
+    {
+        public List<string> Recipients { get; } = [];
+
+        public Task<bool> SendAsync(string to, string subject, string bodyText, CancellationToken ct)
+        {
+            Recipients.Add(to);
+            return Task.FromResult(true);
+        }
     }
 }

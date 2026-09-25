@@ -22,4 +22,11 @@ public record ParsedWebhookMessage(
     /// <summary>Пайванди воқеии Reel/Post/Story (ниг. Message.ExternalContentUrl) — ҳеҷ гоҳ зеркашӣ намешавад.</summary>
     string? ExternalContentUrl = null,
     /// <summary>"Reel" | "Post" | "Story" — танҳо вақте ExternalContentUrl пур аст.</summary>
-    string? ExternalContentKind = null);
+    string? ExternalContentKind = null,
+    /// <summary>
+    /// Фазаи 12: агар ин паём аз пахши тугмаи postback бошад (на матни оддӣ), payload-и
+    /// барномасози тугма ин ҷо аст (Body = title-и тугма, барои намоиш дар inbox). Тасдиқшуда
+    /// бо ҳуҷҷати расмии Meta (2026-09-15): messaging[].postback:{title,payload} — ҳамон шакли
+    /// Facebook (Instagram ҳамон Messenger Platform-ро истифода мебарад).
+    /// </summary>
+    string? PostbackPayload = null);

@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Office.Api.Common;
 using Office.Api.Data;
 using Office.Api.Data.Entities;
 

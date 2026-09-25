@@ -1,6 +1,9 @@
 using System.Text.Json;
 using Hangfire;
 using Microsoft.EntityFrameworkCore;
+using Office.Api.Channels.Automation;
+using Office.Api.Channels.Flows;
+using Office.Api.Channels.Instagram;
 using Office.Api.Data;
 using Office.Api.Data.Entities;
 using Office.Api.Features.Conversations;
@@ -18,6 +21,8 @@ public class WebhookProcessor(
     IChannelProviderFactory factory,
     IInboxEventPublisher events,
     IBackgroundJobClient backgroundJobs,
+    CommentAutomationProcessor commentAutomation,
+    FlowTriggerProcessor flowTrigger,
     ILogger<WebhookProcessor> logger)
 {
     public async Task ProcessAsync(Guid webhookLogId, CancellationToken ct)
@@ -69,6 +74,26 @@ public class WebhookProcessor(
             return;
         }
 
+        // A мизоҷ disconnected this channel: its token is gone (CustomerChannelsEndpoints.Disconnect),
+        // so nothing may run or be sent for it — Meta keeps delivering webhooks regardless.
+        // Company channels keep their existing behaviour (see PROGRESS open issue on IsActive).
+        if (channel.CustomerId is not null && !channel.IsActive)
+        {
+            log.Error = $"Канали мизоҷ '{channelExternalId}' ҷудо карда шудааст — webhook коркард нашуд.";
+            return;
+        }
+
+        // Шакли коментарии Instagram (entry[].changes[], field="comments") бо шакли паёми
+        // муқаррарӣ (entry[].messaging[]) комилан фарқ мекунад — InstagramPayloadParser.ParseMessages
+        // онро намефаҳмад (ва бехатарона холӣ бармегардонад), пас шохаи ҷудогона лозим аст.
+        if (channelType == ChannelType.Instagram && InstagramPayloadParser.TryParseCommentEvent(root, out var commentEvent))
+        {
+            await commentAutomation.ProcessAsync(channel, commentEvent, ct);
+            // Паҳлӯи automation_rules-и Фазаи 10 (боло), на ба ҷои он — ниг. шарҳи FlowTriggerProcessor.
+            await flowTrigger.ProcessCommentAsync(channel, commentEvent, ct);
+            return;
+        }
+
         await ProcessNewMessagesAsync(channel, provider, root, ct);
         await ProcessStatusUpdatesAsync(channel, provider, root, ct);
     }
@@ -95,12 +120,17 @@ public class WebhookProcessor(
 
         await db.SaveChangesAsync(ct);
 
+        var parsedByExternalId = newMessages.ToDictionary(m => m.MessageExternalId);
         foreach (var (message, conversation, mediaExternalId) in savedMessages)
         {
             await events.MessageReceivedAsync(channel.Id, conversation.AssignedTo, MessageDto.FromEntity(message), ct);
 
             if (mediaExternalId is not null)
                 backgroundJobs.Enqueue<MediaDownloadJob>(j => j.DownloadAsync(message.Id, mediaExternalId, CancellationToken.None));
+
+            // Фазаи 12: Flow Builder — паҳлӯи рӯйхати мавҷуда, ба ҷои он даст намезанад.
+            if (message.ExternalId is not null && parsedByExternalId.TryGetValue(message.ExternalId, out var parsed))
+                await flowTrigger.ProcessMessageAsync(channel, conversation, parsed, ct);
         }
     }
 
