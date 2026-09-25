@@ -74,6 +74,15 @@ public class WebhookProcessor(
             return;
         }
 
+        // A мизоҷ disconnected this channel: its token is gone (CustomerChannelsEndpoints.Disconnect),
+        // so nothing may run or be sent for it — Meta keeps delivering webhooks regardless.
+        // Company channels keep their existing behaviour (see PROGRESS open issue on IsActive).
+        if (channel.CustomerId is not null && !channel.IsActive)
+        {
+            log.Error = $"Канали мизоҷ '{channelExternalId}' ҷудо карда шудааст — webhook коркард нашуд.";
+            return;
+        }
+
         // Шакли коментарии Instagram (entry[].changes[], field="comments") бо шакли паёми
         // муқаррарӣ (entry[].messaging[]) комилан фарқ мекунад — InstagramPayloadParser.ParseMessages
         // онро намефаҳмад (ва бехатарона холӣ бармегардонад), пас шохаи ҷудогона лозим аст.

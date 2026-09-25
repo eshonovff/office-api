@@ -4,7 +4,18 @@ using System.Text.Json;
 
 namespace Office.Api.Channels.Meta;
 
-public sealed record OAuthStatePayload(string Provider, Guid UserId, string Nonce, long ExpiresAtUnix);
+/// <summary>Who started an OAuth connect: a staff user (company channel) or a мизоҷ (their own).</summary>
+public enum OAuthOwnerKind
+{
+    // Staff = 0 on purpose: a state signed before this field existed decodes as Staff, which is
+    // exactly who could start OAuth back then.
+    Staff = 0,
+    Customer = 1,
+}
+
+/// <param name="UserId">The owner's id — a staff User.Id or a Customer.Id, per <paramref name="OwnerKind"/>.</param>
+public sealed record OAuthStatePayload(
+    string Provider, Guid UserId, string Nonce, long ExpiresAtUnix, OAuthOwnerKind OwnerKind = OAuthOwnerKind.Staff);
 
 /// <summary>
 /// State-и OAuth-и Meta: имзошуда (HMAC-SHA256, алгуи <see cref="WebhookSignature"/>), кӯтоҳмуддат
@@ -17,9 +28,15 @@ public static class OAuthStateCodec
     private const string Domain = "Office.Api.Channels.OAuthState.v1";
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-    public static string Encode(string provider, Guid userId, string nonce, DateTimeOffset expiresAt, string signingKey)
+    public static string Encode(
+        string provider,
+        Guid userId,
+        string nonce,
+        DateTimeOffset expiresAt,
+        string signingKey,
+        OAuthOwnerKind ownerKind = OAuthOwnerKind.Staff)
     {
-        var payload = new OAuthStatePayload(provider, userId, nonce, expiresAt.ToUnixTimeSeconds());
+        var payload = new OAuthStatePayload(provider, userId, nonce, expiresAt.ToUnixTimeSeconds(), ownerKind);
         var payloadB64 = Base64UrlEncode(JsonSerializer.SerializeToUtf8Bytes(payload, JsonOptions));
         var signature = Convert.ToHexString(ComputeSignature(payloadB64, signingKey));
         return $"{payloadB64}.{signature}";

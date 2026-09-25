@@ -1,3 +1,5 @@
+using System.IdentityModel.Tokens.Jwt;
+using Microsoft.AspNetCore.HttpOverrides;
 using System.Text;
 using System.Threading.RateLimiting;
 using FluentValidation;
@@ -37,6 +39,11 @@ using Office.Api.Features.Notifications;
 using Office.Api.Features.Projects;
 using Office.Api.Features.Roles;
 using Office.Api.Features.Tasks;
+using Office.Api.Features.Subscriptions;
+using Office.Api.Features.CustomerAccount;
+using Office.Api.Features.CustomerChannels;
+using Office.Api.Features.CustomerFlows;
+using Office.Api.Features.DataDeletion;
 using Office.Api.Features.Users;
 using Office.Api.Realtime;
 using Office.Api.Sms;
@@ -46,6 +53,7 @@ using Serilog;
 const string FrontendCorsPolicy = "Frontend";
 const string LoginRateLimiterPolicy = "login";
 const string CustomerAuthRateLimiterPolicy = "customer-auth";
+const string PublicCallbackRateLimiterPolicy = "public-callback";
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -53,6 +61,12 @@ builder.Host.UseSerilog((context, configuration) =>
     configuration.ReadFrom.Configuration(context.Configuration));
 
 builder.Services.AddProblemDetails();
+
+// Staff vs мизоҷ vs background job — decides which channels every AppDbContext query can see
+// (the context's global query filters). Singleton: it holds nothing, it reads the current
+// HttpContext on every use.
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddSingleton<ITenantContext, HttpTenantContext>();
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Default")));
@@ -161,6 +175,8 @@ var authenticationBuilder = builder.Services
             ValidateIssuerSigningKey = true,
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
             ClockSkew = TimeSpan.Zero,
+            // Who validated this identity — TenantResolver keys data isolation off it.
+            AuthenticationType = AuthSchemes.StaffIdentity,
         };
 
         // WebSocket-и браузер Authorization header гузошта наметавонад — токенро
@@ -183,10 +199,10 @@ var authenticationBuilder = builder.Services
             },
         };
     })
-    // Схемаи дуюм, бо калиди ИМЗОИ ҷудогона — барои Customer (мизози беруна). Калиди
-    // дигар маънои онро дорад, ки токени мизоз аз рӯи имзо ҳам ба схемаи болои (пешфарз,
+    // Схемаи дуюм, бо калиди ИМЗОИ ҷудогона — барои Customer (мизоҷи беруна). Калиди
+    // дигар маънои онро дорад, ки токени мизоҷ аз рӯи имзо ҳам ба схемаи болои (пешфарз,
     // барои кормандон) мувофиқ намеояд, пас PermissionsVersionMiddleware ва RequirePermission
-    // ҳеҷ гоҳ токени мизозро сарфи назар аз хатои конфигуратсия қабул карда наметавонанд.
+    // ҳеҷ гоҳ токени мизоҷро сарфи назар аз хатои конфигуратсия қабул карда наметавонанд.
     .AddJwtBearer(AuthSchemes.Customer, options =>
     {
         options.MapInboundClaims = false;
@@ -197,6 +213,29 @@ var authenticationBuilder = builder.Services
             ValidateIssuerSigningKey = true,
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtCustomerKey)),
             ClockSkew = TimeSpan.Zero,
+            AuthenticationType = AuthSchemes.Customer,
+        };
+
+        // A valid signature isn't enough: the мизоҷ must still exist and be active. Without this
+        // a deleted (or deactivated) account kept working for the rest of its 15-minute access
+        // token — and requests that insert rows for it failed with a 500 on the missing customer.
+        // One indexed lookup per request, the staff side's PermissionsVersionMiddleware does the same.
+        options.Events = new JwtBearerEvents
+        {
+            OnTokenValidated = async context =>
+            {
+                var sub = context.Principal?.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
+                // Tokens from before "sv" existed count as version 0 — valid until the first reset.
+                var sessionVersion = int.TryParse(context.Principal?.FindFirst("sv")?.Value, out var sv) ? sv : 0;
+                var db = context.HttpContext.RequestServices.GetRequiredService<AppDbContext>();
+                if (!Guid.TryParse(sub, out var customerId) ||
+                    !await db.Customers.AnyAsync(
+                        c => c.Id == customerId && c.IsActive && c.SessionVersion == sessionVersion,
+                        context.HttpContext.RequestAborted))
+                {
+                    context.Fail("Customer no longer exists, is inactive, or this session was ended by a password reset.");
+                }
+            },
         };
     });
 
@@ -219,6 +258,7 @@ if (!string.IsNullOrEmpty(googleClientId))
             ValidateAudience = true,
             ValidAudience = googleClientId,
             ValidateLifetime = true,
+            AuthenticationType = AuthSchemes.Google,
         };
     });
 }
@@ -237,6 +277,7 @@ if (!string.IsNullOrEmpty(appleClientId))
             ValidateAudience = true,
             ValidAudience = appleClientId,
             ValidateLifetime = true,
+            AuthenticationType = AuthSchemes.Apple,
         };
     });
 }
@@ -278,6 +319,18 @@ builder.Services.AddRateLimiter(options =>
                 PermitLimit = 5,
                 QueueLimit = 0,
             }));
+
+    // Anonymous endpoints called by Meta (data deletion) or by anyone holding a status link:
+    // generous for real traffic, a wall against flooding and code guessing.
+    options.AddPolicy(PublicCallbackRateLimiterPolicy, context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                Window = TimeSpan.FromMinutes(1),
+                PermitLimit = 30,
+                QueueLimit = 0,
+            }));
 });
 
 builder.Services.AddValidatorsFromAssemblyContaining<Program>();
@@ -287,6 +340,9 @@ builder.Services.AddSignalR();
 builder.Services.AddScoped<IPermissionService, PermissionService>();
 builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<ICustomerTokenService, CustomerTokenService>();
+builder.Services.AddSingleton<PasswordResetQueue>();
+builder.Services.AddScoped<PasswordResetSender>();
+builder.Services.AddHostedService<PasswordResetWorker>();
 builder.Services.AddScoped<ProjectAccessGuard>();
 builder.Services.AddScoped<IProjectAccessGuard>(sp => sp.GetRequiredService<ProjectAccessGuard>());
 builder.Services.AddScoped<ChannelAccessGuard>();
@@ -337,8 +393,17 @@ builder.Services.AddScoped<InstagramContactProfileBackfillJob>();
 builder.Services.AddScoped<CommentAutomationProcessor>();
 builder.Services.AddScoped<CommentAutomationJob>();
 builder.Services.AddSingleton<InstagramFollowCheckRateLimiter>();
-builder.Services.AddHttpClient<FlowEngine>(client => client.DefaultRequestHeaders.UserAgent.ParseAdd(BrowserUserAgent));
+// A flow's http_request goes to URLs written by мизоҷон (untrusted): the handler refuses any
+// non-public address at connect time, and the short timeout keeps a slow target from pinning
+// a Hangfire worker.
+builder.Services.AddHttpClient<FlowEngine>(client =>
+    {
+        client.DefaultRequestHeaders.UserAgent.ParseAdd(BrowserUserAgent);
+        client.Timeout = TimeSpan.FromSeconds(15);
+    })
+    .ConfigurePrimaryHttpMessageHandler(SsrfSafeHttpHandler.Create);
 builder.Services.AddScoped<FlowEngineJob>();
+builder.Services.AddScoped<DataDeletionJob>();
 builder.Services.AddScoped<FlowTriggerProcessor>();
 
 builder.Services.AddHttpClient<ISmsSender, OsonSmsSender>();
@@ -351,7 +416,22 @@ if (string.IsNullOrEmpty(resendApiKey))
 else
     builder.Services.AddHttpClient<IEmailSender, ResendEmailSender>();
 
+// Behind nginx every request arrives from the proxy's address (the Docker bridge gateway in
+// production), so without this every per-IP rate limit is ONE bucket for the whole site — five
+// sign-ups a minute for everyone, and one attacker can lock everyone out of login. Trusted
+// senders: loopback and Docker bridge networks only. The API port is bound to 127.0.0.1, so
+// nothing outside the host can reach it to forge the header. ForwardLimit 1 = only the
+// address nginx appended; anything a client put into X-Forwarded-For itself is ignored.
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.ForwardLimit = 1;
+    options.KnownIPNetworks.Add(System.Net.IPNetwork.Parse("172.16.0.0/12"));
+});
+
 var app = builder.Build();
+
+app.UseForwardedHeaders();
 
 app.UseExceptionHandler(exceptionHandlerApp => exceptionHandlerApp.Run(async context =>
 {
@@ -402,6 +482,12 @@ app.MapHealthChecks("/health");
 
 app.MapAuthEndpoints();
 app.MapCustomerAuthEndpoints(builder.Configuration);
+app.MapCustomerPasswordResetEndpoints();
+app.MapCustomerSubscriptionsEndpoints();
+app.MapCustomerChannelsEndpoints();
+app.MapCustomerFlowsEndpoints();
+app.MapCustomerAccountEndpoints();
+app.MapSubscriptionRequestsEndpoints();
 app.MapUsersEndpoints();
 app.MapRolesEndpoints();
 app.MapProjectsEndpoints();
@@ -420,6 +506,7 @@ app.MapFlowsEndpoints();
 app.MapFlowTemplatesEndpoints();
 app.MapAutomationsEndpoints();
 app.MapLegalEndpoints();
+app.MapDataDeletionEndpoints();
 app.MapConversationsEndpoints();
 app.MapMessagesEndpoints();
 app.MapDashboardEndpoints();

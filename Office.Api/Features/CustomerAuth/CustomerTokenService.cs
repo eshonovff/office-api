@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
@@ -20,7 +21,7 @@ public interface ICustomerTokenService
 /// Ҳамон алгуи TokenService (кормандон), вале бо калиди имзои ҷудогона (Jwt:CustomerKey) —
 /// пас токени мизоҷ ҳатто аз рӯи имзо ба схемаи пешфарзи staff мувофиқ намеояд. Претензияҳо
 /// қасдан бе роль/permission: мизоҷ ҳеҷ гоҳ "perm" claim надорад, пас RequirePermission ҳеҷ
-/// гоҳ токени мизозро қабул карда наметавонад, ҳатто агар касе хато дар scheme кунад.
+/// гоҳ токени мизоҷро қабул карда наметавонад, ҳатто агар касе хато дар scheme кунад.
 /// </summary>
 public class CustomerTokenService(IConfiguration configuration) : ICustomerTokenService
 {
@@ -36,6 +37,9 @@ public class CustomerTokenService(IConfiguration configuration) : ICustomerToken
             new(JwtRegisteredClaimNames.Sub, customer.Id.ToString()),
             new(ClaimTypes.Email, customer.Email),
             new("type", "customer"),
+            // Checked on every request against Customer.SessionVersion (Program.cs) — a password
+            // reset bumps it and every earlier token dies at once.
+            new("sv", customer.SessionVersion.ToString(CultureInfo.InvariantCulture)),
         };
 
         var token = new JwtSecurityToken(

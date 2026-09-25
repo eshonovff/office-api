@@ -32,11 +32,11 @@ public static class FlowTemplatesEndpoints
         return app;
     }
 
-    private static async Task<IResult> ListAsync(AppDbContext db, CancellationToken ct) =>
+    internal static async Task<IResult> ListAsync(AppDbContext db, CancellationToken ct) =>
         Results.Ok(await db.FlowTemplates.OrderBy(t => t.CreatedAt)
             .Select(t => new FlowTemplateListItem(t.Id, t.Name, t.Description)).ToListAsync(ct));
 
-    private static async Task<IResult> InstantiateAsync(
+    internal static async Task<IResult> InstantiateAsync(
         Guid channelId, Guid templateId, CreateFlowRequest request, AppDbContext db,
         InstagramProvider instagramProvider, IMediaProcessor mediaProcessor, ILogger<Program> logger, CancellationToken ct)
     {

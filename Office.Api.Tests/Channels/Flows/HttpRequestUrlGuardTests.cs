@@ -26,4 +26,17 @@ public class HttpRequestUrlGuardTests
     {
         Assert.False(HttpRequestUrlGuard.IsAllowed("https://[::1]/x"));
     }
+
+    [Theory]
+    [InlineData("https://0.0.0.0/x")]                 // reaches localhost on Linux
+    [InlineData("https://[::ffff:127.0.0.1]/x")]      // IPv4-mapped loopback
+    [InlineData("https://[fd00::1]/x")]               // IPv6 unique local
+    [InlineData("https://[fe80::1]/x")]               // IPv6 link-local
+    [InlineData("https://100.64.0.1/x")]              // carrier-grade NAT
+    [InlineData("https://api.localhost/x")]           // *.localhost resolves to loopback
+    [InlineData("https://LOCALHOST./x")]
+    public void IsAllowed_BlocksLiteralNonPublicTargetsTheOldCheckMissed(string url)
+    {
+        Assert.False(HttpRequestUrlGuard.IsAllowed(url));
+    }
 }

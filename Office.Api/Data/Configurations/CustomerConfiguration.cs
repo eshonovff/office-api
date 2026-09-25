@@ -15,6 +15,7 @@ public class CustomerConfiguration : IEntityTypeConfiguration<Customer>
         builder.Property(c => c.AvatarUrl).HasMaxLength(500);
         builder.Property(c => c.EmailVerificationCodeHash).HasMaxLength(64);
         builder.Property(c => c.IsActive).HasDefaultValue(true);
+        builder.Property(c => c.PlanTier).HasConversion<string>().HasMaxLength(20);
 
         // Email пеш аз захира ба lowercase меояд (CustomerAuthEndpoints.NormalizeEmail) — пас
         // unique index-и оддӣ кофист, citext ё functional index лозим нест.

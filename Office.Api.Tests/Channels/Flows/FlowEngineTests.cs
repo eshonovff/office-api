@@ -767,6 +767,108 @@ public class FlowEngineTests
         Assert.Single(handler.RequestUrls);
     }
 
+    [Theory]
+    [InlineData(true, false, 0)]   // trial running        → runs
+    [InlineData(false, false, 1)]  // trial over, no plan  → stopped
+    [InlineData(true, true, 1)]    // channel disconnected → stopped
+    public async Task MizojChannel_RunsOnlyWithAccessAndWhileConnected(bool trialRunning, bool disconnected, int blocked)
+    {
+        await using var db = CreateDb();
+        var customer = new Customer
+        {
+            Id = Guid.NewGuid(), Email = "m@example.com", FullName = "M",
+            TrialEndsAt = DateTimeOffset.UtcNow.AddDays(trialRunning ? 3 : -1),
+        };
+        var channel = MakeChannel();
+        channel.CustomerId = customer.Id;
+        channel.IsActive = !disconnected;
+        var contact = MakeContact(channel.Id);
+        var flow = MakeFlow(channel.Id);
+        var node = MakeNode(flow.Id, FlowNodeType.Message, new MessageNodeConfig([new MessageBlock(MessageBlock.TypeText, "Салом!", null)], []));
+        db.Customers.Add(customer);
+        db.Channels.Add(channel);
+        db.Conversations.Add(contact);
+        db.Flows.Add(flow);
+        db.FlowNodes.Add(node);
+        await db.SaveChangesAsync();
+
+        var (_, handler, _, engine) = MakeEngine(db);
+        await engine.StartAsync(flow, contact.Id, CancellationToken.None);
+
+        var session = await db.FlowSessions.SingleAsync();
+        if (blocked == 1)
+        {
+            Assert.Equal(FlowSessionStatus.Failed, session.Status);
+            Assert.Contains("тариф", session.Error);
+            Assert.Empty(handler.RequestUrls); // nothing sent on the мизоҷ's behalf
+        }
+        else
+        {
+            Assert.Equal(FlowSessionStatus.Finished, session.Status);
+            Assert.Single(handler.RequestUrls);
+        }
+    }
+
+    [Fact]
+    public async Task WaitingSession_DoesNotResumeAfterThePlanRanOut()
+    {
+        // A delay scheduled during the trial fires after it ended: the rest of the flow must not run.
+        await using var db = CreateDb();
+        var customer = new Customer { Id = Guid.NewGuid(), Email = "m@example.com", FullName = "M", TrialEndsAt = DateTimeOffset.UtcNow.AddDays(1) };
+        var channel = MakeChannel();
+        channel.CustomerId = customer.Id;
+        var contact = MakeContact(channel.Id);
+        var flow = MakeFlow(channel.Id);
+        var delay = MakeNode(flow.Id, FlowNodeType.Action, new ActionNodeConfig(ActionNodeConfig.KindDelay, DelayMinutes: 60));
+        var after = MakeNode(flow.Id, FlowNodeType.Message, new MessageNodeConfig([new MessageBlock(MessageBlock.TypeText, "Баъд аз таъхир", null)], []));
+        db.Customers.Add(customer);
+        db.Channels.Add(channel);
+        db.Conversations.Add(contact);
+        db.Flows.Add(flow);
+        db.FlowNodes.AddRange(delay, after);
+        db.FlowEdges.Add(MakeEdge(flow.Id, delay.Id, "default", after.Id));
+        await db.SaveChangesAsync();
+
+        var (_, handler, _, engine) = MakeEngine(db);
+        await engine.StartAsync(flow, contact.Id, CancellationToken.None);
+        var session = await db.FlowSessions.SingleAsync();
+        Assert.Equal(FlowSessionStatus.Waiting, session.Status);
+
+        customer.TrialEndsAt = DateTimeOffset.UtcNow.AddMinutes(-1); // the trial ends while it waits
+        await db.SaveChangesAsync();
+        await engine.ResumeFromDelayAsync(session.Id, CancellationToken.None);
+
+        Assert.Equal(FlowSessionStatus.Failed, (await db.FlowSessions.SingleAsync()).Status);
+        Assert.Empty(handler.RequestUrls);
+    }
+
+    [Fact]
+    public async Task Action_GotoFlow_NeverStartsAFlowOnAnotherChannel()
+    {
+        // Another owner's flow (another мизоҷ, or the company) must not run for this contact,
+        // even with its exact id — the engine has no tenant filter to stop it otherwise.
+        await using var db = CreateDb();
+        var ownChannel = MakeChannel();
+        var otherChannel = MakeChannel();
+        otherChannel.ExternalId = "other-account";
+        var contact = MakeContact(ownChannel.Id);
+        var foreignFlow = MakeFlow(otherChannel.Id);
+        var foreignNode = MakeNode(foreignFlow.Id, FlowNodeType.Message, new MessageNodeConfig([new MessageBlock(MessageBlock.TypeText, "Паёми бегона", null)], []));
+        var sourceFlow = MakeFlow(ownChannel.Id);
+        var gotoNode = MakeNode(sourceFlow.Id, FlowNodeType.Action, new ActionNodeConfig(ActionNodeConfig.KindGotoFlow, TargetFlowId: foreignFlow.Id));
+        db.Channels.AddRange(ownChannel, otherChannel);
+        db.Conversations.Add(contact);
+        db.Flows.AddRange(foreignFlow, sourceFlow);
+        db.FlowNodes.AddRange(foreignNode, gotoNode);
+        await db.SaveChangesAsync();
+
+        var (_, handler, _, engine) = MakeEngine(db);
+        await engine.StartAsync(sourceFlow, contact.Id, CancellationToken.None);
+
+        Assert.DoesNotContain(await db.FlowSessions.ToListAsync(), s => s.FlowId == foreignFlow.Id);
+        Assert.Empty(handler.RequestUrls); // nothing was sent
+    }
+
     /// <summary>
     /// Регрессия ҷиддӣ: пеш аз ин ислоҳ, ду flow ки ба ҳам goto_flow доранд (A→B→A→...)
     /// StackOverflowException месохтанд — реcursия бе марз тавассути StartAsync, ки процесси

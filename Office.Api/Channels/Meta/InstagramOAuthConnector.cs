@@ -116,7 +116,7 @@ public class InstagramOAuthConnector(HttpClient httpClient, IConfiguration confi
         // медиҳад — на рӯйхати чандто барои интихоб. Барои шакли якхела бо Facebook (то /connect
         // бе мантиқи алоҳида кор кунад), боз ҳам ҳамчун рӯйхати як-узвӣ бармегардонем.
         var credentialsJson = JsonSerializer.Serialize(new InstagramCredentials(accountId, longLivedToken));
-        return [new ConnectableAccount(accountId, username, credentialsJson, expiresAt)];
+        return [new ConnectableAccount(accountId, username, credentialsJson, expiresAt, AppScopedUserId: meId)];
     }
 
     // Барои Instagram "message_echoes" майдони алоҳида НЕСТ (бар хилофи Facebook) — Meta онҳоро

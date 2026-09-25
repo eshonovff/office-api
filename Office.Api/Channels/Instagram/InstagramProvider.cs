@@ -563,10 +563,10 @@ public class InstagramProvider(
             // паёмҳо хомӯшона рад мешуданд то касе бо дасти худ канал сохт. Ниг. report.
             channel.RequiresReconnect = true;
             await db.SaveChangesAsync(ct);
-            await NotifyOwnersAsync("Instagram: токени дастрасӣ эътибор надорад ё тамом шудааст. Каналро санҷед.", ct);
+            await NotifyOwnersAsync(channel, "Instagram: токени дастрасӣ эътибор надорад ё тамом шудааст. Каналро санҷед.", ct);
         }
         else if (errorCode is RateLimitErrorCode or UserRateLimitErrorCode or SendApiRateLimitErrorCode)
-            await NotifyOwnersAsync("Instagram: маҳдудияти дархост (rate limit) расид. Каналро санҷед.", ct);
+            await NotifyOwnersAsync(channel, "Instagram: маҳдудияти дархост (rate limit) расид. Каналро санҷед.", ct);
 
         // МУВАҚҚАТӢ ТАШХИС (2026-08-25): се "Service temporarily unavailable" паиҳам — оё ин воқеан
         // rate limit аст? Агар сарлавҳаҳои поён холӣ бошанд, не — Meta худаш ҳеҷ маҳдудият надида.
@@ -576,8 +576,13 @@ public class InstagramProvider(
         throw new GraphApiException(MetaErrorTranslator.Translate(responseBody), responseBody);
     }
 
-    private async Task NotifyOwnersAsync(string message, CancellationToken ct)
+    private async Task NotifyOwnersAsync(Channel channel, string message, CancellationToken ct)
     {
+        // A мизоҷ's channel is none of the company owners' business. The мизоҷ sees the problem on
+        // their Accounts page (RequiresReconnect) and gets an email from InstagramTokenRefreshJob.
+        if (channel.CustomerId is not null)
+            return;
+
         var ownerIds = await db.Users
             .Where(u => u.IsActive && u.UserRoles.Any(ur => ur.Role.Key == RoleKeys.Owner))
             .Select(u => u.Id)

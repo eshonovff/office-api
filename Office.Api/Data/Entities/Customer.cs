@@ -3,7 +3,7 @@ namespace Office.Api.Data.Entities;
 /// <summary>
 /// Ҳисоби мизоҷи беруна (сабти худӣ — email+parol, баъдтар Google/Apple) — комилан ҷудо аз
 /// User (кормандони дохилӣ, admin-provisioned). Ин ҷудоӣ қасдӣ аст: Customer ҳеҷ гоҳ роль ё
-/// permission надорад, пас хатои конфигуратсия наметавонад мизозро ба системаи дохилӣ бирасонад.
+/// permission надорад, пас хатои конфигуратсия наметавонад мизоҷро ба системаи дохилӣ бирасонад.
 /// </summary>
 public class Customer
 {
@@ -24,9 +24,23 @@ public class Customer
     public DateTimeOffset? EmailVerificationSentAt { get; set; }
 
     public bool IsActive { get; set; } = true;
+
+    /// <summary>
+    /// Carried as "sv" in every access token and checked on each request (Program.cs,
+    /// OnTokenValidated). A password reset bumps it, so every earlier token — even a 15-minute
+    /// access token — stops working at once.
+    /// </summary>
+    public int SessionVersion { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset? LastLoginAt { get; set; }
 
+    // Effective access (trial / active / expired) is never stored — derived from these three
+    // plus "now" by CustomerAccessResolver, so an expiring plan needs no background job.
+    public DateTimeOffset? TrialEndsAt { get; set; }
+    public CustomerPlanTier? PlanTier { get; set; }
+    public DateTimeOffset? PlanExpiresAt { get; set; }
+
     public ICollection<CustomerRefreshToken> RefreshTokens { get; set; } = [];
     public ICollection<CustomerExternalLogin> ExternalLogins { get; set; } = [];
+    public ICollection<CustomerPasswordReset> PasswordResets { get; set; } = [];
 }

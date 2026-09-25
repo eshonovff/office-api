@@ -8,13 +8,14 @@ using Office.Api.Common;
 using Office.Api.Data;
 using Office.Api.Data.Entities;
 using Office.Api.Email;
+using Office.Api.Features.Subscriptions;
 
 namespace Office.Api.Features.CustomerAuth;
 
 /// <summary>
-/// Сабти худии мизоз (email+parol, Google, Apple) — комилан ҷудо аз /api/auth-и кормандон:
+/// Сабти худии мизоҷ (email+parol, Google, Apple) — комилан ҷудо аз /api/auth-и кормандон:
 /// entity-и худ (Customer), JWT scheme-и худ ("Customer", ниг. Program.cs), cookie-и худ.
-/// Дастрасӣ бе RequirePermission — мизоз ҳеҷ гоҳ роль надорад.
+/// Дастрасӣ бе RequirePermission — мизоҷ ҳеҷ гоҳ роль надорад.
 /// </summary>
 public static class CustomerAuthEndpoints
 {
@@ -70,7 +71,7 @@ public static class CustomerAuthEndpoints
 
         group.MapGet("/me", MeAsync)
             .RequireAuthorization(AuthSchemes.CustomerOnlyPolicy)
-            .WithSummary("Профили мизози ҷорӣ")
+            .WithSummary("Профили мизоҷи ҷорӣ")
             .Produces<CustomerMeResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status401Unauthorized);
 
@@ -153,6 +154,7 @@ public static class CustomerAuthEndpoints
         HttpContext context,
         AppDbContext db,
         ICustomerTokenService tokenService,
+        IConfiguration configuration,
         CancellationToken ct)
     {
         var email = NormalizeEmail(request.Email);
@@ -184,6 +186,7 @@ public static class CustomerAuthEndpoints
             customer.EmailVerificationCodeHash = null;
             customer.EmailVerificationCodeExpiresAt = null;
             customer.EmailVerificationAttempts = 0;
+            StartTrialIfNotStarted(customer, configuration);
             await db.SaveChangesAsync(ct);
         }
 
@@ -293,12 +296,14 @@ public static class CustomerAuthEndpoints
     }
 
     private static Task<IResult> GoogleLoginAsync(
-        ClaimsPrincipal principal, HttpContext context, AppDbContext db, ICustomerTokenService tokenService, CancellationToken ct) =>
-        ExternalLoginAsync(CustomerExternalLoginProvider.Google, principal, context, db, tokenService, ct);
+        ClaimsPrincipal principal, HttpContext context, AppDbContext db, ICustomerTokenService tokenService,
+        IConfiguration configuration, CancellationToken ct) =>
+        ExternalLoginAsync(CustomerExternalLoginProvider.Google, principal, context, db, tokenService, configuration, ct);
 
     private static Task<IResult> AppleLoginAsync(
-        ClaimsPrincipal principal, HttpContext context, AppDbContext db, ICustomerTokenService tokenService, CancellationToken ct) =>
-        ExternalLoginAsync(CustomerExternalLoginProvider.Apple, principal, context, db, tokenService, ct);
+        ClaimsPrincipal principal, HttpContext context, AppDbContext db, ICustomerTokenService tokenService,
+        IConfiguration configuration, CancellationToken ct) =>
+        ExternalLoginAsync(CustomerExternalLoginProvider.Apple, principal, context, db, tokenService, configuration, ct);
 
     /// <summary>
     /// principal аллакай тасдиқшуда аст — ASP.NET Core худи ID token-и Google/Apple-ро аз
@@ -311,6 +316,7 @@ public static class CustomerAuthEndpoints
         HttpContext context,
         AppDbContext db,
         ICustomerTokenService tokenService,
+        IConfiguration configuration,
         CancellationToken ct)
     {
         var providerUserId = principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
@@ -383,12 +389,20 @@ public static class CustomerAuthEndpoints
                     statusCode: StatusCodes.Status409Conflict);
         }
 
+        // Every branch that reaches here has a provider-verified email.
+        StartTrialIfNotStarted(customer, configuration);
         customer.LastLoginAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
 
         var accessToken = await CustomerAuthTokenIssuer.IssueAsync(context, db, tokenService, customer, ct);
         return Results.Ok(new CustomerAuthResponse(accessToken, CustomerMeResponse.From(customer)));
     }
+
+    // Trial starts when the account first becomes usable (email verified), not at sign-up —
+    // someone who enters their code on day 5 still gets the full trial. ??= means a customer
+    // can only ever get one trial, however many times they re-verify or re-link.
+    private static void StartTrialIfNotStarted(Customer customer, IConfiguration configuration) =>
+        customer.TrialEndsAt ??= DateTimeOffset.UtcNow.AddDays(SubscriptionCatalog.Load(configuration).TrialDays);
 
     private static CustomerExternalLogin NewExternalLogin(Guid customerId, CustomerExternalLoginProvider provider, string providerUserId) => new()
     {
@@ -425,7 +439,7 @@ public static class CustomerAuthEndpoints
     private static string HashCode(string code) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(code)));
 
-    private static string NormalizeEmail(string email) => email.Trim().ToLowerInvariant();
+    internal static string NormalizeEmail(string email) => email.Trim().ToLowerInvariant();
 
     private static IResult InvalidCodeProblem() => Results.Problem(
         title: "Коди нодуруст",

@@ -2,12 +2,19 @@ namespace Office.Api.Auth;
 
 /// <summary>
 /// Номи схемаи дуюми JWT (дар паҳлӯи схемаи пешфарз барои кормандон) — барои Customer
-/// (мизози беруна). Дар Program.cs сабт мешавад, дар CustomerAuthEndpoints истифода.
+/// (мизоҷи беруна). Дар Program.cs сабт мешавад, дар CustomerAuthEndpoints истифода.
 /// </summary>
 public static class AuthSchemes
 {
     public const string Customer = "Customer";
     public const string CustomerOnlyPolicy = "CustomerOnly";
+
+    /// <summary>
+    /// AuthenticationType the default (staff) scheme stamps on its identities. Each scheme sets
+    /// its own (Staff / Customer / Google / Apple) so TenantResolver can tell who validated a
+    /// principal without trusting its claims.
+    /// </summary>
+    public const string StaffIdentity = "Staff";
 
     /// <summary>
     /// Google/Apple — on та FALSE ID token-и провайдер аст (RS256, аз рӯи JWKS-и худи

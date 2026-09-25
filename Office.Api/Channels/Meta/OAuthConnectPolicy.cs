@@ -10,11 +10,24 @@ namespace Office.Api.Channels.Meta;
 /// </summary>
 public static class OAuthConnectPolicy
 {
+    /// <param name="callerKind">
+    /// Staff and мизоҷ ids are different id spaces: a session started by one kind is never
+    /// usable by the other, even if the Guids happened to match.
+    /// </param>
     public static ConnectableAccount? ResolveAccount(
-        OAuthConnectionSession session, ChannelType requestedProvider, Guid callerUserId, string externalId)
+        OAuthConnectionSession session,
+        ChannelType requestedProvider,
+        Guid callerUserId,
+        string externalId,
+        OAuthOwnerKind callerKind = OAuthOwnerKind.Staff)
     {
-        if (session.Provider != requestedProvider || session.InitiatedByUserId != callerUserId)
+        if (session.Provider != requestedProvider ||
+            session.OwnerKind != callerKind ||
+            session.InitiatedByUserId != callerUserId)
+        {
             return null;
+        }
+
 
         return session.Accounts.FirstOrDefault(a => a.ExternalId == externalId);
     }

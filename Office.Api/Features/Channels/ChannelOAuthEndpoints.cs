@@ -57,6 +57,7 @@ public static class ChannelOAuthEndpoints
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status409Conflict)
             .ProducesProblem(StatusCodes.Status502BadGateway);
 
         return app;
@@ -142,7 +143,8 @@ public static class ChannelOAuthEndpoints
         if (accounts.Count == 0)
             return PostMessageProblem(("Account ёфт нашуд", "Ба ин корбар ҳеҷ Page/account-и қобили пайваст тобеъ нест."));
 
-        var connectionId = connectionStore.Create(new OAuthConnectionSession(type, statePayload.UserId, stateExpiresAt, accounts));
+        var connectionId = connectionStore.Create(
+            new OAuthConnectionSession(type, statePayload.UserId, stateExpiresAt, accounts, statePayload.OwnerKind));
         var options = accounts.Select(a => new OAuthAccountOption(a.ExternalId, a.Name)).ToList();
 
         return PostMessageResult(new OAuthCallbackResponse(connectionId, options));
@@ -166,68 +168,21 @@ public static class ChannelOAuthEndpoints
         if (session is null)
             return ConnectionExpiredProblem();
 
-        var account = OAuthConnectPolicy.ResolveAccount(session, type, principal.GetUserId(), request.ExternalId);
+        var account = OAuthConnectPolicy.ResolveAccount(
+            session, type, principal.GetUserId(), request.ExternalId, OAuthOwnerKind.Staff);
         if (account is null)
             return ConnectionExpiredProblem();
 
-        var existing = await db.Channels
-            .Include(c => c.Members).ThenInclude(m => m.User)
-            .FirstOrDefaultAsync(c => c.Type == type && c.ExternalId == account.ExternalId, ct);
+        var result = await OAuthChannelConnection.SaveAsync(
+            type, account, request.Name, ownerCustomerId: null, db, protector, facebookConnector, instagramConnector, ct);
 
-        var credentialsEncrypted = protector.Protect(account.CredentialsJson);
-
-        Channel channel;
-        if (existing is null)
+        return result.Outcome switch
         {
-            channel = new Channel
-            {
-                Id = Guid.CreateVersion7(),
-                Type = type,
-                Name = request.Name,
-                ExternalId = account.ExternalId,
-                CredentialsEncrypted = credentialsEncrypted,
-                IsActive = true,
-                CreatedAt = DateTimeOffset.UtcNow,
-                CredentialsExpiresAt = account.CredentialsExpiresAt,
-            };
-            db.Channels.Add(channel);
-        }
-        else
-        {
-            existing.Name = request.Name;
-            existing.CredentialsEncrypted = credentialsEncrypted;
-            existing.IsActive = true;
-            existing.CredentialsExpiresAt = account.CredentialsExpiresAt;
-            // Пайвастшавии нав (дастӣ ё худкор) ҳамеша аломати "пайвастшавӣ лозим"-ро тоза мекунад —
-            // ин маҳз он чизест, ки корбар ҳоло анҷом дод.
-            existing.RequiresReconnect = false;
-            channel = existing;
-        }
-
-        await db.SaveChangesAsync(ct);
-
-        // Мизоҷ ба App Dashboard дастрасӣ надорад — агар обуна нашавад, набояд хомӯш монад: канал
-        // боз ҳам сохта/пайваст мешавад (SaveChangesAsync боло аллакай захира кард), вале бо сабаби
-        // мушаххас қайд мешавад, то дар UI намоён бошад (ниг. Channel.WebhookSetupWarning). 2026-08-25:
-        // маҳз ҳамин хомӯшӣ буд, ки "Facebook паём намерасад"-ро рӯзҳо пинҳон нигоҳ дошт.
-        if (type == ChannelType.Facebook)
-        {
-            var facebookCredentials = FacebookCredentials.Parse(account.CredentialsJson);
-            channel.WebhookSetupWarning = await facebookConnector.EnsureWebhookSubscriptionAsync(
-                facebookCredentials.PageId, facebookCredentials.PageAccessToken, ct);
-            await db.SaveChangesAsync(ct);
-        }
-        else if (type == ChannelType.Instagram)
-        {
-            var instagramCredentials = InstagramCredentials.Parse(account.CredentialsJson);
-            channel.WebhookSetupWarning = await instagramConnector.EnsureWebhookSubscriptionAsync(
-                instagramCredentials.InstagramAccountId, instagramCredentials.AccessToken, ct);
-            await db.SaveChangesAsync(ct);
-        }
-
-        return existing is null
-            ? Results.Created($"/api/channels/{channel.Id}", ChannelsEndpoints.ToDetail(channel))
-            : Results.Ok(ChannelsEndpoints.ToDetail(channel));
+            ChannelConnectOutcome.OwnedByAnother => OAuthChannelConnection.OwnedByAnotherProblem(),
+            ChannelConnectOutcome.Created => Results.Created(
+                $"/api/channels/{result.Channel!.Id}", ChannelsEndpoints.ToDetail(result.Channel)),
+            _ => Results.Ok(ChannelsEndpoints.ToDetail(result.Channel!)),
+        };
     }
 
     // Матни хатогии Meta метавонад дароз бошад — token/secret дар он ҳеҷ гоҳ нест (MetaOAuthException
@@ -238,7 +193,7 @@ public static class ChannelOAuthEndpoints
     private static string TruncateForClient(string text) =>
         text.Length <= MaxClientErrorLength ? text : text[..MaxClientErrorLength] + "…";
 
-    private static IResult ConnectionExpiredProblem() => Results.Problem(
+    internal static IResult ConnectionExpiredProblem() => Results.Problem(
         title: "Connection эътибор надорад",
         detail: "connectionId кӯҳна шудааст, ба шумо тааллуқ надорад ё account-и хостаро надорад — аз OAuth аз нав сар кунед.",
         statusCode: StatusCodes.Status400BadRequest);
@@ -280,9 +235,9 @@ public static class ChannelOAuthEndpoints
     private static IResult PostMessageProblem((string Title, string Detail) message) =>
         PostMessageResult(new { title = message.Title, detail = message.Detail });
 
-    private static string BuildRedirectUri(IConfiguration configuration, string provider) =>
+    internal static string BuildRedirectUri(IConfiguration configuration, string provider) =>
         $"{MetaOAuthConfig.GetRedirectBaseUrl(configuration)}/api/channels/oauth/{provider}/callback";
 
-    private static string GetStateSigningKey(IConfiguration configuration) =>
+    internal static string GetStateSigningKey(IConfiguration configuration) =>
         configuration["Jwt:Key"] ?? throw new InvalidOperationException("Jwt:Key танзим нашудааст.");
 }

@@ -49,6 +49,12 @@ public static class Permissions
         public const string Manage = "templates.manage";
     }
 
+    /// <summary>Review customers' payment receipts and approve/reject their plan requests.</summary>
+    public static class Subscriptions
+    {
+        public const string Manage = "subscriptions.manage";
+    }
+
     public static readonly IReadOnlySet<string> All = new HashSet<string>
     {
         Users.View, Users.Manage,
@@ -58,5 +64,6 @@ public static class Permissions
         Inbox.View, Inbox.Reply, Inbox.Assign, Inbox.Close, Inbox.Delete,
         Channels.Manage,
         Templates.Manage,
+        Subscriptions.Manage,
     };
 }

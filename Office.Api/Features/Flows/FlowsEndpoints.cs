@@ -63,7 +63,8 @@ public static class FlowsEndpoints
             .Produces<FlowDetail>(StatusCodes.Status200OK)
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status400BadRequest)
-            .ProducesProblem(StatusCodes.Status404NotFound);
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict);
 
         byFlow.MapPatch("/active", SetActiveAsync)
             .RequirePermission(Permissions.Channels.Manage)
@@ -86,7 +87,7 @@ public static class FlowsEndpoints
         return app;
     }
 
-    private static async Task<IResult> ListAsync(Guid channelId, AppDbContext db, CancellationToken ct)
+    internal static async Task<IResult> ListAsync(Guid channelId, AppDbContext db, CancellationToken ct)
     {
         if (!await db.Channels.AnyAsync(c => c.Id == channelId, ct))
             return Results.NotFound();
@@ -100,7 +101,7 @@ public static class FlowsEndpoints
         return Results.Ok(flows);
     }
 
-    private static async Task<IResult> CreateAsync(Guid channelId, CreateFlowRequest request, AppDbContext db, CancellationToken ct)
+    internal static async Task<IResult> CreateAsync(Guid channelId, CreateFlowRequest request, AppDbContext db, CancellationToken ct)
     {
         if (!await db.Channels.AnyAsync(c => c.Id == channelId, ct))
             return Results.NotFound();
@@ -122,7 +123,7 @@ public static class FlowsEndpoints
         return Results.Created($"/api/flows/{flow.Id}", ToDetail(flow, [], []));
     }
 
-    private static async Task<IResult> UploadMediaAsync(
+    internal static async Task<IResult> UploadMediaAsync(
         Guid channelId, IFormFile file, AppDbContext db, InstagramProvider instagramProvider,
         IMediaProcessor mediaProcessor, ILogger<Program> logger, CancellationToken ct)
     {
@@ -243,7 +244,7 @@ public static class FlowsEndpoints
         }
     }
 
-    private static async Task<IResult> GetAsync(Guid id, AppDbContext db, CancellationToken ct)
+    internal static async Task<IResult> GetAsync(Guid id, AppDbContext db, CancellationToken ct)
     {
         var flow = await db.Flows.FirstOrDefaultAsync(f => f.Id == id, ct);
         if (flow is null)
@@ -255,7 +256,7 @@ public static class FlowsEndpoints
         return Results.Ok(ToDetail(flow, nodes, edges));
     }
 
-    private static async Task<IResult> UpdateAsync(Guid id, UpdateFlowRequest request, AppDbContext db, CancellationToken ct)
+    internal static async Task<IResult> UpdateAsync(Guid id, UpdateFlowRequest request, AppDbContext db, CancellationToken ct)
     {
         var flow = await db.Flows.FirstOrDefaultAsync(f => f.Id == id, ct);
         if (flow is null)
@@ -272,7 +273,7 @@ public static class FlowsEndpoints
         return Results.Ok(ToDetail(flow, nodes, edges));
     }
 
-    private static async Task<IResult> UpdateGraphAsync(Guid id, UpdateFlowGraphRequest request, AppDbContext db, CancellationToken ct)
+    internal static async Task<IResult> UpdateGraphAsync(Guid id, UpdateFlowGraphRequest request, AppDbContext db, CancellationToken ct)
     {
         var flow = await db.Flows.FirstOrDefaultAsync(f => f.Id == id, ct);
         if (flow is null)
@@ -284,6 +285,10 @@ public static class FlowsEndpoints
             if (error is not null)
                 return Results.Problem(title: "Config-и нод нодуруст аст", detail: $"Нод {node.Id}: {error}", statusCode: StatusCodes.Status400BadRequest);
         }
+
+        var guardError = await FlowGraphGuard.CheckAsync(flow, request, db, ct);
+        if (guardError is not null)
+            return guardError;
 
         // Иваз кардани пурра — canvas ҳамеша ҳолати комили худро мефиристад (ниг. шарҳи
         // UpdateFlowGraphRequest барои сабаб). Соддатар ва бехатартар аз diff барои autosave.
@@ -316,7 +321,7 @@ public static class FlowsEndpoints
         return Results.Ok(ToDetail(flow, await db.FlowNodes.Where(n => n.FlowId == id).ToListAsync(ct), await db.FlowEdges.Where(e => e.FlowId == id).ToListAsync(ct)));
     }
 
-    private static async Task<IResult> SetActiveAsync(Guid id, SetFlowActiveRequest request, AppDbContext db, CancellationToken ct)
+    internal static async Task<IResult> SetActiveAsync(Guid id, SetFlowActiveRequest request, AppDbContext db, CancellationToken ct)
     {
         var flow = await db.Flows.FirstOrDefaultAsync(f => f.Id == id, ct);
         if (flow is null)
@@ -328,7 +333,7 @@ public static class FlowsEndpoints
         return Results.NoContent();
     }
 
-    private static async Task<IResult> DeleteAsync(Guid id, AppDbContext db, CancellationToken ct)
+    internal static async Task<IResult> DeleteAsync(Guid id, AppDbContext db, CancellationToken ct)
     {
         var flow = await db.Flows.FirstOrDefaultAsync(f => f.Id == id, ct);
         if (flow is null)
@@ -339,7 +344,7 @@ public static class FlowsEndpoints
         return Results.NoContent();
     }
 
-    private static async Task<IResult> StatsAsync(Guid id, AppDbContext db, CancellationToken ct)
+    internal static async Task<IResult> StatsAsync(Guid id, AppDbContext db, CancellationToken ct)
     {
         if (!await db.Flows.AnyAsync(f => f.Id == id, ct))
             return Results.NotFound();
