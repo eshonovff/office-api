@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using Office.Api.Channels.Automation;
@@ -54,48 +55,90 @@ public class WebhookProcessor(
             return;
         }
 
-        using var document = JsonDocument.Parse(log.RawJson);
-        var root = document.RootElement;
-
         var provider = factory.GetProvider(channelType);
+
+        // Meta may batch the events of several accounts into one delivery — one entry[] item per
+        // account. Every entry is processed on its own, against the channel IT names: handling the
+        // whole batch under the first entry's channel would store one мизоҷ's messages or comments
+        // in another мизоҷ's channel (see docs/phases/phase-16-comments.md).
+        using var document = JsonDocument.Parse(log.RawJson);
+        var errors = new List<string>();
+        foreach (var entryPayload in SplitByEntry(document.RootElement))
+        {
+            using (entryPayload)
+            {
+                var error = await ProcessEntryAsync(entryPayload.RootElement, channelType, provider, ct);
+                if (error is not null)
+                    errors.Add(error);
+            }
+        }
+
+        log.Error = errors.Count == 0 ? null : string.Join(" | ", errors);
+    }
+
+    /// <summary>
+    /// The payload once per entry, each with only that entry (the parsers keep reading "entry[]"
+    /// exactly as before). A payload of zero or one entry comes back as a single copy.
+    /// </summary>
+    internal static List<JsonDocument> SplitByEntry(JsonElement root)
+    {
+        if (!root.TryGetProperty("entry", out var entries) || entries.ValueKind != JsonValueKind.Array || entries.GetArrayLength() <= 1)
+            return [JsonDocument.Parse(root.GetRawText())];
+
+        var result = new List<JsonDocument>();
+        foreach (var entry in entries.EnumerateArray())
+        {
+            var single = new JsonObject();
+            foreach (var property in root.EnumerateObject())
+            {
+                if (property.Name != "entry")
+                    single[property.Name] = JsonNode.Parse(property.Value.GetRawText());
+            }
+            single["entry"] = new JsonArray(JsonNode.Parse(entry.GetRawText()));
+            result.Add(JsonDocument.Parse(single.ToJsonString()));
+        }
+
+        return result;
+    }
+
+    /// <returns>An error for the webhook log, or null.</returns>
+    private async Task<string?> ProcessEntryAsync(JsonElement root, ChannelType channelType, IChannelProvider provider, CancellationToken ct)
+    {
         var channelExternalId = provider.ExtractChannelExternalId(root);
         if (channelExternalId is null)
-        {
-            log.Error = "Идентификатсияи канал аз payload баромада натавонист.";
-            return;
-        }
+            return "Идентификатсияи канал аз payload баромада натавонист.";
 
         var channel = await db.Channels
             .FirstOrDefaultAsync(c => c.Type == channelType && c.ExternalId == channelExternalId, ct);
 
         if (channel is null)
-        {
-            log.Error = $"Канали '{channelExternalId}' (навъи {channelType}) ёфт нашуд.";
-            return;
-        }
+            return $"Канали '{channelExternalId}' (навъи {channelType}) ёфт нашуд.";
 
         // A мизоҷ disconnected this channel: its token is gone (CustomerChannelsEndpoints.Disconnect),
         // so nothing may run or be sent for it — Meta keeps delivering webhooks regardless.
         // Company channels keep their existing behaviour (see PROGRESS open issue on IsActive).
         if (channel.CustomerId is not null && !channel.IsActive)
-        {
-            log.Error = $"Канали мизоҷ '{channelExternalId}' ҷудо карда шудааст — webhook коркард нашуд.";
-            return;
-        }
+            return $"Канали мизоҷ '{channelExternalId}' ҷудо карда шудааст — webhook коркард нашуд.";
 
         // Шакли коментарии Instagram (entry[].changes[], field="comments") бо шакли паёми
         // муқаррарӣ (entry[].messaging[]) комилан фарқ мекунад — InstagramPayloadParser.ParseMessages
         // онро намефаҳмад (ва бехатарона холӣ бармегардонад), пас шохаи ҷудогона лозим аст.
-        if (channelType == ChannelType.Instagram && InstagramPayloadParser.TryParseCommentEvent(root, out var commentEvent))
+        var comments = channelType == ChannelType.Instagram ? InstagramPayloadParser.ParseCommentEvents(root) : [];
+        if (comments.Count > 0)
         {
-            await commentAutomation.ProcessAsync(channel, commentEvent, ct);
-            // Паҳлӯи automation_rules-и Фазаи 10 (боло), на ба ҷои он — ниг. шарҳи FlowTriggerProcessor.
-            await flowTrigger.ProcessCommentAsync(channel, commentEvent, ct);
-            return;
+            // Every comment of the entry, not just the first — Meta batches them too.
+            foreach (var commentEvent in comments)
+            {
+                await commentAutomation.ProcessAsync(channel, commentEvent, ct);
+                // Паҳлӯи automation_rules-и Фазаи 10 (боло), на ба ҷои он — ниг. шарҳи FlowTriggerProcessor.
+                await flowTrigger.ProcessCommentAsync(channel, commentEvent, ct);
+            }
+            return null;
         }
 
         await ProcessNewMessagesAsync(channel, provider, root, ct);
         await ProcessStatusUpdatesAsync(channel, provider, root, ct);
+        return null;
     }
 
     private async Task ProcessNewMessagesAsync(Channel channel, IChannelProvider provider, JsonElement root, CancellationToken ct)

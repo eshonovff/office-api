@@ -23,48 +23,54 @@ public static class InstagramPayloadParser
     /// Instagram — фарқ аз entry[].messaging[]-и паём боло). Тасдиқшуда бо payload-и воқеии
     /// production (ниг. ҳуҷҷати фазаи 10).
     /// </summary>
-    public static bool TryParseCommentEvent(JsonElement payload, out ParsedCommentEvent evt)
+    /// <summary>
+    /// Every comment in the payload (entry[].changes[] with field "comments") — Meta batches
+    /// several into one delivery, so reading only the first lost the rest. The caller hands this
+    /// one entry at a time (WebhookProcessor.SplitByEntry), so all of them belong to that entry's
+    /// account. A change without a comment id or an author is skipped, not fatal.
+    /// </summary>
+    public static IReadOnlyList<ParsedCommentEvent> ParseCommentEvents(JsonElement payload)
     {
-        evt = default!;
+        var result = new List<ParsedCommentEvent>();
+        if (!payload.TryGetProperty("entry", out var entryEl) || entryEl.ValueKind != JsonValueKind.Array)
+            return result;
 
-        if (!payload.TryGetProperty("entry", out var entryEl) || entryEl.ValueKind != JsonValueKind.Array || entryEl.GetArrayLength() == 0)
-            return false;
-
-        var entry = entryEl[0];
-        if (!entry.TryGetProperty("changes", out var changesEl) || changesEl.ValueKind != JsonValueKind.Array)
-            return false;
-
-        foreach (var change in changesEl.EnumerateArray())
+        foreach (var entry in entryEl.EnumerateArray())
         {
-            if (!change.TryGetProperty("field", out var fieldEl) || fieldEl.GetString() != "comments")
+            if (!entry.TryGetProperty("changes", out var changesEl) || changesEl.ValueKind != JsonValueKind.Array)
                 continue;
 
-            if (!change.TryGetProperty("value", out var valueEl))
-                continue;
-
-            if (!valueEl.TryGetProperty("id", out var commentIdEl) ||
-                !valueEl.TryGetProperty("from", out var fromEl) ||
-                !fromEl.TryGetProperty("id", out var actorIdEl))
-            {
-                continue;
-            }
-
-            var commentId = commentIdEl.GetString();
-            var actorId = actorIdEl.GetString();
-            if (commentId is null || actorId is null)
-                continue;
-
-            var text = valueEl.TryGetProperty("text", out var textEl) ? textEl.GetString() ?? "" : "";
-            var username = fromEl.TryGetProperty("username", out var usernameEl) ? usernameEl.GetString() : null;
-            var mediaId = valueEl.TryGetProperty("media", out var mediaEl) && mediaEl.TryGetProperty("id", out var mediaIdEl)
-                ? mediaIdEl.GetString()
+            DateTimeOffset? occurredAt = entry.TryGetProperty("time", out var timeEl) && timeEl.TryGetInt64(out var seconds)
+                ? DateTimeOffset.FromUnixTimeSeconds(seconds)
                 : null;
 
-            evt = new ParsedCommentEvent(commentId, actorId, username, text, mediaId);
-            return true;
+            foreach (var change in changesEl.EnumerateArray())
+            {
+                if (!change.TryGetProperty("field", out var fieldEl) || fieldEl.GetString() != "comments" ||
+                    !change.TryGetProperty("value", out var valueEl) || valueEl.ValueKind != JsonValueKind.Object)
+                {
+                    continue;
+                }
+
+                var commentId = valueEl.TryGetProperty("id", out var idEl) ? idEl.GetString() : null;
+                var actorId = valueEl.TryGetProperty("from", out var fromEl) && fromEl.TryGetProperty("id", out var actorEl)
+                    ? actorEl.GetString()
+                    : null;
+                if (string.IsNullOrEmpty(commentId) || string.IsNullOrEmpty(actorId))
+                    continue;
+
+                var text = valueEl.TryGetProperty("text", out var textEl) ? textEl.GetString() ?? "" : "";
+                var username = fromEl.TryGetProperty("username", out var usernameEl) ? usernameEl.GetString() : null;
+                var mediaId = valueEl.TryGetProperty("media", out var mediaEl) && mediaEl.TryGetProperty("id", out var mediaIdEl)
+                    ? mediaIdEl.GetString()
+                    : null;
+                var parentId = valueEl.TryGetProperty("parent_id", out var parentEl) ? parentEl.GetString() : null;
+
+                result.Add(new ParsedCommentEvent(commentId, actorId, username, text, mediaId, parentId, occurredAt));
+            }
         }
 
-        return false;
+        return result;
     }
 
     public static string? ExtractChannelExternalId(JsonElement payload) =>
