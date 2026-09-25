@@ -109,7 +109,7 @@ public static class MessagesEndpoints
     private static Task<Message?> LoadMessageAsync(Guid messageId, AppDbContext db, CancellationToken ct) =>
         db.Messages.AsNoTracking().Include(m => m.Conversation).FirstOrDefaultAsync(m => m.Id == messageId, ct);
 
-    private static IResult ServeStoredFileAsync(
+    internal static IResult ServeStoredFileAsync(
         string relativePath, string? mimeType, string? originalFileName, MessageType type,
         IConfiguration configuration, IWebHostEnvironment env)
     {
@@ -128,12 +128,12 @@ public static class MessagesEndpoints
             enableRangeProcessing: true);
     }
 
-    private static IResult DownloadFailedProblem(string error) => Results.Problem(
+    internal static IResult DownloadFailedProblem(string error) => Results.Problem(
         title: "Боркунии медиа ноком шуд",
         detail: error,
         statusCode: StatusCodes.Status424FailedDependency);
 
-    private static IResult DeletedProblem(DateTimeOffset deletedAt) => Results.Problem(
+    internal static IResult DeletedProblem(DateTimeOffset deletedAt) => Results.Problem(
         title: "Файл дигар дар сервер нест",
         detail: $"Ин файл тибқи мӯҳлати нигоҳдорӣ дар {deletedAt:yyyy-MM-dd} нест карда шудааст.",
         statusCode: StatusCodes.Status410Gone);

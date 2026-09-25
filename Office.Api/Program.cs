@@ -42,6 +42,7 @@ using Office.Api.Features.Tasks;
 using Office.Api.Features.Subscriptions;
 using Office.Api.Features.CustomerAccount;
 using Office.Api.Features.CustomerChannels;
+using Office.Api.Features.CustomerChats;
 using Office.Api.Features.CustomerFlows;
 using Office.Api.Features.DataDeletion;
 using Office.Api.Features.Users;
@@ -222,6 +223,15 @@ var authenticationBuilder = builder.Services
         // One indexed lookup per request, the staff side's PermissionsVersionMiddleware does the same.
         options.Events = new JwtBearerEvents
         {
+            // The browser's WebSocket cannot send an Authorization header — CustomerHub takes the
+            // token from the query string, like the staff hubs above (for its own path only).
+            OnMessageReceived = context =>
+            {
+                var accessToken = context.Request.Query["access_token"];
+                if (!string.IsNullOrEmpty(accessToken) && context.HttpContext.Request.Path.StartsWithSegments("/hubs/customer"))
+                    context.Token = accessToken;
+                return Task.CompletedTask;
+            },
             OnTokenValidated = async context =>
             {
                 var sub = context.Principal?.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
@@ -325,6 +335,21 @@ builder.Services.AddRateLimiter(options =>
     options.AddPolicy(PublicCallbackRateLimiterPolicy, context =>
         RateLimitPartition.GetFixedWindowLimiter(
             partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                Window = TimeSpan.FromMinutes(1),
+                PermitLimit = 30,
+                QueueLimit = 0,
+            }));
+
+    // A мизоҷ's manual replies (CustomerChatsEndpoints): a burst would get their Instagram
+    // account rate-limited or flagged by Meta. The limiter runs before authentication, so the
+    // bucket is the bearer token itself (one session), else the address.
+    options.AddPolicy(CustomerChatsEndpoints.SendRateLimitPolicy, context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: context.Request.Headers.Authorization.ToString() is { Length: > 0 } bearer
+                ? Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(bearer)))
+                : context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
             factory: _ => new FixedWindowRateLimiterOptions
             {
                 Window = TimeSpan.FromMinutes(1),
@@ -483,6 +508,7 @@ app.MapHealthChecks("/health");
 app.MapAuthEndpoints();
 app.MapCustomerAuthEndpoints(builder.Configuration);
 app.MapCustomerPasswordResetEndpoints();
+app.MapCustomerChatsEndpoints();
 app.MapCustomerSubscriptionsEndpoints();
 app.MapCustomerChannelsEndpoints();
 app.MapCustomerFlowsEndpoints();
@@ -515,6 +541,7 @@ app.MapJobsEndpoints();
 
 app.MapHub<BoardHub>("/hubs/board");
 app.MapHub<InboxHub>("/hubs/inbox");
+app.MapHub<CustomerHub>("/hubs/customer");
 
 app.UseHangfireDashboard("/hangfire", new DashboardOptions
 {

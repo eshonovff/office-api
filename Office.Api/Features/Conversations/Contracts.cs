@@ -85,12 +85,16 @@ public record MessageDto(
     /// ҳам realtime (WebhookProcessor, MediaDownloadJob, MediaSendJob) бояд ҳамин методро
     /// истифода баранд, то ду шакли гуногун барои як паём ҳеҷ гоҳ дур нашаванд.
     /// </summary>
-    public static MessageDto FromEntity(Message m) => new(
+    /// <param name="mediaBase">Where this reader fetches files: staff "/api/messages", a мизоҷ
+    /// "/api/public/messages" (CustomerChatsEndpoints) — each with its own auth.</param>
+    public static MessageDto FromEntity(Message m) => FromEntity(m, "/api/messages");
+
+    public static MessageDto FromEntity(Message m, string mediaBase) => new(
         m.Id, m.ConversationId, m.Direction.ToString(), m.Type.ToString(), m.Body,
-        m.MediaUrl is not null ? $"/api/messages/{m.Id}/media" : null,
+        m.MediaUrl is not null ? $"{mediaBase}/{m.Id}/media" : null,
         m.ExternalId, m.DeliveryStatus.ToString(), m.IsInternalNote, m.SentByUserId, m.SentByUserName,
         m.CreatedAt, m.MimeType, m.SizeBytes, m.OriginalFileName, m.VoiceDurationSeconds,
-        m.ThumbnailUrl is not null ? $"/api/messages/{m.Id}/thumbnail" : null,
+        m.ThumbnailUrl is not null ? $"{mediaBase}/{m.Id}/thumbnail" : null,
         m.MediaDeletedAt, m.MediaDownloadError,
         // 0-100 дар DB (smallint[], фишурда) → 0-1 дар DTO (тавре ки frontend интизор аст).
         m.WaveformPeaks?.Select(p => p / 100.0).ToList(),
