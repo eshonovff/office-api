@@ -287,7 +287,7 @@ public class FlowTemplateDeliveryTests
         // Контакти нав ҳеҷ гоҳ DM нафиристодааст — тиреза нест, пас бояд тавассути
         // recipient.comment_id (Private Reply) равад, на recipient.id-и муқаррарӣ.
         Assert.Equal("comment-1", doc.RootElement.GetProperty("recipient").GetProperty("comment_id").GetString());
-        Assert.Contains("Ташаккур", doc.RootElement.GetProperty("message").GetProperty("text").GetString());
+        Assert.Contains(CommentReplyWordings, w => doc.RootElement.GetProperty("message").GetProperty("text").GetString()!.Contains(w));
     }
 
     [Fact]
@@ -327,7 +327,7 @@ public class FlowTemplateDeliveryTests
 
         using var doc = JsonDocument.Parse(handler.Bodies[0]);
         Assert.Equal(contact.ExternalId, doc.RootElement.GetProperty("recipient").GetProperty("id").GetString());
-        Assert.Contains("Ташаккур", doc.RootElement.GetProperty("message").GetProperty("text").GetString());
+        Assert.Contains(CommentReplyWordings, w => doc.RootElement.GetProperty("message").GetProperty("text").GetString()!.Contains(w));
     }
 
     [Fact]
@@ -390,6 +390,12 @@ public class FlowTemplateDeliveryTests
 
     private const string FollowTemplate = "Ҷавоб ба шарҳ бо санҷиши обуна";
 
+    /// <summary>The followers' message has two wordings; both keep the placeholder the мизоҷ replaces.</summary>
+    private const string FollowersPlaceholder = "[Ҷавоб ё линкро ин ҷо нависед]";
+
+    /// <summary>A phrase from each of the comment reply's three wordings (whichever the contact got).</summary>
+    private static readonly string[] CommentReplyWordings = ["таваҷҷуҳатон", "Саволатонро гирифтем", "ташаккур барои шарҳ"];
+
     [Fact]
     public async Task FollowCheckedReply_CommentFromFollower_GetsTheFollowersMessageAsThePrivateReply()
     {
@@ -405,7 +411,7 @@ public class FlowTemplateDeliveryTests
         Assert.Equal(FlowSessionStatus.Finished, (await db.FlowSessions.SingleAsync()).Status);
         var send = Assert.Single(Sends(handler));
         Assert.Equal("comment-1", send.GetProperty("recipient").GetProperty("comment_id").GetString());
-        Assert.Contains("обуначии мо ҳастед", AllText(send));
+        Assert.Contains(FollowersPlaceholder, AllText(send));
     }
 
     [Fact]
@@ -451,7 +457,7 @@ public class FlowTemplateDeliveryTests
         var sends = Sends(handler);
         Assert.Equal(3, sends.Count);
         Assert.Equal(contact.ExternalId, sends[2].GetProperty("recipient").GetProperty("id").GetString());
-        Assert.Contains("обуначии мо ҳастед", AllText(sends[2]));
+        Assert.Contains(FollowersPlaceholder, AllText(sends[2]));
     }
 
     [Fact]
@@ -466,6 +472,45 @@ public class FlowTemplateDeliveryTests
 
         var starts = definition.Nodes.Where(n => definition.Edges.All(e => e.ToKey != n.Key)).Select(n => n.Key).ToList();
         Assert.Equal(["check"], starts);
+    }
+
+    [Fact]
+    public async Task MessageWithVariants_EachContactGetsTheTextPickedForTheirSession_AndTheTextsSpread()
+    {
+        await using var db = CreateDb();
+        var channel = MakeChannel();
+        db.Channels.Add(channel);
+        var flow = new Flow
+        {
+            Id = Guid.CreateVersion7(), ChannelId = channel.Id, Name = "variants", IsActive = true, TriggerType = "instagram_comment",
+            TriggerConfigJson = JsonSerializer.Serialize(new AutomationTriggerConfig("all", [], "all", [])),
+            CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
+        };
+        var block = new MessageBlock(MessageBlock.TypeText, "Матни A", null, Variants: ["Матни B", "  ", "Матни C"]);
+        var node = new FlowNode
+        {
+            Id = Guid.CreateVersion7(), FlowId = flow.Id, Type = FlowNodeType.Message,
+            ConfigJson = JsonSerializer.Serialize(new MessageNodeConfig([block], []), FlowJsonOptions.Options),
+        };
+        db.Flows.Add(flow);
+        db.FlowNodes.Add(node);
+        await db.SaveChangesAsync();
+        var (handler, trigger) = MakeTrigger(db);
+
+        for (var i = 0; i < 30; i++)
+            await trigger.ProcessCommentAsync(channel, new ParsedCommentEvent($"comment-{i}", $"12540012345{i:D5}", $"fan{i}", "нарх?", "media-1"), CancellationToken.None);
+
+        var sessions = await db.FlowSessions.ToListAsync();
+        Assert.Equal(30, sessions.Count);
+        var sent = handler.Bodies.Select(b => JsonDocument.Parse(b).RootElement).ToList();
+        foreach (var session in sessions)
+        {
+            var body = Assert.Single(sent, b => b.GetProperty("recipient").GetProperty("comment_id").GetString() == session.TriggerExternalId);
+            Assert.Equal(MessageTextPicker.Pick(block, session.Id, node.Id), body.GetProperty("message").GetProperty("text").GetString());
+        }
+        // Blank variants are never sent; the real ones all get used across 30 contacts.
+        var texts = sent.Select(b => b.GetProperty("message").GetProperty("text").GetString()).ToHashSet();
+        Assert.Equal(["Матни A", "Матни B", "Матни C"], texts.Order());
     }
 }
 

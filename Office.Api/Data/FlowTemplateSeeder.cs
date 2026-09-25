@@ -104,7 +104,13 @@ public static class FlowTemplateSeeder
     private static FlowTemplateDefinition CommentReplyTemplate()
     {
         var message = new FlowTemplateNodeDefinition("message", "message",
-            ToElement(new MessageNodeConfig([new MessageBlock(MessageBlock.TypeText, "Салом, {{firstName}}! Ташаккур барои таваҷҷуҳатон 🙌 Мо ба зудӣ бо шумо тамос мегирем.", null)], [])),
+            // Three wordings — each commenter gets one (MessageTextPicker): the same text to everyone looks like spam.
+            ToElement(new MessageNodeConfig([new MessageBlock(MessageBlock.TypeText, "Салом, {{firstName}}! Ташаккур барои таваҷҷуҳатон 🙌 Мо ба зудӣ бо шумо тамос мегирем.", null,
+                Variants:
+                [
+                    "Салом, {{firstName}}! Саволатонро гирифтем 😊 Ба зудӣ ҷавоб медиҳем.",
+                    "{{firstName}}, ташаккур барои шарҳ! 🙏 Мутахассиси мо ба зудӣ ба шумо менависад.",
+                ])], [])),
             0, 0);
 
         return new FlowTemplateDefinition([message], []);
@@ -125,7 +131,8 @@ public static class FlowTemplateSeeder
 
         var onFollowing = new FlowTemplateNodeDefinition("onFollowing", "message",
             ToElement(new MessageNodeConfig(
-                [new MessageBlock(MessageBlock.TypeText, "Салом, {{firstName}}! Ташаккур, ки обуначии мо ҳастед 🙌 [Ҷавоб ё линкро ин ҷо нависед]", null)], [])),
+                [new MessageBlock(MessageBlock.TypeText, "Салом, {{firstName}}! Ташаккур, ки обуначии мо ҳастед 🙌 [Ҷавоб ё линкро ин ҷо нависед]", null,
+                    Variants: ["{{firstName}}, ташаккур барои обуна! 💛 [Ҷавоб ё линкро ин ҷо нависед]"])], [])),
             300, -80);
         var askToFollow = new FlowTemplateNodeDefinition("askToFollow", "message",
             ToElement(new MessageNodeConfig(

@@ -276,7 +276,8 @@ public class FlowEngine(AppDbContext db, InstagramProvider instagramProvider, IB
         var contactFields = BuildContactFields(contact);
 
         var textBlocks = config.Blocks.Where(b => b.Type == MessageBlock.TypeText && !string.IsNullOrEmpty(b.Text));
-        var text = string.Join("\n\n", textBlocks.Select(b => FlowVariableInterpolator.Interpolate(b.Text!, variables, contactFields)));
+        var text = string.Join("\n\n", textBlocks.Select(b =>
+            FlowVariableInterpolator.Interpolate(MessageTextPicker.Pick(b, session.Id, node.Id), variables, contactFields)));
 
         // Якто блоки media дар як нод (расм/видео/овоз/файл) — MediaId аллакай attachment_id-и
         // дубора-истифодашавандаи Meta (боркунии воқеӣ дар лаҳзаи илова кардан дар canvas рафта
