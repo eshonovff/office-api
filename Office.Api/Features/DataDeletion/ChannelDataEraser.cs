@@ -23,6 +23,9 @@ public static class ChannelDataEraser
         if (channelIds.Count == 0)
             return;
 
+        var externalIds = await db.Channels.Where(c => channelIds.Contains(c.Id)).Select(c => c.ExternalId).ToListAsync(ct);
+        await DeleteRawWebhookLogsAsync(db, externalIds, ct);
+
         var conversationIds = await db.Conversations.Where(c => channelIds.Contains(c.ChannelId)).Select(c => c.Id).ToListAsync(ct);
         var flowIds = await db.Flows.Where(f => channelIds.Contains(f.ChannelId)).Select(f => f.Id).ToListAsync(ct);
         var ruleIds = await db.AutomationRules.Where(r => channelIds.Contains(r.ChannelId)).Select(r => r.Id).ToListAsync(ct);
@@ -53,6 +56,29 @@ public static class ChannelDataEraser
         db.Channels.RemoveRange(await db.Channels.Where(c => channelIds.Contains(c.Id)).ToListAsync(ct));
 
         await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
+    /// The raw webhook payloads kept for debugging (webhook_logs, 30 days) hold the same messages
+    /// and comments as the tables above — deleting the account must not leave them behind. A
+    /// payload belongs to a channel when an entry names it (Instagram/Facebook: entry.id) or, for
+    /// WhatsApp, a change's phone_number_id. PostgreSQL only (jsonb containment); tests on the
+    /// in-memory provider have no such table.
+    /// </summary>
+    private static async Task DeleteRawWebhookLogsAsync(AppDbContext db, IReadOnlyCollection<string> externalIds, CancellationToken ct)
+    {
+        if (!db.Database.IsNpgsql())
+            return;
+
+        foreach (var externalId in externalIds)
+        {
+            await db.Database.ExecuteSqlInterpolatedAsync($@"
+                DELETE FROM webhook_logs
+                WHERE raw_json @> jsonb_build_object('entry', jsonb_build_array(jsonb_build_object('id', {externalId})))
+                   OR raw_json @> jsonb_build_object('entry', jsonb_build_array(jsonb_build_object('changes', jsonb_build_array(
+                          jsonb_build_object('value', jsonb_build_object('metadata', jsonb_build_object('phone_number_id', {externalId})))))))",
+                ct);
+        }
     }
 
     /// <summary>
