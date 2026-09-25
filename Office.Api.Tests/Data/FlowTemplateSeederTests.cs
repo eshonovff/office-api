@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Office.Api.Channels.Flows;
 using Office.Api.Data;
+using Office.Api.Data.Entities;
 
 namespace Office.Api.Tests.Data;
 
@@ -24,7 +25,7 @@ public class FlowTemplateSeederTests
         await FlowTemplateSeeder.SeedAsync(db, CancellationToken.None);
 
         var templates = await db.FlowTemplates.ToListAsync();
-        Assert.Equal(4, templates.Count);
+        Assert.Equal(3, templates.Count);
 
         foreach (var template in templates)
         {
@@ -92,4 +93,22 @@ public class FlowTemplateSeederTests
         var definition = JsonSerializer.Deserialize<FlowTemplateDefinition>(updated.DefinitionJson, FlowJsonOptions.Options)!;
         Assert.Contains(definition.Nodes, n => n.Key == "intro");
     }
+
+    [Fact]
+    public async Task SeedAsync_RemovesTheWithdrawnFollowCheckTemplate_KeepsTheRest()
+    {
+        await using var db = CreateDb();
+        db.FlowTemplates.Add(new FlowTemplate
+        {
+            Id = Guid.CreateVersion7(), Name = "Ҷавоб ба шарҳ бо санҷиши обуна", DefinitionJson = "{}", CreatedAt = DateTimeOffset.UtcNow,
+        });
+        await db.SaveChangesAsync();
+
+        await FlowTemplateSeeder.SeedAsync(db, CancellationToken.None);
+
+        var names = await db.FlowTemplates.Select(t => t.Name).ToListAsync();
+        Assert.DoesNotContain("Ҷавоб ба шарҳ бо санҷиши обуна", names);
+        Assert.Equal(3, names.Count);
+    }
 }
+

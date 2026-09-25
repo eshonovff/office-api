@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Office.Api.Data;
+using Office.Api.Data.Entities;
 
 namespace Office.Api.Channels.Comments;
 
@@ -17,5 +18,39 @@ public static class CommentLedger
         var comment = await db.InstagramComments.FirstOrDefaultAsync(c => c.ChannelId == channelId && c.ExternalId == commentExternalId, ct);
         if (comment is not null && comment.PrivateReplySentAt is null)
             comment.PrivateReplySentAt = now;
+    }
+
+    /// <summary>
+    /// An automation's public reply went out: stored as the account's own comment, marked 🤖.
+    /// Its webhook echo may have been stored first (as a plain own comment) — then that row just
+    /// gets the mark. Tracked, not saved, like the above.
+    /// </summary>
+    public static async Task RecordAutomatedReplyAsync(
+        AppDbContext db, Channel channel, InstagramComment parent, string parentExternalId, string replyExternalId, string text,
+        DateTimeOffset now, CancellationToken ct)
+    {
+        var echo = await db.InstagramComments.FirstOrDefaultAsync(c => c.ChannelId == channel.Id && c.ExternalId == replyExternalId, ct);
+        if (echo is not null)
+        {
+            echo.PostedByAutomation = true;
+            return;
+        }
+
+        db.InstagramComments.Add(new InstagramComment
+        {
+            Id = Guid.CreateVersion7(),
+            ChannelId = channel.Id,
+            ExternalId = replyExternalId,
+            MediaExternalId = parent.MediaExternalId,
+            ParentExternalId = parentExternalId,
+            AuthorExternalId = channel.ExternalId,
+            AuthorUsername = channel.Name,
+            Text = text,
+            CommentedAt = now,
+            ReceivedAt = now,
+            IsOwn = true,
+            PostedByAutomation = true,
+            IsRead = true,
+        });
     }
 }

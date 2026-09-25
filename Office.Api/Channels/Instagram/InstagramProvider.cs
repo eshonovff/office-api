@@ -411,7 +411,7 @@ public class InstagramProvider(
         try
         {
             using var request = new HttpRequestMessage(
-                HttpMethod.Get, $"{GraphApiBaseUrl}/{GraphApiVersion}/{actorId}?fields=username,is_user_follow_business");
+                HttpMethod.Get, $"{GraphApiBaseUrl}/{GraphApiVersion}/{Uri.EscapeDataString(actorId)}?fields=username,is_user_follow_business");
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credentials.AccessToken);
 
             var response = await httpClient.SendAsync(request, ct);

@@ -5,15 +5,8 @@ namespace Office.Api.Channels.Automation;
 /// комментарии дорои калима) ё "all" (ҳамаи комментарийҳо, бо огоҳии возеҳ дар UI).
 /// PostScope: "all" ё "selected" (бо PostIds).
 /// </summary>
-/// <param name="PublicReplies">
-/// Flows only (a comment trigger): short replies posted under the comment, taken in turn — the
-/// staff "simple" rules keep theirs in AutomationActionConfig and ignore this. Null/empty: none.
-/// </param>
-public record AutomationTriggerConfig(string MatchMode, string[] Keywords, string PostScope, string[] PostIds, string[]? PublicReplies = null)
+public record AutomationTriggerConfig(string MatchMode, string[] Keywords, string PostScope, string[] PostIds)
 {
-    public const int MaxPublicReplies = 5;
-    public const int MaxPublicReplyLength = 300;
-
     public const string MatchModeKeyword = "keyword";
     public const string MatchModeAll = "all";
     public const string PostScopeAll = "all";

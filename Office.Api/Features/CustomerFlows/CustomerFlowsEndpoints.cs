@@ -151,22 +151,8 @@ public static class CustomerFlowsEndpoints
         return await FlowsEndpoints.SetActiveAsync(id, request, db, ct);
     }
 
-    /// <summary>
-    /// Null when one more active automation fits the caller's plan; otherwise the 403 to return.
-    /// Counts the caller's active flows only — the tenant filter scopes the count.
-    /// </summary>
-    private static async Task<IResult?> CheckCanActivateOneMoreAsync(
-        ClaimsPrincipal principal, AppDbContext db, IConfiguration configuration, CancellationToken ct)
-    {
-        var limits = await CustomerEntitlements.LoadLimitsAsync(principal.GetUserId(), db, configuration, ct);
-        if (limits is null)
-            return CustomerEntitlements.NoAccessProblem();
-
-        var active = await db.Flows.CountAsync(f => f.IsActive, ct);
-        return CustomerEntitlements.CanAddOneMore(limits.ActiveAutomations, active)
-            ? null
-            : CustomerEntitlements.LimitReachedProblem(
-                $"Тарифи шумо то {limits.ActiveAutomations} автоматизатсияи фаъол иҷозат медиҳад. " +
-                "Якеашро хомӯш кунед ё тарифро баланд кунед.");
-    }
+    /// <summary>Null when one more active automation fits the caller's plan (flows and comment rules together).</summary>
+    private static Task<IResult?> CheckCanActivateOneMoreAsync(
+        ClaimsPrincipal principal, AppDbContext db, IConfiguration configuration, CancellationToken ct) =>
+        CustomerEntitlements.CheckCanActivateOneMoreAutomationAsync(principal.GetUserId(), db, configuration, ct);
 }

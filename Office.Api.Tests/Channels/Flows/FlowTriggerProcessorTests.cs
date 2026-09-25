@@ -94,7 +94,7 @@ public class FlowTriggerProcessorTests
             new NoOpNotificationService(), new MemoryCache(new MemoryCacheOptions()),
             new InstagramFollowCheckRateLimiter(), NullLogger<InstagramProvider>.Instance);
         var engine = new FlowEngine(db, provider, new NonFunctionalBackgroundJobClient(), httpClient, NullLogger<FlowEngine>.Instance);
-        return (new FlowTriggerProcessor(db, engine, new RecordingPublicReplyScheduler(), NullLogger<FlowTriggerProcessor>.Instance), handler);
+        return (new FlowTriggerProcessor(db, engine, NullLogger<FlowTriggerProcessor>.Instance), handler);
     }
 
     [Fact]

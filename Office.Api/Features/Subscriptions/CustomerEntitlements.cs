@@ -37,6 +37,26 @@ public static class CustomerEntitlements
     /// <summary>Whether one more can be added: a null limit is unlimited.</summary>
     public static bool CanAddOneMore(int? limit, int used) => limit is null || used < limit;
 
+    /// <summary>
+    /// Null when one more active automation fits the caller's plan; otherwise the 403 to return.
+    /// Automations are the flows and the comment auto-reply rules together — one budget, or the
+    /// rules would be a way around the plan. The tenant filter scopes both counts to the caller.
+    /// </summary>
+    public static async Task<IResult?> CheckCanActivateOneMoreAutomationAsync(
+        Guid customerId, AppDbContext db, IConfiguration configuration, CancellationToken ct)
+    {
+        var limits = await LoadLimitsAsync(customerId, db, configuration, ct);
+        if (limits is null)
+            return NoAccessProblem();
+
+        var active = await db.Flows.CountAsync(f => f.IsActive, ct) + await db.AutomationRules.CountAsync(r => r.IsActive, ct);
+        return CanAddOneMore(limits.ActiveAutomations, active)
+            ? null
+            : LimitReachedProblem(
+                $"Тарифи шумо то {limits.ActiveAutomations} автоматизатсияи фаъол иҷозат медиҳад. " +
+                "Якеашро хомӯш кунед ё тарифро баланд кунед.");
+    }
+
     public static IResult NoAccessProblem() => Results.Problem(
         title: "Тариф фаъол нест",
         detail: "Мӯҳлати шумо гузаштааст. Барои идомаи кор тариф харед.",

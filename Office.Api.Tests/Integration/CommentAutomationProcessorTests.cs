@@ -267,4 +267,108 @@ public class CommentAutomationProcessorTests
         Assert.Single(await db.AutomationRuns.ToListAsync());
         Assert.Empty(backgroundJobs.EnqueuedMethods);
     }
+
+    private static AutomationRun PastRun(AutomationRule rule, string commentId, int minutesAgo, AutomationRunStatus status,
+        FollowCheckResult? followCheck = null) => new()
+    {
+        Id = Guid.CreateVersion7(),
+        RuleId = rule.Id,
+        TriggerExternalId = commentId,
+        ActorExternalId = "actor-1",
+        TargetMediaExternalId = "media-1",
+        FollowCheckResult = followCheck,
+        CommentReplyStatus = status,
+        DmStatus = status,
+        CreatedAt = DateTimeOffset.UtcNow.AddMinutes(-minutesAgo),
+    };
+
+    private static async Task<AutomationRun> ProcessNewComment(AppDbContext db, Channel channel, RecordingBackgroundJobClient jobs)
+    {
+        var processor = new CommentAutomationProcessor(db, jobs, NullLogger<CommentAutomationProcessor>.Instance);
+        await processor.ProcessAsync(channel, new ParsedCommentEvent("comment-new", "actor-1", "someone", "🔥", "media-1"), CancellationToken.None);
+        return await db.AutomationRuns.SingleAsync(r => r.TriggerExternalId == "comment-new");
+    }
+
+    [Fact]
+    public async Task ProcessAsync_CommentAgainAfterBeingAskedToFollow_IsLetThroughTheCooldown()
+    {
+        // "Follow us, then comment again" — this is that comment; the job checks the follow afresh.
+        await using var db = CreateDb();
+        var channel = MakeChannel("17841437397996064");
+        var rule = MakeRule(channel.Id, cooldownMinutes: 60);
+        db.Channels.Add(channel);
+        db.AutomationRules.Add(rule);
+        db.AutomationRuns.Add(PastRun(rule, "comment-0", 5, AutomationRunStatus.Sent, FollowCheckResult.NotFollowing));
+        await db.SaveChangesAsync();
+        var jobs = new RecordingBackgroundJobClient();
+
+        var run = await ProcessNewComment(db, channel, jobs);
+
+        Assert.Equal(AutomationRunStatus.Pending, run.CommentReplyStatus);
+        Assert.Single(jobs.EnqueuedMethods);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_CommentsSkippedForTheCooldown_DoNotExtendIt()
+    {
+        // Replied 70 minutes ago (cooldown 60); a comment 10 minutes ago was skipped. The cooldown
+        // runs from the reply, so this one is answered — or someone commenting every half hour
+        // would never be answered again.
+        await using var db = CreateDb();
+        var channel = MakeChannel("17841437397996064");
+        var rule = MakeRule(channel.Id, cooldownMinutes: 60);
+        db.Channels.Add(channel);
+        db.AutomationRules.Add(rule);
+        db.AutomationRuns.AddRange(
+            PastRun(rule, "comment-0", 70, AutomationRunStatus.Sent),
+            PastRun(rule, "comment-1", 10, AutomationRunStatus.SkippedCooldown));
+        await db.SaveChangesAsync();
+        var jobs = new RecordingBackgroundJobClient();
+
+        var run = await ProcessNewComment(db, channel, jobs);
+
+        Assert.Equal(AutomationRunStatus.Pending, run.CommentReplyStatus);
+        Assert.Single(jobs.EnqueuedMethods);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_MizojWithoutAPlan_RecordsNothing()
+    {
+        await using var db = CreateDb();
+        var owner = new Customer { Id = Guid.CreateVersion7(), Email = "m@example.com", FullName = "M", TrialEndsAt = DateTimeOffset.UtcNow.AddDays(-1) };
+        var channel = MakeChannel("17841437397996064");
+        channel.CustomerId = owner.Id;
+        db.Customers.Add(owner);
+        db.Channels.Add(channel);
+        db.AutomationRules.Add(MakeRule(channel.Id));
+        await db.SaveChangesAsync();
+        var jobs = new RecordingBackgroundJobClient();
+        var processor = new CommentAutomationProcessor(db, jobs, NullLogger<CommentAutomationProcessor>.Instance);
+
+        await processor.ProcessAsync(channel, new ParsedCommentEvent("comment-1", "actor-1", "someone", "нарх?", "media-1"), CancellationToken.None);
+
+        Assert.Empty(await db.AutomationRuns.ToListAsync());
+        Assert.Empty(jobs.EnqueuedMethods);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_MizojInTrial_Runs()
+    {
+        await using var db = CreateDb();
+        var owner = new Customer { Id = Guid.CreateVersion7(), Email = "m@example.com", FullName = "M", TrialEndsAt = DateTimeOffset.UtcNow.AddDays(3) };
+        var channel = MakeChannel("17841437397996064");
+        channel.CustomerId = owner.Id;
+        db.Customers.Add(owner);
+        db.Channels.Add(channel);
+        db.AutomationRules.Add(MakeRule(channel.Id));
+        await db.SaveChangesAsync();
+        var jobs = new RecordingBackgroundJobClient();
+        var processor = new CommentAutomationProcessor(db, jobs, NullLogger<CommentAutomationProcessor>.Instance);
+
+        await processor.ProcessAsync(channel, new ParsedCommentEvent("comment-1", "actor-1", "someone", "нарх?", "media-1"), CancellationToken.None);
+
+        Assert.Single(await db.AutomationRuns.ToListAsync());
+        Assert.Single(jobs.EnqueuedMethods);
+    }
 }
+

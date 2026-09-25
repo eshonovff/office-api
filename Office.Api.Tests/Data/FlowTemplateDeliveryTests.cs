@@ -102,46 +102,9 @@ public class FlowTemplateDeliveryTests
             new NoOpNotificationService(), new MemoryCache(new MemoryCacheOptions()),
             new InstagramFollowCheckRateLimiter(), NullLogger<InstagramProvider>.Instance);
         var engine = new FlowEngine(db, provider, new RecordingBackgroundJobClient(), new HttpClient(handler), NullLogger<FlowEngine>.Instance);
-        var trigger = new FlowTriggerProcessor(db, engine, new RecordingPublicReplyScheduler(), NullLogger<FlowTriggerProcessor>.Instance);
+        var trigger = new FlowTriggerProcessor(db, engine, NullLogger<FlowTriggerProcessor>.Instance);
         return (handler, trigger);
     }
-
-    /// <summary>
-    /// Like MakeTrigger, but Instagram's follow check (GET ?fields=...is_user_follow_business)
-    /// answers from <paramref name="isFollowing"/>, read on every call — a "not following" answer
-    /// is never cached, so a test can flip it between steps. Sends are the requests with a body.
-    /// </summary>
-    private static (FakeHttpMessageHandler Handler, FlowTriggerProcessor Trigger, FlowEngine Engine) MakeTriggerWithFollowCheck(
-        AppDbContext db, Func<bool> isFollowing)
-    {
-        var handler = new FakeHttpMessageHandler(request => new HttpResponseMessage(HttpStatusCode.OK)
-        {
-            Content = new StringContent(
-                request.Method == HttpMethod.Get && request.RequestUri!.Query.Contains("is_user_follow_business")
-                    ? $$"""{"username":"fan","is_user_follow_business":{{(isFollowing() ? "true" : "false")}}}"""
-                    : """{"message_id":"mid.123"}""",
-                Encoding.UTF8, "application/json"),
-        });
-        var provider = new InstagramProvider(
-            new HttpClient(handler), new PassthroughProtector(), new ConfigurationBuilder().Build(), db,
-            new NoOpNotificationService(), new MemoryCache(new MemoryCacheOptions()),
-            new InstagramFollowCheckRateLimiter(), NullLogger<InstagramProvider>.Instance);
-        var engine = new FlowEngine(db, provider, new RecordingBackgroundJobClient(), new HttpClient(handler), NullLogger<FlowEngine>.Instance);
-        var trigger = new FlowTriggerProcessor(db, engine, new RecordingPublicReplyScheduler(), NullLogger<FlowTriggerProcessor>.Instance);
-        return (handler, trigger, engine);
-    }
-
-    private static List<JsonElement> Sends(FakeHttpMessageHandler handler) =>
-        handler.Bodies.Where(b => b.Length > 0).Select(b => JsonDocument.Parse(b).RootElement.Clone()).ToList();
-
-    /// <summary>Every string in a send, decoded — a message with a button nests its text deeper than a plain one.</summary>
-    private static string AllText(JsonElement element) => element.ValueKind switch
-    {
-        JsonValueKind.String => element.GetString()!,
-        JsonValueKind.Object => string.Join(" ", element.EnumerateObject().Select(p => AllText(p.Value))),
-        JsonValueKind.Array => string.Join(" ", element.EnumerateArray().Select(AllText)),
-        _ => "",
-    };
 
     /// <summary>Айнан FlowTemplatesEndpoints.InstantiateAsync: шаблони воқеӣ (аз рӯи ном) → Flow+FlowNode+FlowEdge-и воқеӣ.</summary>
     private static async Task<Flow> InstantiateTemplateAsync(AppDbContext db, Guid channelId, string templateName, string triggerType, CancellationToken ct)
@@ -388,91 +351,8 @@ public class FlowTemplateDeliveryTests
         Assert.Equal("+992900000000", (await db.ContactVariables.SingleAsync(v => v.Key == "phone")).Value);
     }
 
-    private const string FollowTemplate = "Ҷавоб ба шарҳ бо санҷиши обуна";
-
-    /// <summary>The followers' message has two wordings; both keep the placeholder the мизоҷ replaces.</summary>
-    private const string FollowersPlaceholder = "[Ҷавоб ё линкро ин ҷо нависед]";
-
     /// <summary>A phrase from each of the comment reply's three wordings (whichever the contact got).</summary>
     private static readonly string[] CommentReplyWordings = ["таваҷҷуҳатон", "Саволатонро гирифтем", "ташаккур барои шарҳ"];
-
-    [Fact]
-    public async Task FollowCheckedReply_CommentFromFollower_GetsTheFollowersMessageAsThePrivateReply()
-    {
-        await using var db = CreateDb();
-        var channel = MakeChannel();
-        db.Channels.Add(channel);
-        await db.SaveChangesAsync();
-        await InstantiateTemplateAsync(db, channel.Id, FollowTemplate, "instagram_comment", CancellationToken.None);
-        var (handler, trigger, _) = MakeTriggerWithFollowCheck(db, () => true);
-
-        await trigger.ProcessCommentAsync(channel, new ParsedCommentEvent("comment-1", "1254001234567890", "fan", "нарх?", "media-1"), CancellationToken.None);
-
-        Assert.Equal(FlowSessionStatus.Finished, (await db.FlowSessions.SingleAsync()).Status);
-        var send = Assert.Single(Sends(handler));
-        Assert.Equal("comment-1", send.GetProperty("recipient").GetProperty("comment_id").GetString());
-        Assert.Contains(FollowersPlaceholder, AllText(send));
-    }
-
-    [Fact]
-    public async Task FollowCheckedReply_NonFollower_IsAskedToFollow_ThenGetsTheFollowersMessageAfterFollowingAndTapping()
-    {
-        await using var db = CreateDb();
-        var channel = MakeChannel();
-        db.Channels.Add(channel);
-        await db.SaveChangesAsync();
-        await InstantiateTemplateAsync(db, channel.Id, FollowTemplate, "instagram_comment", CancellationToken.None);
-        var following = false;
-        var (handler, trigger, engine) = MakeTriggerWithFollowCheck(db, () => following);
-
-        // 1. Not a follower: the "please follow" message, with its button, is the comment's one private reply.
-        await trigger.ProcessCommentAsync(channel, new ParsedCommentEvent("comment-1", "1254001234567890", "fan", "нарх?", "media-1"), CancellationToken.None);
-
-        var session = await db.FlowSessions.SingleAsync();
-        Assert.Equal(FlowSessionStatus.Waiting, session.Status);
-        Assert.Equal(FlowWaitReason.ButtonClick, session.WaitReason);
-        var ask = Assert.Single(Sends(handler));
-        Assert.Equal("comment-1", ask.GetProperty("recipient").GetProperty("comment_id").GetString());
-        Assert.Contains("обуна шавед", AllText(ask));
-        Assert.Contains($"{session.Id}:{session.CurrentNodeId}:0", AllText(ask));
-
-        // 2. Taps "Обуна шудам ✅" without following: asked again — now a normal DM, the tap opened the window.
-        var contact = await db.Conversations.SingleAsync();
-        contact.WindowExpiresAt = DateTimeOffset.UtcNow.AddHours(24);
-        await db.SaveChangesAsync();
-        await engine.ResumeFromButtonAsync($"{session.Id}:{session.CurrentNodeId}:0", CancellationToken.None);
-
-        await db.Entry(session).ReloadAsync();
-        Assert.Equal(FlowWaitReason.ButtonClick, session.WaitReason);
-        Assert.Equal(2, Sends(handler).Count);
-        Assert.Equal(contact.ExternalId, Sends(handler)[1].GetProperty("recipient").GetProperty("id").GetString());
-        Assert.Contains("обуна шавед", AllText(Sends(handler)[1]));
-
-        // 3. Follows, taps again: checked afresh ("not following" is never cached) → the followers' message.
-        following = true;
-        await engine.ResumeFromButtonAsync($"{session.Id}:{session.CurrentNodeId}:0", CancellationToken.None);
-
-        await db.Entry(session).ReloadAsync();
-        Assert.Equal(FlowSessionStatus.Finished, session.Status);
-        var sends = Sends(handler);
-        Assert.Equal(3, sends.Count);
-        Assert.Equal(contact.ExternalId, sends[2].GetProperty("recipient").GetProperty("id").GetString());
-        Assert.Contains(FollowersPlaceholder, AllText(sends[2]));
-    }
-
-    [Fact]
-    public async Task FollowCheckedReply_StartsAtTheFirstCheck_TheLoopGoesThroughTheSecond()
-    {
-        // The engine starts at the only node nothing points to; a loop back into the first check
-        // would leave no start at all.
-        await using var db = CreateDb();
-        await FlowTemplateSeeder.SeedAsync(db, CancellationToken.None);
-        var template = await db.FlowTemplates.SingleAsync(t => t.Name == FollowTemplate);
-        var definition = JsonSerializer.Deserialize<FlowTemplateDefinition>(template.DefinitionJson)!;
-
-        var starts = definition.Nodes.Where(n => definition.Edges.All(e => e.ToKey != n.Key)).Select(n => n.Key).ToList();
-        Assert.Equal(["check"], starts);
-    }
 
     [Fact]
     public async Task MessageWithVariants_EachContactGetsTheTextPickedForTheirSession_AndTheTextsSpread()
