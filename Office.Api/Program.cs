@@ -45,6 +45,7 @@ using Office.Api.Features.CustomerAccount;
 using Office.Api.Features.CustomerChannels;
 using Office.Api.Features.CustomerChats;
 using Office.Api.Features.CustomerCommentRules;
+using Office.Api.Features.CustomerContacts;
 using Office.Api.Features.CustomerComments;
 using Office.Api.Features.CustomerFlows;
 using Office.Api.Features.DataDeletion;
@@ -347,9 +348,15 @@ builder.Services.AddRateLimiter(options =>
 
     // A мизоҷ's manual actions on Instagram — chat replies (CustomerChatsEndpoints) and comment
     // actions (CustomerCommentsEndpoints), each its own bucket: a burst would get their account
-    // rate-limited or flagged by Meta. The limiter runs before authentication, so the bucket is
-    // the bearer token itself (one session), else the address.
-    foreach (var policy in new[] { CustomerChatsEndpoints.SendRateLimitPolicy, CustomerCommentsEndpoints.ActionRateLimitPolicy })
+    // rate-limited or flagged by Meta. The contacts export is its own, tighter bucket: it hands
+    // out personal data in bulk. The limiter runs before authentication, so the bucket is the
+    // bearer token itself (one session), else the address.
+    foreach (var (policy, permitLimit) in new[]
+    {
+        (CustomerChatsEndpoints.SendRateLimitPolicy, 30),
+        (CustomerCommentsEndpoints.ActionRateLimitPolicy, 30),
+        (CustomerContactsEndpoints.ExportRateLimitPolicy, 5),
+    })
     {
         options.AddPolicy(policy, context =>
             RateLimitPartition.GetFixedWindowLimiter(
@@ -359,7 +366,7 @@ builder.Services.AddRateLimiter(options =>
                 factory: _ => new FixedWindowRateLimiterOptions
                 {
                     Window = TimeSpan.FromMinutes(1),
-                    PermitLimit = 30,
+                    PermitLimit = permitLimit,
                     QueueLimit = 0,
                 }));
     }
@@ -520,6 +527,7 @@ app.MapCustomerPasswordResetEndpoints();
 app.MapCustomerChatsEndpoints();
 app.MapCustomerCommentsEndpoints();
 app.MapCustomerCommentRulesEndpoints();
+app.MapCustomerContactsEndpoints();
 app.MapCustomerSubscriptionsEndpoints();
 app.MapCustomerChannelsEndpoints();
 app.MapCustomerFlowsEndpoints();
