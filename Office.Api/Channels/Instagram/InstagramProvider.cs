@@ -230,10 +230,52 @@ public class InstagramProvider(
     /// InstagramOAuthConnector.Scopes). Тасдиқшуда бо ҳуҷҷати расмии Meta (Graph API — Comment
     /// Moderation, 2026-09-14): ҳеҷ маҳдудияти шумора надорад (бар хилофи private reply поён).
     /// </summary>
-    public async Task ReplyToCommentAsync(Channel channel, string commentId, string message, CancellationToken ct)
+    /// <returns>The new reply's own comment id (to store it, and to recognise its webhook echo).</returns>
+    public async Task<string?> ReplyToCommentAsync(Channel channel, string commentId, string message, CancellationToken ct)
     {
         var credentials = GetCredentials(channel);
-        await PostToAbsoluteGraphApiPathAsync(channel, credentials, $"{commentId}/replies", new { message }, ct);
+        var body = await PostToAbsoluteGraphApiPathAsync(channel, credentials, $"{Uri.EscapeDataString(commentId)}/replies", new { message }, ct);
+        return InstagramCommentParser.TryReadId(body);
+    }
+
+    /// <summary>Hide or show a comment on the account's own post (POST /{comment-id} hide=…).</summary>
+    public async Task SetCommentHiddenAsync(Channel channel, string commentId, bool hidden, CancellationToken ct)
+    {
+        var credentials = GetCredentials(channel);
+        await PostToAbsoluteGraphApiPathAsync(channel, credentials, Uri.EscapeDataString(commentId), new { hide = hidden }, ct);
+    }
+
+    /// <summary>Delete a comment on the account's own post (DELETE /{comment-id}) — irreversible.</summary>
+    public async Task DeleteCommentAsync(Channel channel, string commentId, CancellationToken ct)
+    {
+        var credentials = GetCredentials(channel);
+        await SendToGraphApiAsync(channel, credentials, HttpMethod.Delete, Uri.EscapeDataString(commentId), payload: null, ct);
+    }
+
+    /// <summary>
+    /// A post's comments with their replies (GET /{media-id}/comments), newest pages first, up to
+    /// <paramref name="max"/> top-level comments — for syncing a post the webhooks never covered.
+    /// </summary>
+    public async Task<IReadOnlyList<InstagramCommentItem>> GetCommentsAsync(Channel channel, string mediaId, int max, CancellationToken ct)
+    {
+        const string fields = "id,text,timestamp,username,from,hidden,replies{id,text,timestamp,username,from,hidden}";
+        var credentials = GetCredentials(channel);
+        var result = new List<InstagramCommentItem>();
+        string? after = null;
+
+        while (result.Count < max)
+        {
+            var path = $"{Uri.EscapeDataString(mediaId)}/comments?fields={Uri.EscapeDataString(fields)}&limit=50" +
+                       (after is null ? "" : $"&after={Uri.EscapeDataString(after)}");
+            var body = await SendToGraphApiAsync(channel, credentials, HttpMethod.Get, path, payload: null, ct);
+            var (page, next) = InstagramCommentParser.ParsePage(body);
+            result.AddRange(page);
+            if (next is null || page.Count == 0)
+                break;
+            after = next;
+        }
+
+        return result;
     }
 
     /// <summary>
@@ -541,13 +583,16 @@ public class InstagramProvider(
     /// Ҳамон PostToGraphApiAsync, вале барои path-ҳое, ки ба account id-и худи мо асос НАЁфтаанд
     /// (масалан "{comment-id}/replies" — comment id-и ягон корбар аст, на аккаунти мо).
     /// </summary>
-    private async Task<string> PostToAbsoluteGraphApiPathAsync(Channel channel, InstagramCredentials credentials, string path, object payload, CancellationToken ct)
+    private Task<string> PostToAbsoluteGraphApiPathAsync(Channel channel, InstagramCredentials credentials, string path, object payload, CancellationToken ct) =>
+        SendToGraphApiAsync(channel, credentials, HttpMethod.Post, path, payload, ct);
+
+    /// <summary>Any Graph API call on this channel's token, with the shared failure handling below.</summary>
+    private async Task<string> SendToGraphApiAsync(
+        Channel channel, InstagramCredentials credentials, HttpMethod method, string path, object? payload, CancellationToken ct)
     {
-        using var request = new HttpRequestMessage(
-            HttpMethod.Post, $"{GraphApiBaseUrl}/{GraphApiVersion}/{path}")
-        {
-            Content = JsonContent.Create(payload),
-        };
+        using var request = new HttpRequestMessage(method, $"{GraphApiBaseUrl}/{GraphApiVersion}/{path}");
+        if (payload is not null)
+            request.Content = JsonContent.Create(payload);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credentials.AccessToken);
 
         var response = await httpClient.SendAsync(request, ct);

@@ -7,7 +7,7 @@ namespace Office.Api.Features.DataDeletion;
 /// <summary>
 /// Removes channels and everything under them: contacts (conversations) with their messages,
 /// tags, variables and assignment history; flows with nodes, edges, sessions and steps;
-/// comment-automation rules and runs; members; the channel itself. Used by Meta's data-deletion
+/// comment-automation rules and runs; stored Instagram comments; members; the channel itself. Used by Meta's data-deletion
 /// callback (DataDeletionJob) and by a мизоҷ deleting their account.
 ///
 /// Rows are loaded and removed in ONE SaveChanges — EF orders the deletes by foreign key, and
@@ -22,6 +22,9 @@ public static class ChannelDataEraser
     {
         if (channelIds.Count == 0)
             return;
+
+        var externalIds = await db.Channels.Where(c => channelIds.Contains(c.Id)).Select(c => c.ExternalId).ToListAsync(ct);
+        await DeleteRawWebhookLogsAsync(db, externalIds, ct);
 
         var conversationIds = await db.Conversations.Where(c => channelIds.Contains(c.ChannelId)).Select(c => c.Id).ToListAsync(ct);
         var flowIds = await db.Flows.Where(f => channelIds.Contains(f.ChannelId)).Select(f => f.Id).ToListAsync(ct);
@@ -42,6 +45,7 @@ public static class ChannelDataEraser
         db.AutomationRules.RemoveRange(await db.AutomationRules.Where(r => ruleIds.Contains(r.Id)).ToListAsync(ct));
 
         db.ContactTags.RemoveRange(await db.ContactTags.Where(t => conversationIds.Contains(t.ContactId)).ToListAsync(ct));
+        db.InstagramComments.RemoveRange(await db.InstagramComments.Where(c => channelIds.Contains(c.ChannelId)).ToListAsync(ct));
         db.ContactVariables.RemoveRange(await db.ContactVariables.Where(v => conversationIds.Contains(v.ContactId)).ToListAsync(ct));
         db.ConversationAssignmentEvents.RemoveRange(
             await db.ConversationAssignmentEvents.Where(e => conversationIds.Contains(e.ConversationId)).ToListAsync(ct));
@@ -52,6 +56,29 @@ public static class ChannelDataEraser
         db.Channels.RemoveRange(await db.Channels.Where(c => channelIds.Contains(c.Id)).ToListAsync(ct));
 
         await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
+    /// The raw webhook payloads kept for debugging (webhook_logs, 30 days) hold the same messages
+    /// and comments as the tables above — deleting the account must not leave them behind. A
+    /// payload belongs to a channel when an entry names it (Instagram/Facebook: entry.id) or, for
+    /// WhatsApp, a change's phone_number_id. PostgreSQL only (jsonb containment); tests on the
+    /// in-memory provider have no such table.
+    /// </summary>
+    private static async Task DeleteRawWebhookLogsAsync(AppDbContext db, IReadOnlyCollection<string> externalIds, CancellationToken ct)
+    {
+        if (!db.Database.IsNpgsql())
+            return;
+
+        foreach (var externalId in externalIds)
+        {
+            await db.Database.ExecuteSqlInterpolatedAsync($@"
+                DELETE FROM webhook_logs
+                WHERE raw_json @> jsonb_build_object('entry', jsonb_build_array(jsonb_build_object('id', {externalId})))
+                   OR raw_json @> jsonb_build_object('entry', jsonb_build_array(jsonb_build_object('changes', jsonb_build_array(
+                          jsonb_build_object('value', jsonb_build_object('metadata', jsonb_build_object('phone_number_id', {externalId})))))))",
+                ct);
+        }
     }
 
     /// <summary>

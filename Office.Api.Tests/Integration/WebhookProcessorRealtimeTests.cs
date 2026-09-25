@@ -1,3 +1,4 @@
+using Office.Api.Channels.Comments;
 using System.Text.Json;
 using Hangfire.Common;
 using Hangfire.States;
@@ -14,6 +15,8 @@ using Office.Api.Channels.WhatsApp;
 using Office.Api.Data;
 using Office.Api.Data.Entities;
 using Office.Api.Realtime;
+
+using Office.Api.Tests.Channels.Comments;
 
 namespace Office.Api.Tests.Integration;
 
@@ -109,6 +112,7 @@ public class WebhookProcessorRealtimeTests
             db, new FakeChannelProviderFactory(), events, backgroundJobs,
             new CommentAutomationProcessor(db, backgroundJobs, NullLogger<CommentAutomationProcessor>.Instance),
             MakeFlowTriggerProcessor(db),
+            new CommentStore(db, new RecordingCommentEventPublisher(), NullLogger<CommentStore>.Instance),
             NullLogger<WebhookProcessor>.Instance);
 
         await processor.ProcessAsync(log.Id, CancellationToken.None);
@@ -143,6 +147,7 @@ public class WebhookProcessorRealtimeTests
             db, new FakeChannelProviderFactory(), events, backgroundJobs,
             new CommentAutomationProcessor(db, backgroundJobs, NullLogger<CommentAutomationProcessor>.Instance),
             MakeFlowTriggerProcessor(db),
+            new CommentStore(db, new RecordingCommentEventPublisher(), NullLogger<CommentStore>.Instance),
             NullLogger<WebhookProcessor>.Instance);
 
         await processor.ProcessAsync(log.Id, CancellationToken.None);
@@ -172,6 +177,7 @@ public class WebhookProcessorRealtimeTests
             db, new FakeChannelProviderFactory(), events, backgroundJobs,
             new CommentAutomationProcessor(db, backgroundJobs, NullLogger<CommentAutomationProcessor>.Instance),
             MakeFlowTriggerProcessor(db),
+            new CommentStore(db, new RecordingCommentEventPublisher(), NullLogger<CommentStore>.Instance),
             NullLogger<WebhookProcessor>.Instance);
 
         await processor.ProcessAsync(log.Id, CancellationToken.None);
@@ -180,6 +186,69 @@ public class WebhookProcessorRealtimeTests
         var received = Assert.Single(events.Calls, c => c.EventName == "MessageReceived");
         Assert.Equal(rightChannel.Id, received.ChannelId);
         Assert.NotEqual(wrongChannel.Id, received.ChannelId);
+    }
+
+    private const string TwoAccountsInOneDelivery = """
+        {
+          "object": "instagram",
+          "entry": [
+            {
+              "id": "17841400000000001",
+              "messaging": [{
+                "sender": { "id": "fan-of-a" }, "recipient": { "id": "17841400000000001" },
+                "timestamp": 1569262486134, "message": { "mid": "mid-for-a", "text": "to A" }
+              }]
+            },
+            {
+              "id": "17841400000000002",
+              "messaging": [{
+                "sender": { "id": "fan-of-b" }, "recipient": { "id": "17841400000000002" },
+                "timestamp": 1569262486135, "message": { "mid": "mid-for-b", "text": "to B — must never land in A" }
+              }]
+            },
+            {
+              "id": "17841400000000099",
+              "messaging": [{
+                "sender": { "id": "x" }, "recipient": { "id": "17841400000000099" },
+                "timestamp": 1569262486136, "message": { "mid": "mid-unknown", "text": "no such channel" }
+              }]
+            }
+          ]
+        }
+        """;
+
+    [Fact]
+    public async Task ProcessAsync_OneDeliveryForSeveralAccounts_EachMessageLandsInItsOwnChannel()
+    {
+        // Meta may batch several accounts' events into one POST. Handled under the first entry's
+        // channel (the old behaviour), B's customer message was stored in A's channel — a
+        // cross-мизоҷ leak once channels belong to different мизоҷон.
+        await using var db = CreateDb();
+        var channelA = MakeChannel(ChannelType.Instagram, "17841400000000001");
+        var channelB = MakeChannel(ChannelType.Instagram, "17841400000000002");
+        db.Channels.AddRange(channelA, channelB);
+        var log = MakeLog("Instagram", TwoAccountsInOneDelivery);
+        db.WebhookLogs.Add(log);
+        await db.SaveChangesAsync();
+
+        var events = new RecordingInboxEventPublisher();
+        var backgroundJobs = new NonFunctionalBackgroundJobClient();
+        var processor = new WebhookProcessor(
+            db, new FakeChannelProviderFactory(), events, backgroundJobs,
+            new CommentAutomationProcessor(db, backgroundJobs, NullLogger<CommentAutomationProcessor>.Instance),
+            MakeFlowTriggerProcessor(db),
+            new CommentStore(db, new RecordingCommentEventPublisher(), NullLogger<CommentStore>.Instance),
+            NullLogger<WebhookProcessor>.Instance);
+
+        await processor.ProcessAsync(log.Id, CancellationToken.None);
+
+        var byMid = await db.Messages.Include(m => m.Conversation).ToDictionaryAsync(m => m.ExternalId!, m => m.Conversation.ChannelId);
+        Assert.Equal(2, byMid.Count);
+        Assert.Equal(channelA.Id, byMid["mid-for-a"]);
+        Assert.Equal(channelB.Id, byMid["mid-for-b"]);
+        // The unknown account is reported, and did not stop the others.
+        Assert.Contains("17841400000000099", log.Error);
+        Assert.Equal(2, events.Calls.Count(c => c.EventName == "MessageReceived"));
     }
 
     private sealed record RecordedEvent(string EventName, Guid ChannelId, Guid? AssignedTo);
@@ -314,7 +383,7 @@ public class WebhookProcessorRealtimeTests
             new NoOpNotificationService(), new MemoryCache(new MemoryCacheOptions()),
             new InstagramFollowCheckRateLimiter(), NullLogger<InstagramProvider>.Instance);
         var engine = new FlowEngine(db, provider, new NonFunctionalBackgroundJobClient(), httpClient, NullLogger<FlowEngine>.Instance);
-        return new FlowTriggerProcessor(db, engine, NullLogger<FlowTriggerProcessor>.Instance);
+        return new FlowTriggerProcessor(db, engine, new RecordingPublicReplyScheduler(), NullLogger<FlowTriggerProcessor>.Instance);
     }
 
     private sealed class NonFunctionalHttpMessageHandler : HttpMessageHandler

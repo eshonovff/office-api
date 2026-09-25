@@ -25,6 +25,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options, ITenantContext
     public DbSet<CustomerRefreshToken> CustomerRefreshTokens => Set<CustomerRefreshToken>();
     public DbSet<CustomerExternalLogin> CustomerExternalLogins => Set<CustomerExternalLogin>();
     public DbSet<CustomerPasswordReset> CustomerPasswordResets => Set<CustomerPasswordReset>();
+    public DbSet<InstagramComment> InstagramComments => Set<InstagramComment>();
     public DbSet<SubscriptionRequest> SubscriptionRequests => Set<SubscriptionRequest>();
 
     public DbSet<Project> Projects => Set<Project>();
@@ -95,6 +96,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options, ITenantContext
         ApplyTenantFilter<FlowEdge>(modelBuilder, e => e.Flow.Channel.CustomerId);
         ApplyTenantFilter<FlowSession>(modelBuilder, s => s.Flow.Channel.CustomerId);
         ApplyTenantFilter<FlowSessionStep>(modelBuilder, s => s.Session.Flow.Channel.CustomerId);
+        ApplyTenantFilter<InstagramComment>(modelBuilder, c => c.Channel.CustomerId);
     }
 
     private void ApplyTenantFilter<TEntity>(ModelBuilder modelBuilder, Expression<Func<TEntity, Guid?>> owner)

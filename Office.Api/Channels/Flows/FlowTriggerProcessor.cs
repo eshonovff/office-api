@@ -5,6 +5,8 @@ using Office.Api.Channels.Instagram;
 using Office.Api.Data;
 using Office.Api.Data.Entities;
 
+using Office.Api.Channels.Comments;
+
 namespace Office.Api.Channels.Flows;
 
 /// <summary>
@@ -13,7 +15,11 @@ namespace Office.Api.Channels.Flows;
 /// (ин синф бо FlowSession.TriggerExternalId, он бо AutomationRun.TriggerExternalId), пас як
 /// коментарий/DM метавонад ҳам як automation_rule, ҳам як flow-ро ҳамзамон фаъол кунад.
 /// </summary>
-public class FlowTriggerProcessor(AppDbContext db, FlowEngine engine, ILogger<FlowTriggerProcessor> logger)
+public class FlowTriggerProcessor(
+    AppDbContext db,
+    FlowEngine engine,
+    ICommentPublicReplyScheduler publicReplies,
+    ILogger<FlowTriggerProcessor> logger)
 {
     private const string TriggerTypeComment = "instagram_comment";
     private const string TriggerTypeDm = "instagram_dm";
@@ -30,12 +36,21 @@ public class FlowTriggerProcessor(AppDbContext db, FlowEngine engine, ILogger<Fl
         if (await db.FlowSessions.AnyAsync(s => s.Flow.ChannelId == channel.Id && s.TriggerExternalId == evt.CommentId, ct))
             return;
 
-        var flow = await FindMatchingFlowAsync(channel.Id, TriggerTypeComment, evt.Text, evt.MediaId, ct);
-        if (flow is null)
+        var match = await FindMatchingFlowAsync(channel.Id, TriggerTypeComment, evt.Text, evt.MediaId, ct);
+        if (match is null)
             return;
+        var (flow, trigger) = match.Value;
 
         var contact = await FindOrCreateContactAsync(channel, evt.ActorExternalId, evt.ActorUsername, ct);
         await engine.StartAsync(flow, contact.Id, ct, triggerExternalId: evt.CommentId);
+
+        var replies = (trigger.PublicReplies ?? []).Select(r => r.Trim()).Where(r => r.Length > 0).ToList();
+        if (replies.Count > 0)
+        {
+            // In turn, like the staff rules (CommentReplySelector) — never the same text twice in a row.
+            var earlier = await db.FlowSessions.CountAsync(s => s.FlowId == flow.Id && s.TriggerExternalId != null, ct) - 1;
+            publicReplies.Schedule(channel.Id, evt.CommentId, CommentReplySelector.Select(replies, Math.Max(earlier, 0)));
+        }
     }
 
     /// <summary>
@@ -69,14 +84,15 @@ public class FlowTriggerProcessor(AppDbContext db, FlowEngine engine, ILogger<Fl
         if (await db.FlowSessions.AnyAsync(s => s.Flow.ChannelId == channel.Id && s.TriggerExternalId == message.MessageExternalId, ct))
             return;
 
-        var flow = await FindMatchingFlowAsync(channel.Id, TriggerTypeDm, message.Body ?? "", mediaId: null, ct);
-        if (flow is null)
+        var match = await FindMatchingFlowAsync(channel.Id, TriggerTypeDm, message.Body ?? "", mediaId: null, ct);
+        if (match is null)
             return;
 
-        await engine.StartAsync(flow, contact.Id, ct, triggerExternalId: message.MessageExternalId);
+        await engine.StartAsync(match.Value.Flow, contact.Id, ct, triggerExternalId: message.MessageExternalId);
     }
 
-    private async Task<Flow?> FindMatchingFlowAsync(Guid channelId, string triggerType, string text, string? mediaId, CancellationToken ct)
+    private async Task<(Flow Flow, AutomationTriggerConfig Trigger)?> FindMatchingFlowAsync(
+        Guid channelId, string triggerType, string text, string? mediaId, CancellationToken ct)
     {
         var flows = await db.Flows
             .Where(f => f.ChannelId == channelId && f.IsActive && f.TriggerType == triggerType)
@@ -99,7 +115,7 @@ public class FlowTriggerProcessor(AppDbContext db, FlowEngine engine, ILogger<Fl
             // Ҳамон CommentAutomationMatcher-и Фазаи 10 — DM-ҳо ҳеҷ гоҳ postScope=selected
             // надоранд (mediaId=null аз ProcessMessageAsync медиҳад, пас он тафтиш худкор true мешавад).
             if (CommentAutomationMatcher.Match(triggerConfig, text, mediaId).Matched)
-                return flow;
+                return (flow, triggerConfig);
         }
 
         return null;

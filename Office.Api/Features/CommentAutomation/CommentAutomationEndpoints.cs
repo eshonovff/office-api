@@ -206,17 +206,24 @@ public static class CommentAutomationEndpoints
         if (channel is null)
             return Results.NotFound();
 
-        var cacheKey = $"ig-media:{channelId}:{after}:{limit ?? 25}";
-        if (cache.TryGetValue(cacheKey, out InstagramMediaListResult? cached) && cached is not null)
-            return Results.Ok(cached);
+        return Results.Ok(await LoadMediaPageAsync(channel, after, limit ?? 25, instagramProvider, cache, ct));
+    }
 
-        var page = await instagramProvider.GetRecentMediaAsync(channel, after, limit ?? 25, ct);
+    /// <summary>A channel's recent posts, cached 5 minutes — shared with the мизоҷ comments page.</summary>
+    internal static async Task<InstagramMediaListResult> LoadMediaPageAsync(
+        Channel channel, string? after, int limit, InstagramProvider instagramProvider, IMemoryCache cache, CancellationToken ct)
+    {
+        var cacheKey = $"ig-media:{channel.Id}:{after}:{limit}";
+        if (cache.TryGetValue(cacheKey, out InstagramMediaListResult? cached) && cached is not null)
+            return cached;
+
+        var page = await instagramProvider.GetRecentMediaAsync(channel, after, limit, ct);
         var result = new InstagramMediaListResult(
             page.Items.Select(i => new InstagramMediaListItem(i.Id, i.MediaType, i.ImageUrl, i.Permalink, i.Caption, i.Timestamp)).ToList(),
             page.NextCursor);
 
         cache.Set(cacheKey, result, TimeSpan.FromMinutes(5));
-        return Results.Ok(result);
+        return result;
     }
 
     private static AutomationRuleListItem ToListItem(AutomationRule rule, int runCount) => new(
