@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Hangfire;
 using Microsoft.EntityFrameworkCore;
+using Office.Api.Channels.Flows;
 using Office.Api.Channels.Instagram;
 using Office.Api.Data;
 using Office.Api.Data.Entities;
@@ -21,6 +22,11 @@ public class CommentAutomationProcessor(AppDbContext db, IBackgroundJobClient ba
         // худи ин автоматизатсия), Meta онро низ ҳамчун webhook мефиристад — бе ин система ба
         // ҷавоби худ ҷавоб медиҳад, беохир. Ҳатто сабт намешавад — ин run нест.
         if (evt.ActorExternalId == channel.ExternalId)
+            return;
+
+        // A мизоҷ's rules run only while they have a plan and the channel is connected — the same
+        // gate as their flows. Company channels always pass.
+        if (!await AutomationRunGate.CanRunAsync(channel.Id, db, ct))
             return;
 
         // Идемпотентӣ: агар ин comment_id аллакай коркард шуда бошад (масалан Meta webhook-ро
@@ -55,13 +61,20 @@ public class CommentAutomationProcessor(AppDbContext db, IBackgroundJobClient ba
 
             // Якто rule дар як комментарий: аввалини мувофиқ интихоб мешавад, дигарҳо
             // санҷида НАМЕШАВАНД — ҳатто агар ин яктo дар cooldown бошад (соддагии V1).
+            // The cooldown counts from the last reply that went out: a comment skipped for the
+            // cooldown must not extend it, or someone commenting every half hour would never be
+            // answered again.
             var lastRun = await db.AutomationRuns
-                .Where(r => r.RuleId == rule.Id && r.ActorExternalId == evt.ActorExternalId && r.TargetMediaExternalId == evt.MediaId)
+                .Where(r => r.RuleId == rule.Id && r.ActorExternalId == evt.ActorExternalId && r.TargetMediaExternalId == evt.MediaId
+                    && r.CommentReplyStatus != AutomationRunStatus.SkippedCooldown)
                 .OrderByDescending(r => r.CreatedAt)
                 .FirstOrDefaultAsync(ct);
 
             var now = DateTimeOffset.UtcNow;
-            var inCooldown = lastRun is not null && now - lastRun.CreatedAt < TimeSpan.FromMinutes(rule.CooldownMinutes);
+            var inCooldown = lastRun is not null && now - lastRun.CreatedAt < TimeSpan.FromMinutes(rule.CooldownMinutes)
+                // They were told "follow us, then comment again" — this may be that comment. The
+                // job checks the follow afresh and holds it back only if they still don't follow.
+                && lastRun.FollowCheckResult != FollowCheckResult.NotFollowing;
 
             var run = new AutomationRun
             {

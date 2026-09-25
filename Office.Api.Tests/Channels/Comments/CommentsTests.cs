@@ -13,6 +13,7 @@ using Office.Api.Channels.Flows;
 using Office.Api.Channels.Instagram;
 using Office.Api.Data;
 using Office.Api.Data.Entities;
+using Office.Api.Features.CommentAutomation;
 using Office.Api.Features.Flows;
 using Office.Api.Realtime;
 
@@ -169,21 +170,20 @@ public class CommentsTests
         Assert.Null(InstagramCommentParser.TryReadId("not json"));
     }
 
-    // ── Public replies in flows ────────────────────────────────────────────────────────────
+    // ── Flows: the Direct they send ────────────────────────────────────────────────────────
 
-    private (FlowTriggerProcessor, RecordingPublicReplyScheduler) Trigger(FakeHttp http)
+    private FlowTriggerProcessor Trigger(FakeHttp http)
     {
-        var scheduler = new RecordingPublicReplyScheduler();
         var engine = new FlowEngine(_db, Provider(http), new NoJobs(), new HttpClient(http), NullLogger<FlowEngine>.Instance);
-        return (new FlowTriggerProcessor(_db, engine, scheduler, NullLogger<FlowTriggerProcessor>.Instance), scheduler);
+        return new FlowTriggerProcessor(_db, engine, NullLogger<FlowTriggerProcessor>.Instance);
     }
 
-    private Flow AddCommentFlow(Channel channel, string[]? publicReplies, string triggerType = "instagram_comment")
+    private void AddCommentFlow(Channel channel)
     {
         var flow = new Flow
         {
-            Id = Guid.NewGuid(), ChannelId = channel.Id, Name = "f", IsActive = true, TriggerType = triggerType,
-            TriggerConfigJson = JsonSerializer.Serialize(new AutomationTriggerConfig("all", [], "all", [], publicReplies)),
+            Id = Guid.NewGuid(), ChannelId = channel.Id, Name = "f", IsActive = true, TriggerType = "instagram_comment",
+            TriggerConfigJson = JsonSerializer.Serialize(new AutomationTriggerConfig("all", [], "all", [])),
             CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow,
         };
         _db.Flows.Add(flow);
@@ -193,43 +193,15 @@ public class CommentsTests
             ConfigJson = """{"Blocks":[{"Type":"text","Text":"Салом!","MediaId":null}],"Buttons":[]}""",
         });
         _db.SaveChanges();
-        return flow;
-    }
-
-    [Fact]
-    public async Task Flow_WithPublicReplies_SchedulesThemInTurn()
-    {
-        var channel = AddChannel();
-        AddCommentFlow(channel, ["Ба Direct навиштем 📩", "Direct-ро санҷед ✉️"]);
-        var (trigger, scheduler) = Trigger(new FakeHttp(_ => Json("""{"message_id":"mid"}""")));
-
-        foreach (var id in new[] { "c1", "c2", "c3" })
-            await trigger.ProcessCommentAsync(channel, new ParsedCommentEvent(id, $"fan-{id}", null, "нарх?", "m1"), CancellationToken.None);
-
-        Assert.Equal(
-            [(channel.Id, "c1", "Ба Direct навиштем 📩"), (channel.Id, "c2", "Direct-ро санҷед ✉️"), (channel.Id, "c3", "Ба Direct навиштем 📩")],
-            scheduler.Scheduled);
-    }
-
-    [Fact]
-    public async Task Flow_WithoutPublicReplies_SchedulesNone()
-    {
-        var channel = AddChannel();
-        AddCommentFlow(channel, publicReplies: null);
-        var (trigger, scheduler) = Trigger(new FakeHttp(_ => Json("""{"message_id":"mid"}""")));
-
-        await trigger.ProcessCommentAsync(channel, new ParsedCommentEvent("c1", "fan", null, "нарх?", "m1"), CancellationToken.None);
-
-        Assert.Empty(scheduler.Scheduled);
     }
 
     [Fact]
     public async Task Flow_TheDirectItSends_IsMarkedOnTheComment()
     {
         var channel = AddChannel();
-        AddCommentFlow(channel, publicReplies: null);
+        AddCommentFlow(channel);
         AddComment(channel, "c1");
-        var (trigger, _) = Trigger(new FakeHttp(_ => Json("""{"message_id":"mid"}""")));
+        var trigger = Trigger(new FakeHttp(_ => Json("""{"message_id":"mid"}""")));
 
         await trigger.ProcessCommentAsync(channel, new ParsedCommentEvent("c1", "fan", null, "нарх?", "m1"), CancellationToken.None);
         await _db.SaveChangesAsync();
@@ -237,68 +209,107 @@ public class CommentsTests
         Assert.NotNull((await _db.InstagramComments.SingleAsync()).PrivateReplySentAt);
     }
 
-    // ── CommentPublicReplyJob ──────────────────────────────────────────────────────────────
+    // ── The comment auto-reply (CommentAutomationJob) ──────────────────────────────────────
 
-    private CommentPublicReplyJob Job(FakeHttp http) => new(_db, Provider(http), _events, NullLogger<CommentPublicReplyJob>.Instance);
+    private const string FollowersReply = "Ташаккур! 🙌";
+    private const string AskToFollowReply = "Аввал обуна шавед 🙏";
+
+    /// <summary>Instagram, faked: the follow check answers <paramref name="following"/>; a reply or a Direct message succeeds.</summary>
+    private static FakeHttp Instagram(bool following = true) => new(request =>
+        request.Method == HttpMethod.Get && request.RequestUri!.Query.Contains("is_user_follow_business")
+            ? Json($$"""{"username":"fan","is_user_follow_business":{{(following ? "true" : "false")}}}""")
+            : request.RequestUri!.AbsolutePath.EndsWith("/replies")
+                ? Json("""{"id":"reply-1"}""")
+                : Json("""{"recipient_id":"fan","message_id":"mid"}"""));
+
+    private CommentAutomationJob Job(FakeHttp http) => new(_db, Provider(http), _events, NullLogger<CommentAutomationJob>.Instance);
+
+    private AutomationRule AddRule(Channel channel, bool requiresFollow = false, string dmText = "", int cooldownMinutes = 60)
+    {
+        var rule = new AutomationRule
+        {
+            Id = Guid.NewGuid(), ChannelId = channel.Id, Name = "r", IsActive = true, TriggerType = "instagram_comment",
+            TriggerConfigJson = JsonSerializer.Serialize(new AutomationTriggerConfig("all", [], "all", [])),
+            ConditionConfigJson = JsonSerializer.Serialize(new AutomationConditionConfig(requiresFollow)),
+            ActionConfigJson = JsonSerializer.Serialize(new AutomationActionConfig(
+                new AutomationReplyAction([FollowersReply], dmText, null),
+                requiresFollow ? new AutomationReplyAction([AskToFollowReply], "Обуна шавед ва аз нав шарҳ нависед", null) : null)),
+            CooldownMinutes = cooldownMinutes, CreatedAt = DateTimeOffset.UtcNow,
+        };
+        _db.AutomationRules.Add(rule);
+        _db.SaveChanges();
+        return rule;
+    }
+
+    private AutomationRun AddRun(AutomationRule rule, string commentId = "c1", int minutesAgo = 0,
+        FollowCheckResult? followCheck = null, AutomationRunStatus status = AutomationRunStatus.Pending)
+    {
+        var run = new AutomationRun
+        {
+            Id = Guid.NewGuid(), RuleId = rule.Id, TriggerExternalId = commentId, ActorExternalId = "fan", TargetMediaExternalId = "m1",
+            FollowCheckResult = followCheck, CommentReplyStatus = status, DmStatus = status,
+            CreatedAt = DateTimeOffset.UtcNow.AddMinutes(-minutesAgo),
+        };
+        _db.AutomationRuns.Add(run);
+        _db.SaveChanges();
+        return run;
+    }
+
+    private static bool IsReply((HttpMethod Method, string Url, string? Body) call) => call.Method == HttpMethod.Post && call.Url.Contains("/replies");
 
     [Fact]
-    public async Task Job_PostsTheReply_AndStoresItAsTheAccountsOwn()
+    public async Task Rule_PostsTheReply_StoresItOnTheCommentsPage_AndSignalsThePost()
     {
         var channel = AddChannel();
         AddComment(channel, "c1");
-        var http = new FakeHttp(_ => Json("""{"id":"reply-1"}"""));
+        var run = AddRun(AddRule(channel));
+        var http = Instagram();
 
-        await Job(http).RunAsync(channel.Id, "c1", "Ба Direct навиштем 📩", CancellationToken.None);
+        await Job(http).RunAsync(run.Id, CancellationToken.None);
 
         var call = Assert.Single(http.Calls);
-        Assert.Equal(HttpMethod.Post, call.Method);
+        Assert.True(IsReply(call));
         Assert.EndsWith("/c1/replies", call.Url);
         var reply = await _db.InstagramComments.SingleAsync(c => c.ExternalId == "reply-1");
         Assert.True(reply.IsOwn && reply.PostedByAutomation && reply.IsRead);
-        Assert.Equal("c1", reply.ParentExternalId);
+        Assert.Equal(("c1", FollowersReply), (reply.ParentExternalId, reply.Text));
+        Assert.Equal(AutomationRunStatus.Sent, run.CommentReplyStatus);
         Assert.Equal([(channel.Id, "m1")], _events.Changed);
     }
 
     [Fact]
-    public async Task Job_ReplyToAReply_GoesUnderTheTopComment()
+    public async Task Rule_ReplyToAReply_GoesUnderTheTopComment_TheDirectToTheCommenter()
     {
         var channel = AddChannel();
         AddComment(channel, "c1");
         AddComment(channel, "c2", parent: "c1");
-        var http = new FakeHttp(_ => Json("""{"id":"reply-1"}"""));
+        var run = AddRun(AddRule(channel, dmText: "Нарх дар Direct"), commentId: "c2");
+        var http = Instagram();
 
-        await Job(http).RunAsync(channel.Id, "c2", "📩", CancellationToken.None);
+        await Job(http).RunAsync(run.Id, CancellationToken.None);
 
-        Assert.EndsWith("/c1/replies", Assert.Single(http.Calls).Url);
+        Assert.EndsWith("/c1/replies", Assert.Single(http.Calls, IsReply).Url);
+        var direct = Assert.Single(http.Calls, c => !IsReply(c));
+        Assert.Contains("\"comment_id\":\"c2\"", direct.Body);
+        Assert.NotNull((await _db.InstagramComments.SingleAsync(c => c.ExternalId == "c2")).PrivateReplySentAt);
     }
 
     [Fact]
-    public async Task Job_WhenInstagramRefuses_KeepsTheReasonOnTheComment()
+    public async Task Rule_WhenInstagramRefuses_KeepsTheReasonOnTheComment()
     {
         var channel = AddChannel();
         AddComment(channel, "c1");
+        var run = AddRun(AddRule(channel));
         var http = new FakeHttp(_ => Json("""{"error":{"message":"Unsupported post request","code":100}}""", HttpStatusCode.BadRequest));
 
-        await Job(http).RunAsync(channel.Id, "c1", "📩", CancellationToken.None);
+        await Job(http).RunAsync(run.Id, CancellationToken.None);
 
-        var comment = await _db.InstagramComments.SingleAsync();
-        Assert.False(string.IsNullOrEmpty(comment.AutoReplyError));
+        Assert.Equal(AutomationRunStatus.Failed, run.CommentReplyStatus);
+        Assert.False(string.IsNullOrEmpty((await _db.InstagramComments.SingleAsync()).AutoReplyError));
     }
 
     [Fact]
-    public async Task Job_HiddenComment_GetsNoReply()
-    {
-        var channel = AddChannel();
-        AddComment(channel, "c1", hidden: true);
-        var http = new FakeHttp(_ => Json("""{"id":"reply-1"}"""));
-
-        await Job(http).RunAsync(channel.Id, "c1", "📩", CancellationToken.None);
-
-        Assert.Empty(http.Calls);
-    }
-
-    [Fact]
-    public async Task Job_MizojWithoutAPlan_GetsNoReply()
+    public async Task Rule_MizojWithoutAPlan_SendsNothing()
     {
         var owner = new Customer
         {
@@ -307,43 +318,115 @@ public class CommentsTests
         _db.Customers.Add(owner);
         var channel = AddChannel(owner.Id);
         AddComment(channel, "c1");
-        var http = new FakeHttp(_ => Json("""{"id":"reply-1"}"""));
+        var run = AddRun(AddRule(channel, dmText: "Нарх дар Direct"));
+        var http = Instagram();
 
-        await Job(http).RunAsync(channel.Id, "c1", "📩", CancellationToken.None);
+        await Job(http).RunAsync(run.Id, CancellationToken.None);
 
         Assert.Empty(http.Calls);
+        Assert.Equal((AutomationRunStatus.Disabled, AutomationRunStatus.Disabled), (run.CommentReplyStatus, run.DmStatus));
     }
 
     [Fact]
-    public async Task Job_EchoAlreadyStored_IsMarkedNotDuplicated()
+    public async Task Rule_EchoAlreadyStored_IsMarkedNotDuplicated()
     {
         var channel = AddChannel();
         AddComment(channel, "c1");
         var echo = AddComment(channel, "reply-1", parent: "c1");
         echo.IsOwn = true;
         _db.SaveChanges();
+        var run = AddRun(AddRule(channel));
 
-        await Job(new FakeHttp(_ => Json("""{"id":"reply-1"}"""))).RunAsync(channel.Id, "c1", "📩", CancellationToken.None);
+        await Job(Instagram()).RunAsync(run.Id, CancellationToken.None);
 
         Assert.Equal(2, await _db.InstagramComments.CountAsync());
         Assert.True((await _db.InstagramComments.SingleAsync(c => c.ExternalId == "reply-1")).PostedByAutomation);
     }
 
-    // ── Validation ────────────────────────────────────────────────────────────────────────
+    [Fact]
+    public async Task Rule_NotFollowing_IsAskedToFollow()
+    {
+        var channel = AddChannel();
+        AddComment(channel, "c1");
+        var run = AddRun(AddRule(channel, requiresFollow: true));
 
-    private static bool Valid(string triggerType, string[]? replies) => new CreateFlowRequestValidator()
-        .Validate(new CreateFlowRequest("f", triggerType, new AutomationTriggerConfig("all", [], "all", [], replies))).IsValid;
+        await Job(Instagram(following: false)).RunAsync(run.Id, CancellationToken.None);
+
+        Assert.Equal(FollowCheckResult.NotFollowing, run.FollowCheckResult);
+        Assert.Equal(AskToFollowReply, (await _db.InstagramComments.SingleAsync(c => c.ExternalId == "reply-1")).Text);
+    }
 
     [Fact]
-    public void PublicReplies_OnlyOnACommentTrigger_UpToFiveShortOnes()
+    public async Task Rule_FollowedAfterBeingAsked_CommentsAgain_GetsTheFollowersReply()
     {
-        Assert.True(Valid("instagram_comment", null));
-        Assert.True(Valid("instagram_comment", ["a", "b", "c", "d", "e"]));
-        Assert.True(Valid("instagram_comment", [new string('x', 300)]));
-        Assert.False(Valid("instagram_comment", ["a", "b", "c", "d", "e", "f"]));
-        Assert.False(Valid("instagram_comment", ["  "]));
-        Assert.False(Valid("instagram_comment", [new string('x', 301)]));
-        Assert.False(Valid("instagram_dm", ["a"]));
-        Assert.True(Valid("instagram_dm", []));
+        var channel = AddChannel();
+        var rule = AddRule(channel, requiresFollow: true);
+        AddRun(rule, commentId: "c0", minutesAgo: 5, FollowCheckResult.NotFollowing, AutomationRunStatus.Sent);
+        AddComment(channel, "c1");
+        var run = AddRun(rule, commentId: "c1");
+
+        await Job(Instagram(following: true)).RunAsync(run.Id, CancellationToken.None);
+
+        Assert.Equal(AutomationRunStatus.Sent, run.CommentReplyStatus);
+        Assert.Equal(FollowersReply, (await _db.InstagramComments.SingleAsync(c => c.ExternalId == "reply-1")).Text);
+    }
+
+    [Fact]
+    public async Task Rule_StillNotFollowingAfterBeingAsked_IsNotAskedAgain()
+    {
+        var channel = AddChannel();
+        var rule = AddRule(channel, requiresFollow: true);
+        AddRun(rule, commentId: "c0", minutesAgo: 5, FollowCheckResult.NotFollowing, AutomationRunStatus.Sent);
+        AddComment(channel, "c1");
+        var run = AddRun(rule, commentId: "c1");
+        var http = Instagram(following: false);
+
+        await Job(http).RunAsync(run.Id, CancellationToken.None);
+
+        Assert.Equal(AutomationRunStatus.SkippedCooldown, run.CommentReplyStatus);
+        Assert.DoesNotContain(http.Calls, c => c.Method == HttpMethod.Post); // only the follow check
+    }
+
+    // ── Validation ────────────────────────────────────────────────────────────────────────
+
+    private static CreateAutomationRuleRequest Rule(
+        string[]? keywords = null, string[]? postIds = null, string[]? replies = null, string dmText = "", string? buttonUrl = null,
+        int cooldown = 60) => new(
+        "r",
+        new AutomationTriggerConfig(keywords is null ? "all" : "keyword", keywords ?? [], postIds is null ? "all" : "selected", postIds ?? []),
+        new AutomationConditionConfig(false),
+        new AutomationActionConfig(new AutomationReplyAction(replies ?? ["Ташаккур!"], dmText, buttonUrl, buttonUrl is null ? null : "Сайт"), null),
+        cooldown);
+
+    private static bool Valid(CreateAutomationRuleRequest request) => new CreateAutomationRuleRequestValidator().Validate(request).IsValid;
+
+    [Fact]
+    public void RuleLimits_EveryListAndTextHasACeiling()
+    {
+        Assert.True(Valid(Rule()));
+        Assert.True(Valid(Rule(keywords: Enumerable.Repeat("нарх", AutomationRuleLimits.MaxKeywords).ToArray())));
+        Assert.False(Valid(Rule(keywords: Enumerable.Repeat("нарх", AutomationRuleLimits.MaxKeywords + 1).ToArray())));
+        Assert.False(Valid(Rule(keywords: [new string('k', AutomationRuleLimits.MaxKeywordLength + 1)])));
+        Assert.True(Valid(Rule(postIds: ["17900000000000001", "123_456"])));
+        Assert.False(Valid(Rule(postIds: ["../me/messages"])));
+        Assert.False(Valid(Rule(replies: Enumerable.Repeat("x", AutomationRuleLimits.MaxCommentReplies + 1).ToArray())));
+        Assert.False(Valid(Rule(replies: [new string('x', AutomationRuleLimits.MaxTextLength + 1)])));
+        Assert.False(Valid(Rule(dmText: new string('x', AutomationRuleLimits.MaxTextLength + 1))));
+        Assert.True(Valid(Rule(dmText: "Салом", buttonUrl: "https://nizom.tj")));
+        Assert.False(Valid(Rule(dmText: "Салом", buttonUrl: "javascript:alert(1)")));
+        Assert.False(Valid(Rule(cooldown: AutomationRuleLimits.MaxCooldownMinutes + 1)));
+    }
+
+    [Fact]
+    public void DryRun_TheUserIdGoesIntoAGraphPath_SoOnlyDigits()
+    {
+        static bool DryRunValid(string? actor) => new DryRunAutomationRuleRequestValidator().Validate(
+            new DryRunAutomationRuleRequest(new AutomationTriggerConfig("all", [], "all", []), "нарх?", null,
+                new AutomationConditionConfig(true), actor)).IsValid;
+
+        Assert.True(DryRunValid(null));
+        Assert.True(DryRunValid("1254001234567890"));
+        Assert.False(DryRunValid("me/conversations?fields=messages"));
+        Assert.False(DryRunValid("../123"));
     }
 }

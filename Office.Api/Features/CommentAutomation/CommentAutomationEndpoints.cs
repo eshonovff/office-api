@@ -12,6 +12,11 @@ using Office.Api.Data.Entities;
 
 namespace Office.Api.Features.CommentAutomation;
 
+/// <summary>
+/// Instagram comment auto-reply rules. The handlers are shared with the мизоҷ routes
+/// (CustomerCommentRulesEndpoints): they only read through AppDbContext, whose tenant filter
+/// scopes every query to the caller — staff see company channels, a мизоҷ only their own.
+/// </summary>
 public static class CommentAutomationEndpoints
 {
     private const string InstagramCommentTriggerType = "instagram_comment";
@@ -70,7 +75,7 @@ public static class CommentAutomationEndpoints
         return app;
     }
 
-    private static async Task<IResult> ListAsync(Guid channelId, AppDbContext db, CancellationToken ct)
+    internal static async Task<IResult> ListAsync(Guid channelId, AppDbContext db, CancellationToken ct)
     {
         if (!await db.Channels.AnyAsync(c => c.Id == channelId, ct))
             return Results.NotFound();
@@ -84,7 +89,7 @@ public static class CommentAutomationEndpoints
         return Results.Ok(rules.Select(x => ToListItem(x.Rule, x.RunCount)));
     }
 
-    private static async Task<IResult> CreateAsync(
+    internal static async Task<IResult> CreateAsync(
         Guid channelId, CreateAutomationRuleRequest request, AppDbContext db, InstagramOAuthConnector instagramOAuth,
         IChannelCredentialsProtector protector, ILogger<Program> logger, CancellationToken ct)
     {
@@ -130,7 +135,7 @@ public static class CommentAutomationEndpoints
         return Results.Created($"/api/channels/{channelId}/automation-rules/{rule.Id}", ToListItem(rule, 0));
     }
 
-    private static async Task<IResult> UpdateAsync(
+    internal static async Task<IResult> UpdateAsync(
         Guid channelId, Guid ruleId, UpdateAutomationRuleRequest request, AppDbContext db, CancellationToken ct)
     {
         var rule = await db.AutomationRules.FirstOrDefaultAsync(r => r.Id == ruleId && r.ChannelId == channelId, ct);
@@ -149,7 +154,7 @@ public static class CommentAutomationEndpoints
         return Results.Ok(ToListItem(rule, runCount));
     }
 
-    private static async Task<IResult> SetActiveAsync(
+    internal static async Task<IResult> SetActiveAsync(
         Guid channelId, Guid ruleId, SetAutomationRuleActiveRequest request, AppDbContext db, CancellationToken ct)
     {
         var rule = await db.AutomationRules.FirstOrDefaultAsync(r => r.Id == ruleId && r.ChannelId == channelId, ct);
@@ -162,7 +167,7 @@ public static class CommentAutomationEndpoints
         return Results.NoContent();
     }
 
-    private static async Task<IResult> DeleteAsync(Guid channelId, Guid ruleId, AppDbContext db, CancellationToken ct)
+    internal static async Task<IResult> DeleteAsync(Guid channelId, Guid ruleId, AppDbContext db, CancellationToken ct)
     {
         var rule = await db.AutomationRules.FirstOrDefaultAsync(r => r.Id == ruleId && r.ChannelId == channelId, ct);
         if (rule is null)
@@ -173,7 +178,7 @@ public static class CommentAutomationEndpoints
         return Results.NoContent();
     }
 
-    private static async Task<IResult> DryRunAsync(
+    internal static async Task<IResult> DryRunAsync(
         Guid channelId, DryRunAutomationRuleRequest request, AppDbContext db, InstagramProvider instagramProvider, CancellationToken ct)
     {
         // Check first, like every endpoint under /api/channels/{channelId}: a channel the caller
