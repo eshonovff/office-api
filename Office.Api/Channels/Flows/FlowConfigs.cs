@@ -1,14 +1,21 @@
 namespace Office.Api.Channels.Flows;
 
 /// <summary>
-/// Як блоки паём — матн то 500 аломат (санҷида дар FluentValidation, ниг. Features/Flows/Validators.cs).
+/// Як блоки паём — матн то 1000 аломат (ҳудуди Instagram; санҷида дар FlowsEndpoints.ValidateNodeConfig).
+/// Variants (танҳо блоки матн, ихтиёрӣ): матнҳои дигари ҳамон паём — бот ба ҳар корбар якеро аз
+/// Text ва Variants мефиристад (MessageTextPicker), то як матни якхела ба ҳама спам наменамояд.
 /// PreviewDataUri (ихтиёрӣ): thumbnail-и хурди "data:image/jpeg;base64,..." — MediaId (attachment_id-и
 /// Meta) баъд аз reload аз он расм бозгашт кардан НАМЕШАВАД (опаку, GET-и оммавӣ надорад), пас ин
 /// thumbnail-и мустақил дар ҳамин JSON захира мешавад, то панел/canvas пас аз reload низ расмро
 /// нишон диҳанд — ниг. FlowsEndpoints.UploadMediaAsync ва FlowTemplateInstantiator.AttachDefaultImagesAsync.
 /// </summary>
-public record MessageBlock(string Type, string? Text, string? MediaId, string? PreviewDataUri = null)
+public record MessageBlock(string Type, string? Text, string? MediaId, string? PreviewDataUri = null, string[]? Variants = null)
 {
+    /// <summary>Instagram's limit for one message's text.</summary>
+    public const int MaxTextLength = 1000;
+    /// <summary>Besides Text — five texts in all, as for the public replies under a comment.</summary>
+    public const int MaxVariants = 4;
+
     public const string TypeText = "text";
     public const string TypeImage = "image";
     public const string TypeVideo = "video";
