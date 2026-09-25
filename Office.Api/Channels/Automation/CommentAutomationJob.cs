@@ -5,6 +5,8 @@ using Office.Api.Channels.Instagram;
 using Office.Api.Data;
 using Office.Api.Data.Entities;
 
+using Office.Api.Channels.Comments;
+
 namespace Office.Api.Channels.Automation;
 
 /// <summary>
@@ -87,6 +89,7 @@ public class CommentAutomationJob(AppDbContext db, InstagramProvider instagramPr
                     : new InstagramSendButton(branch.DmButtonTitle, InstagramSendButton.TypeWebUrl, branch.DmButtonUrl, null);
                 await instagramProvider.SendPrivateReplyAsync(channel, run.TriggerExternalId, branch.DmText, button, ct);
                 run.DmStatus = AutomationRunStatus.Sent;
+                await CommentLedger.MarkPrivateReplySentAsync(db, channel.Id, run.TriggerExternalId, DateTimeOffset.UtcNow, ct);
             }
             catch (Exception ex)
             {

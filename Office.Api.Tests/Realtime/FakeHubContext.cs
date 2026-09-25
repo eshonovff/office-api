@@ -32,10 +32,12 @@ public class FakeHubClients : IHubClients
     public IClientProxy Users(IReadOnlyList<string> userIds) => throw new NotSupportedException();
 }
 
-public class FakeHubContext : IHubContext<InboxHub>
+public class FakeHubContext<THub> : IHubContext<THub> where THub : Hub
 {
     public FakeHubClients ClientsImpl { get; } = new();
 
     public IHubClients Clients => ClientsImpl;
     public IGroupManager Groups => throw new NotSupportedException();
 }
+
+public class FakeHubContext : FakeHubContext<InboxHub>;

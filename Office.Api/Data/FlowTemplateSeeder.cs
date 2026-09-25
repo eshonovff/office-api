@@ -20,7 +20,7 @@ public static class FlowTemplateSeeder
             "Пеш аз фиристодани файл/линк, тафтиш мекунад ки корбар обуна ҳаст ё не.", LeadMagnetTemplate(), ct);
         await UpsertAsync(db, "Ҷавоб ба комментарий + DM",
             // Shown to мизоҷон too — plain words, no internal names (it used to mention automation_rules).
-            "Ба ҳар касе, ки коментарий ё паём менависад, дар Direct ҷавоб мефиристад. Дар зери худи пост ҷавоби ҷамъиятӣ навишта намешавад.",
+            "Ба ҳар касе, ки коментарий ё паём менависад, дар Direct ҷавоб мефиристад. Барои шарҳ зери пост ҳам кӯтоҳ ҷавоб навиштан мумкин аст — дар танзимоти триггер.",
             CommentReplyTemplate(), ct);
         await UpsertAsync(db, "Ҷамъоварии контакт",
             "Ном → рақами телефон → тег — барои ҷамъоварии лидҳо тавассути DM.", ContactCollectionTemplate(), ct);

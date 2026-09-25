@@ -91,11 +91,16 @@ public class TenantIsolationTests
         db.FlowEdges.Add(new FlowEdge { Id = Own(Guid.NewGuid(), tag), FlowId = flowId, FromNodeId = nodeId, FromPort = "default", ToNodeId = nodeId });
         db.FlowSessions.Add(new FlowSession { Id = sessionId, FlowId = flowId, ContactId = conversationId, CreatedAt = now });
         db.FlowSessionSteps.Add(new FlowSessionStep { Id = Own(Guid.NewGuid(), tag), SessionId = sessionId, NodeId = nodeId, CreatedAt = now });
+        db.InstagramComments.Add(new InstagramComment
+        {
+            Id = Own(Guid.NewGuid(), tag), ChannelId = channelId, ExternalId = $"comment-{tag}", MediaExternalId = $"media-{tag}",
+            AuthorExternalId = $"fan-{tag}", Text = tag, CommentedAt = now, ReceivedAt = now,
+        });
         return channelId;
     }
 
     /// <summary>
-    /// What each of the 14 channel-owned tables shows this caller. Only the table's OWN columns
+    /// What each of the 15 channel-owned tables shows this caller. Only the table's OWN columns
     /// are read — never a navigation: a navigation join applies the parent's filter as well and
     /// would hide a missing filter on the table itself (while a plain Where on ConversationId
     /// in real code would leak). Verified: removing any one table's filter fails these tests.
@@ -120,6 +125,7 @@ public class TenantIsolationTests
             ["flow_edges"] = Owners(db.FlowEdges.Select(e => e.Id)),
             ["flow_sessions"] = Owners(db.FlowSessions.Select(s => s.Id)),
             ["flow_session_steps"] = Owners(db.FlowSessionSteps.Select(s => s.Id)),
+            ["instagram_comments"] = Owners(db.InstagramComments.Select(c => c.Id)),
         };
     }
 

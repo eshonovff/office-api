@@ -16,6 +16,7 @@ using Microsoft.OpenApi;
 using Office.Api.Auth;
 using Office.Api.Channels;
 using Office.Api.Channels.Automation;
+using Office.Api.Channels.Comments;
 using Office.Api.Channels.Flows;
 using Office.Api.Channels.Facebook;
 using Office.Api.Channels.Instagram;
@@ -42,6 +43,8 @@ using Office.Api.Features.Tasks;
 using Office.Api.Features.Subscriptions;
 using Office.Api.Features.CustomerAccount;
 using Office.Api.Features.CustomerChannels;
+using Office.Api.Features.CustomerChats;
+using Office.Api.Features.CustomerComments;
 using Office.Api.Features.CustomerFlows;
 using Office.Api.Features.DataDeletion;
 using Office.Api.Features.Users;
@@ -222,6 +225,15 @@ var authenticationBuilder = builder.Services
         // One indexed lookup per request, the staff side's PermissionsVersionMiddleware does the same.
         options.Events = new JwtBearerEvents
         {
+            // The browser's WebSocket cannot send an Authorization header — CustomerHub takes the
+            // token from the query string, like the staff hubs above (for its own path only).
+            OnMessageReceived = context =>
+            {
+                var accessToken = context.Request.Query["access_token"];
+                if (!string.IsNullOrEmpty(accessToken) && context.HttpContext.Request.Path.StartsWithSegments("/hubs/customer"))
+                    context.Token = accessToken;
+                return Task.CompletedTask;
+            },
             OnTokenValidated = async context =>
             {
                 var sub = context.Principal?.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
@@ -331,6 +343,25 @@ builder.Services.AddRateLimiter(options =>
                 PermitLimit = 30,
                 QueueLimit = 0,
             }));
+
+    // A мизоҷ's manual actions on Instagram — chat replies (CustomerChatsEndpoints) and comment
+    // actions (CustomerCommentsEndpoints), each its own bucket: a burst would get their account
+    // rate-limited or flagged by Meta. The limiter runs before authentication, so the bucket is
+    // the bearer token itself (one session), else the address.
+    foreach (var policy in new[] { CustomerChatsEndpoints.SendRateLimitPolicy, CustomerCommentsEndpoints.ActionRateLimitPolicy })
+    {
+        options.AddPolicy(policy, context =>
+            RateLimitPartition.GetFixedWindowLimiter(
+                partitionKey: context.Request.Headers.Authorization.ToString() is { Length: > 0 } bearer
+                    ? Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(bearer)))
+                    : context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                factory: _ => new FixedWindowRateLimiterOptions
+                {
+                    Window = TimeSpan.FromMinutes(1),
+                    PermitLimit = 30,
+                    QueueLimit = 0,
+                }));
+    }
 });
 
 builder.Services.AddValidatorsFromAssemblyContaining<Program>();
@@ -351,6 +382,10 @@ builder.Services.AddScoped<DashboardQueryService>();
 builder.Services.AddScoped<DashboardStatsQueryService>();
 builder.Services.AddScoped<IBoardEventPublisher, BoardEventPublisher>();
 builder.Services.AddScoped<IInboxEventPublisher, InboxEventPublisher>();
+builder.Services.AddScoped<ICommentEventPublisher, CommentEventPublisher>();
+builder.Services.AddScoped<ICommentPublicReplyScheduler, CommentPublicReplyScheduler>();
+builder.Services.AddScoped<CommentStore>();
+builder.Services.AddScoped<CommentPublicReplyJob>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddHostedService<DeadlineNotificationBackgroundService>();
 
@@ -483,6 +518,8 @@ app.MapHealthChecks("/health");
 app.MapAuthEndpoints();
 app.MapCustomerAuthEndpoints(builder.Configuration);
 app.MapCustomerPasswordResetEndpoints();
+app.MapCustomerChatsEndpoints();
+app.MapCustomerCommentsEndpoints();
 app.MapCustomerSubscriptionsEndpoints();
 app.MapCustomerChannelsEndpoints();
 app.MapCustomerFlowsEndpoints();
@@ -515,6 +552,7 @@ app.MapJobsEndpoints();
 
 app.MapHub<BoardHub>("/hubs/board");
 app.MapHub<InboxHub>("/hubs/inbox");
+app.MapHub<CustomerHub>("/hubs/customer");
 
 app.UseHangfireDashboard("/hangfire", new DashboardOptions
 {

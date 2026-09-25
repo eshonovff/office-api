@@ -7,6 +7,8 @@ using Office.Api.Common;
 using Office.Api.Data;
 using Office.Api.Data.Entities;
 
+using Office.Api.Channels.Comments;
+
 namespace Office.Api.Channels.Flows;
 
 /// <summary>
@@ -311,6 +313,7 @@ public class FlowEngine(AppDbContext db, InstagramProvider instagramProvider, IB
                     logger.LogWarning("FlowSession {SessionId}: media дар нод {NodeId} бо тугма якҷоя буд — Private Reply танҳо якто ирсол мекунад, тугма авлотар шуд", session.Id, node.Id);
 
                 await instagramProvider.SendPrivateReplyAsync(contact.Channel, session.TriggerExternalId, text, button, ct);
+                await CommentLedger.MarkPrivateReplySentAsync(db, contact.ChannelId, session.TriggerExternalId, DateTimeOffset.UtcNow, ct);
                 // Тугмаи "url" рӯйдоди postback намедиҳад (танҳо силка мекушояд) — интизории он
                 // ҷаворобе абадӣ мемонд; рафтори кӯҳна (идомаи фаврӣ) барои он нигоҳ дошта шуд.
                 return isUrl ? new NodeOutcome("default", null) : new NodeOutcome(null, FlowWaitReason.ButtonClick);
@@ -321,10 +324,12 @@ public class FlowEngine(AppDbContext db, InstagramProvider instagramProvider, IB
                 if (!string.IsNullOrEmpty(text))
                     logger.LogWarning("FlowSession {SessionId}: матни нод {NodeId} бо media якҷоя буд — Private Reply танҳо якто ирсол мекунад, media авлотар шуд", session.Id, node.Id);
                 await instagramProvider.SendPrivateReplyMediaAsync(contact.Channel, session.TriggerExternalId, mediaBlock.MediaId!, mediaType.Value, ct);
+                await CommentLedger.MarkPrivateReplySentAsync(db, contact.ChannelId, session.TriggerExternalId, DateTimeOffset.UtcNow, ct);
             }
             else if (!string.IsNullOrEmpty(text))
             {
                 await instagramProvider.SendPrivateReplyAsync(contact.Channel, session.TriggerExternalId, text, null, ct);
+                await CommentLedger.MarkPrivateReplySentAsync(db, contact.ChannelId, session.TriggerExternalId, DateTimeOffset.UtcNow, ct);
             }
             return new NodeOutcome("default", null);
         }
