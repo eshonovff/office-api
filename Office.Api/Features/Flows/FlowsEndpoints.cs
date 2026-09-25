@@ -281,7 +281,7 @@ public static class FlowsEndpoints
 
         foreach (var node in request.Nodes)
         {
-            var error = ValidateNodeConfig(node.Type, node.Config);
+            var error = FlowNodeConfigRules.Validate(node.Type, node.Config);
             if (error is not null)
                 return Results.Problem(title: "Config-и нод нодуруст аст", detail: $"Нод {node.Id}: {error}", statusCode: StatusCodes.Status400BadRequest);
         }
@@ -375,44 +375,6 @@ public static class FlowsEndpoints
             FailedSessions: sessions.Count(s => s == FlowSessionStatus.Failed),
             Nodes: nodeStats,
             RecentFailures: recentFailures));
-    }
-
-    /// <summary>Ҳар навъи нод config-и typed-и худро дорад — ниг. Channels/Flows/FlowConfigs.cs.</summary>
-    private static string? ValidateNodeConfig(string type, JsonElement config)
-    {
-        try
-        {
-            switch (type.ToLowerInvariant())
-            {
-                case "message":
-                    var message = config.Deserialize<MessageNodeConfig>(FlowJsonOptions.Options) ?? throw new JsonException("null");
-                    // "payment" дар намуди JSON қабул карда мешавад (мутобиқат бо спека), вале
-                    // қасдан рад мешавад — спека худаш "маҳсулоти пулакӣ"-ро дар НАГИР дорад.
-                    if (message.Buttons.Any(b => b.Action == "payment"))
-                        return "Тугмаи навъи 'payment' дастгирӣ намешавад.";
-                    if (message.Buttons.Any(b => b.Action != MessageButton.ActionNext && b.Action != MessageButton.ActionUrl))
-                        return "action-и тугма бояд 'next' ё 'url' бошад.";
-                    break;
-                case "condition":
-                    _ = config.Deserialize<ConditionNodeConfig>(FlowJsonOptions.Options) ?? throw new JsonException("null");
-                    break;
-                case "action":
-                    var action = config.Deserialize<ActionNodeConfig>(FlowJsonOptions.Options) ?? throw new JsonException("null");
-                    if (string.IsNullOrEmpty(action.Kind))
-                        return "kind лозим аст.";
-                    break;
-                case "note":
-                    _ = config.Deserialize<NoteNodeConfig>(FlowJsonOptions.Options) ?? throw new JsonException("null");
-                    break;
-                default:
-                    return $"Навъи нодуруст: {type}.";
-            }
-            return null;
-        }
-        catch (JsonException ex)
-        {
-            return $"config хонда нашуд: {ex.Message}";
-        }
     }
 
     private static FlowDetail ToDetail(Flow flow, List<FlowNode> nodes, List<FlowEdge> edges) => new(

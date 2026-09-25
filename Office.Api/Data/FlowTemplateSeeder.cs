@@ -22,6 +22,9 @@ public static class FlowTemplateSeeder
             // Shown to мизоҷон too — plain words, no internal names (it used to mention automation_rules).
             "Ба ҳар касе, ки коментарий ё паём менависад, дар Direct ҷавоб мефиристад. Барои шарҳ зери пост ҳам кӯтоҳ ҷавоб навиштан мумкин аст — дар танзимоти триггер.",
             CommentReplyTemplate(), ct);
+        await UpsertAsync(db, "Ҷавоб ба шарҳ бо санҷиши обуна",
+            "Ба обуначиён як паём, ба касоне, ки обуна нестанд — паёми дигар бо тугмаи «Обуна шудам ✅», ки обунаро боз месанҷад.",
+            FollowCheckedReplyTemplate(), ct);
         await UpsertAsync(db, "Ҷамъоварии контакт",
             "Ном → рақами телефон → тег — барои ҷамъоварии лидҳо тавассути DM.", ContactCollectionTemplate(), ct);
 
@@ -101,10 +104,51 @@ public static class FlowTemplateSeeder
     private static FlowTemplateDefinition CommentReplyTemplate()
     {
         var message = new FlowTemplateNodeDefinition("message", "message",
-            ToElement(new MessageNodeConfig([new MessageBlock(MessageBlock.TypeText, "Салом, {{firstName}}! Ташаккур барои таваҷҷуҳатон 🙌 Мо ба зудӣ бо шумо тамос мегирем.", null)], [])),
+            // Three wordings — each commenter gets one (MessageTextPicker): the same text to everyone looks like spam.
+            ToElement(new MessageNodeConfig([new MessageBlock(MessageBlock.TypeText, "Салом, {{firstName}}! Ташаккур барои таваҷҷуҳатон 🙌 Мо ба зудӣ бо шумо тамос мегирем.", null,
+                Variants:
+                [
+                    "Салом, {{firstName}}! Саволатонро гирифтем 😊 Ба зудӣ ҷавоб медиҳем.",
+                    "{{firstName}}, ташаккур барои шарҳ! 🙏 Мутахассиси мо ба зудӣ ба шумо менависад.",
+                ])], [])),
             0, 0);
 
         return new FlowTemplateDefinition([message], []);
+    }
+
+    /// <summary>
+    /// The comment reply of the old comment automations (phase 11: one message for followers,
+    /// another for the rest) as a flow. The first node runs the check itself — no intro message —
+    /// so whichever message goes first is the comment's one private reply. The engine starts at the
+    /// node nothing points to, so the button cannot lead back to that first check: a second check
+    /// ("recheck") takes the loop. Each round waits for a tap, never loops on its own.
+    /// </summary>
+    private static FlowTemplateDefinition FollowCheckedReplyTemplate()
+    {
+        static FlowTemplateNodeDefinition Check(string key, int x, int y) => new(key, "condition",
+            ToElement(new ConditionNodeConfig(ConditionNodeConfig.MatchAll, [new ConditionRule(ConditionRule.FieldSubscription, "equals", "true")])),
+            x, y);
+
+        var onFollowing = new FlowTemplateNodeDefinition("onFollowing", "message",
+            ToElement(new MessageNodeConfig(
+                [new MessageBlock(MessageBlock.TypeText, "Салом, {{firstName}}! Ташаккур, ки обуначии мо ҳастед 🙌 [Ҷавоб ё линкро ин ҷо нависед]", null,
+                    Variants: ["{{firstName}}, ташаккур барои обуна! 💛 [Ҷавоб ё линкро ин ҷо нависед]"])], [])),
+            300, -80);
+        var askToFollow = new FlowTemplateNodeDefinition("askToFollow", "message",
+            ToElement(new MessageNodeConfig(
+                [new MessageBlock(MessageBlock.TypeText, "Салом, {{firstName}}! Барои гирифтани ҷавоб аввал ба саҳифаи мо обуна шавед, баъд тугмаи поёнро пахш кунед 👇", null)],
+                [new MessageButton("Обуна шудам ✅", MessageButton.ActionNext, null, true)])),
+            300, 80);
+
+        return new FlowTemplateDefinition(
+            [Check("check", 0, 0), onFollowing, askToFollow, Check("recheck", 600, 80)],
+            [
+                new FlowTemplateEdgeDefinition("check", "match", "onFollowing"),
+                new FlowTemplateEdgeDefinition("check", "nomatch", "askToFollow"),
+                new FlowTemplateEdgeDefinition("askToFollow", "button:0", "recheck"),
+                new FlowTemplateEdgeDefinition("recheck", "match", "onFollowing"),
+                new FlowTemplateEdgeDefinition("recheck", "nomatch", "askToFollow"),
+            ]);
     }
 
     private static FlowTemplateDefinition ContactCollectionTemplate()
