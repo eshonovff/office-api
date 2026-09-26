@@ -9,7 +9,10 @@ namespace Office.Api.Channels;
 ///
 /// Instagram (санҷида зинда 2026-08-25): message_attachments 200 мегардонад, вале POST
 /// /messages бо ҳамон attachment_id ҲАМЕША 500 "Service temporarily unavailable" (code 2,
-/// is_transient) медиҳад — то Meta App Review нагузарад. Аз ин рӯ false.
+/// is_transient) медиҳад. Он вақт гумон шуд, ки сабаб App Review аст — **нодуруст.** Сабаби
+/// аслӣ (санҷида зинда 2026-09-26): InstagramProvider.UploadMediaAsync ҳама чизро ҳамчун "file"
+/// бор мекард; сурате, ки ҳамчун "image" бор шудааст, фиристода мешавад (106 KB ва 1.2 MB — 200).
+/// Ислоҳ шуд. Ин ҷо ҳоло ҳам false аст, то овоз ва видео дар чат низ зинда санҷида шаванд.
 ///
 /// Facebook (санҷида зинда 2026-08-26, ниг. report): 3 паёми ноком дар DB (subcode 2018074,
 /// "Не удалось скачать вложение с помощью его ID") бо скрипти мустақил (бе Hangfire, ҳамон
