@@ -8,7 +8,8 @@ namespace Office.Api.Features.DataDeletion;
 /// Removes one contact (a person on one channel) and everything the system kept about them: the
 /// conversation with its messages, their files, tags, variables and assignment history; the
 /// flow sessions they went through; their comments on this channel and the account's replies
-/// under them; the comment auto-reply runs about them; the broadcasts' record of them; and the raw
+/// under them; the comment auto-reply runs about them; the broadcasts' record of them; the goals
+/// they reached in automations (conversions); and the raw
 /// webhook payloads that carried their messages or comments. Nothing on Instagram itself is
 /// touched. If they write again, they come back as a new contact.
 ///
@@ -56,6 +57,7 @@ public static class ContactDataEraser
             .Where(c => c.ChannelId == contact.ChannelId && c.ParentExternalId != null && commentIds.Contains(c.ParentExternalId)).ToListAsync(ct));
 
         db.BroadcastRecipients.RemoveRange(await db.BroadcastRecipients.Where(r => r.ContactId == contact.Id).ToListAsync(ct));
+        db.FlowConversions.RemoveRange(await db.FlowConversions.Where(c => c.ContactId == contact.Id).ToListAsync(ct));
         db.ContactTags.RemoveRange(await db.ContactTags.Where(t => t.ContactId == contact.Id).ToListAsync(ct));
         db.ContactVariables.RemoveRange(await db.ContactVariables.Where(v => v.ContactId == contact.Id).ToListAsync(ct));
         db.ConversationAssignmentEvents.RemoveRange(

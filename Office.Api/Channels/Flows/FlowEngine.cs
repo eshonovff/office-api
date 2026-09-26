@@ -117,8 +117,26 @@ public class FlowEngine(AppDbContext db, InstagramProvider instagramProvider, IB
             return;
 
         session.Status = FlowSessionStatus.Active;
-        await AdvanceViaPortAsync(session, nodesById, edges, nodeId, $"button:{buttonIndex}", ct);
+        // The click itself, for the builder's "N · X%" next to each button — a step on the same
+        // node, so the count of people who reached the node is unchanged.
+        db.FlowSessionSteps.Add(new FlowSessionStep
+        {
+            Id = Guid.CreateVersion7(),
+            SessionId = session.Id,
+            NodeId = nodeId,
+            FromPort = ButtonPort(buttonIndex),
+            CreatedAt = DateTimeOffset.UtcNow,
+        });
+        await AdvanceViaPortAsync(session, nodesById, edges, nodeId, ButtonPort(buttonIndex), ct);
     }
+
+    /// <summary>The port a button leaves by — and the step recorded when it is clicked.</summary>
+    public static string ButtonPort(int buttonIndex) => $"button:{buttonIndex}";
+
+    public const string ButtonPortPrefix = "button:";
+
+    /// <summary>The step of a message that waited for a closed window — nothing was sent at that step.</summary>
+    public const string NotSentPort = "not-sent";
 
     public async Task ResumeFromMessageAsync(Guid sessionId, string messageBody, CancellationToken ct)
     {
@@ -223,7 +241,9 @@ public class FlowEngine(AppDbContext db, InstagramProvider instagramProvider, IB
                 Id = Guid.CreateVersion7(),
                 SessionId = session.Id,
                 NodeId = currentNodeId,
-                FromPort = outcome.Port,
+                // A message that could not go (the 24-hour window was closed) is marked, so the
+                // analytics never count it as a reply sent — the retry, when it goes, is its own step.
+                FromPort = outcome.Port ?? (outcome.WaitReason == FlowWaitReason.WindowClosed ? NotSentPort : null),
                 CreatedAt = DateTimeOffset.UtcNow,
             });
 
@@ -464,8 +484,41 @@ public class FlowEngine(AppDbContext db, InstagramProvider instagramProvider, IB
                 return new NodeOutcome(null, null, EndSession: true);
             }
 
+            case ActionNodeConfig.KindConversion:
+                await RecordConversionAsync(session, node, ct);
+                return new NodeOutcome("default", null);
+
             default:
                 return new NodeOutcome("default", null);
+        }
+    }
+
+    /// <summary>
+    /// Once per person per flow — a second pass (a loop, another branch, a new session) changes
+    /// nothing. Always this session's own flow and contact: nothing from the outside decides who
+    /// is counted. Saved at once; if a parallel session got there a moment earlier, theirs stands.
+    /// </summary>
+    private async Task RecordConversionAsync(FlowSession session, FlowNode node, CancellationToken ct)
+    {
+        if (await db.FlowConversions.AnyAsync(c => c.FlowId == session.FlowId && c.ContactId == session.ContactId, ct))
+            return;
+
+        var conversion = new FlowConversion
+        {
+            FlowId = session.FlowId,
+            ContactId = session.ContactId,
+            SessionId = session.Id,
+            NodeId = node.Id,
+            CreatedAt = DateTimeOffset.UtcNow,
+        };
+        db.FlowConversions.Add(conversion);
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException)
+        {
+            db.Entry(conversion).State = EntityState.Detached; // already counted by the other session
         }
     }
 

@@ -30,6 +30,8 @@ public class ConversationConfiguration : IEntityTypeConfiguration<Conversation>
 
         builder.HasIndex(c => new { c.ChannelId, c.ExternalId }).IsUnique();
         builder.HasIndex(c => new { c.ChannelId, c.Status, c.LastMessageAt });
+        // Analytics: new contacts of an account in a period.
+        builder.HasIndex(c => new { c.ChannelId, c.CreatedAt });
         builder.HasIndex(c => c.AssignedTo).HasFilter("assigned_to IS NOT NULL");
         // Дашборд (GET /api/dashboard): "унасигнед" (Status=New, AssignedTo=null) — индексҳои
         // болоӣ на bare status, на channel-мустақил AssignedTo-ро дуруст пӯшиш намедиҳанд.

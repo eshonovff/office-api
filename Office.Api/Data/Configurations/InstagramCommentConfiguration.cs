@@ -22,6 +22,8 @@ public class InstagramCommentConfiguration : IEntityTypeConfiguration<InstagramC
         builder.HasIndex(c => new { c.ChannelId, c.ExternalId }).IsUnique();
         builder.HasIndex(c => new { c.ChannelId, c.MediaExternalId, c.CommentedAt });
         builder.HasIndex(c => new { c.ChannelId, c.IsRead });
+        // Analytics: an account's comments in a period.
+        builder.HasIndex(c => new { c.ChannelId, c.CommentedAt });
 
         builder.HasOne(c => c.Channel)
             .WithMany()

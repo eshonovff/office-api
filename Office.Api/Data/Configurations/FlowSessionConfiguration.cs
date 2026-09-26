@@ -23,6 +23,8 @@ public class FlowSessionConfiguration : IEntityTypeConfiguration<FlowSession>
         builder.HasIndex(s => new { s.FlowId, s.ContactId, s.Status });
         // FlowTriggerProcessor: идемпотентӣ — "ин comment_id/message_id аллакай сессия сохт?"
         builder.HasIndex(s => new { s.FlowId, s.TriggerExternalId });
+        // Analytics: who started a flow in a period.
+        builder.HasIndex(s => new { s.FlowId, s.CreatedAt });
         // FlowEngineJob-и таъхир: "кадом сессияҳо бояд бедор шаванд?" (сканкунии recurring, агар лозим шавад).
         builder.HasIndex(s => s.ResumeAt);
     }
