@@ -15,9 +15,6 @@ namespace Office.Api.Channels.Flows;
 /// </summary>
 public class FlowTriggerProcessor(AppDbContext db, FlowEngine engine, ILogger<FlowTriggerProcessor> logger)
 {
-    private const string TriggerTypeComment = "instagram_comment";
-    private const string TriggerTypeDm = "instagram_dm";
-
     public async Task ProcessCommentAsync(Channel channel, ParsedCommentEvent evt, CancellationToken ct)
     {
         if (evt.ActorExternalId == channel.ExternalId)
@@ -30,7 +27,7 @@ public class FlowTriggerProcessor(AppDbContext db, FlowEngine engine, ILogger<Fl
         if (await db.FlowSessions.AnyAsync(s => s.Flow.ChannelId == channel.Id && s.TriggerExternalId == evt.CommentId, ct))
             return;
 
-        var flow = await FindMatchingFlowAsync(channel.Id, TriggerTypeComment, evt.Text, evt.MediaId, ct);
+        var flow = await FindMatchingFlowAsync(channel.Id, FlowTriggerTypes.Comment, evt.Text, evt.MediaId, ct);
         if (flow is null)
             return;
 
@@ -69,41 +66,71 @@ public class FlowTriggerProcessor(AppDbContext db, FlowEngine engine, ILogger<Fl
         if (await db.FlowSessions.AnyAsync(s => s.Flow.ChannelId == channel.Id && s.TriggerExternalId == message.MessageExternalId, ct))
             return;
 
-        var flow = await FindMatchingFlowAsync(channel.Id, TriggerTypeDm, message.Body ?? "", mediaId: null, ct);
+        // Фазаи 20: ҷавоб/қайд дар сторис аввал флоуҳои худро меҷӯяд; агар ягонто мувофиқ наояд —
+        // флоуҳои DM (рафтори пешина: ҷавоби сторис ҳамчун DM ҳам сар мешуд).
+        var flow = await FindStoryFlowAsync(channel.Id, message, ct)
+            ?? await FindMatchingFlowAsync(channel.Id, FlowTriggerTypes.Dm, message.Body ?? "", mediaId: null, ct);
         if (flow is null)
             return;
 
         await engine.StartAsync(flow, contact.Id, ct, triggerExternalId: message.MessageExternalId);
     }
 
-    private async Task<Flow?> FindMatchingFlowAsync(Guid channelId, string triggerType, string text, string? mediaId, CancellationToken ct)
+    /// <summary>
+    /// Ҷавоб ба сторис: матн ва id-и сторис (барои «сторисҳои интихобшуда»). Қайд: матн ва id
+    /// нест — ҳар флоуи фаъол (validator танҳо matchMode/postScope=all иҷозат медиҳад).
+    /// </summary>
+    private Task<Flow?> FindStoryFlowAsync(Guid channelId, ParsedWebhookMessage message, CancellationToken ct) => message.Story switch
+    {
+        StoryEventKind.Reply => FindMatchingFlowAsync(
+            channelId, FlowTriggerTypes.StoryReply, message.Body ?? "", message.StoryId, ct, mostSpecificFirst: true),
+        StoryEventKind.Mention => FindMatchingFlowAsync(channelId, FlowTriggerTypes.StoryMention, "", mediaId: null, ct),
+        _ => Task.FromResult<Flow?>(null),
+    };
+
+    /// <param name="mostSpecificFirst">
+    /// Фазаи 20 (танҳо сторисҳо — DM ва шарҳ тартиби пешинаро нигоҳ медоранд): сториси
+    /// интихобшуда → калима → ҳама, баъд аз рӯи сана. Вагарна флоуи «ҳама ҷавобҳо»-и кӯҳна
+    /// флоуҳои мушаххаси навро абадан мепӯшонд.
+    /// </param>
+    private async Task<Flow?> FindMatchingFlowAsync(
+        Guid channelId, string triggerType, string text, string? mediaId, CancellationToken ct, bool mostSpecificFirst = false)
     {
         var flows = await db.Flows
             .Where(f => f.ChannelId == channelId && f.IsActive && f.TriggerType == triggerType)
             .OrderBy(f => f.CreatedAt)
             .ToListAsync(ct);
 
+        var candidates = new List<(Flow Flow, AutomationTriggerConfig Config)>();
         foreach (var flow in flows)
         {
-            AutomationTriggerConfig triggerConfig;
             try
             {
-                triggerConfig = JsonSerializer.Deserialize<AutomationTriggerConfig>(flow.TriggerConfigJson) ?? throw new JsonException("null");
+                candidates.Add((flow, JsonSerializer.Deserialize<AutomationTriggerConfig>(flow.TriggerConfigJson) ?? throw new JsonException("null")));
             }
             catch (JsonException ex)
             {
                 logger.LogError(ex, "Flow {FlowId}: trigger_config вайрон аст, рад карда шуд", flow.Id);
-                continue;
             }
+        }
 
-            // Ҳамон CommentAutomationMatcher-и Фазаи 10 — DM-ҳо ҳеҷ гоҳ postScope=selected
-            // надоранд (mediaId=null аз ProcessMessageAsync медиҳад, пас он тафтиш худкор true мешавад).
+        if (mostSpecificFirst)
+            candidates = candidates.OrderBy(c => Specificity(c.Config)).ToList(); // OrderBy устувор аст — баъд сана
+
+        // Ҳамон CommentAutomationMatcher-и Фазаи 10 — DM-ҳо ҳеҷ гоҳ postScope=selected
+        // надоранд (mediaId=null аз ProcessMessageAsync медиҳад, пас он тафтиш худкор true мешавад).
+        foreach (var (flow, triggerConfig) in candidates)
+        {
             if (CommentAutomationMatcher.Match(triggerConfig, text, mediaId).Matched)
                 return flow;
         }
 
         return null;
     }
+
+    private static int Specificity(AutomationTriggerConfig config) =>
+        (config.PostScope == AutomationTriggerConfig.PostScopeSelected ? 0 : 2) +
+        (config.MatchMode == AutomationTriggerConfig.MatchModeKeyword ? 0 : 1);
 
     private async Task<Conversation> FindOrCreateContactAsync(Channel channel, string actorExternalId, string? actorUsername, CancellationToken ct)
     {

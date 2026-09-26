@@ -15,7 +15,8 @@ public class Flow
     public bool IsActive { get; set; } = true;
 
     /// <summary>
-    /// "instagram_comment" | "instagram_dm" — спека мегӯяд "webhook (коментарий ё DM) → ёфтани
+    /// "instagram_comment" | "instagram_dm" | "instagram_story_reply" | "instagram_story_mention"
+    /// (Фазаи 20; ниг. Channels/Flows/FlowTriggerTypes.cs) — спека мегӯяд "webhook (коментарий ё DM) → ёфтани
     /// flow-и мувофиқ", вале мантиқи мувофиқатро намедиҳад. Ҳамон шакли AutomationRule-и Фазаи
     /// 10 такрор истифода мешавад (TriggerType+TriggerConfigJson), то ҳарду система якхела кор
     /// кунанд ва FlowTriggerProcessor CommentAutomationMatcher-и мавҷударо айнан истифода барад.

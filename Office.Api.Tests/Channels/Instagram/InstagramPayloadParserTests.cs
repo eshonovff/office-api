@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Office.Api.Channels;
 using Office.Api.Channels.Instagram;
 using Office.Api.Data.Entities;
 
@@ -609,6 +610,69 @@ public class InstagramPayloadParserTests
         Assert.Null(message.MediaExternalId);
         Assert.Equal("https://scontent.cdninstagram.com/v/mention.jpg?expires=789", message.ExternalContentUrl);
         Assert.Equal("Story", message.ExternalContentKind);
+    }
+
+    // Phase 20 (story triggers): which story event a message is, told apart for the flow triggers.
+    [Fact]
+    public void ParseMessages_StoryReply_IsAReplyWithTheStorysId()
+    {
+        var message = Assert.Single(InstagramPayloadParser.ParseMessages(Parse(StoryReplyPayload)));
+
+        Assert.Equal(StoryEventKind.Reply, message.Story);
+        Assert.Equal("17900000000000000", message.StoryId);
+    }
+
+    [Fact]
+    public void ParseMessages_StoryMention_IsAMentionWithoutAnId()
+    {
+        var message = Assert.Single(InstagramPayloadParser.ParseMessages(Parse(StoryMentionPayload)));
+
+        Assert.Equal(StoryEventKind.Mention, message.Story);
+        Assert.Null(message.StoryId);
+    }
+
+    [Fact]
+    public void ParseMessages_PlainTextAndPictures_AreNoStoryEvent()
+    {
+        foreach (var payload in new[] { EchoPayload, ImageAttachmentPayload, StoryAttachmentPayload })
+        {
+            var message = Assert.Single(InstagramPayloadParser.ParseMessages(Parse(payload)));
+            Assert.Null(message.Story);
+            Assert.Null(message.StoryId);
+        }
+    }
+
+    [Fact]
+    public void ParseMessages_AReplyToAMessage_IsNoStoryEvent()
+    {
+        // The real shape (webhook_logs, 2026-09): a swipe-reply to one of our messages.
+        const string payload = """
+            {"object":"instagram","entry":[{"id":"17841400000000000","messaging":[{
+              "sender":{"id":"1254001234567890"},"recipient":{"id":"17841400000000000"},"timestamp":1569262486134,
+              "message":{"mid":"aWdfZAG1fMSGREPLY","text":"Не","reply_to":{"mid":"aWdfZAG1fORIGINAL","is_self_reply":false}}}]}]}
+            """;
+
+        var message = Assert.Single(InstagramPayloadParser.ParseMessages(Parse(payload)));
+
+        Assert.Null(message.Story);
+        Assert.Equal(MessageType.Text, message.Type);
+    }
+
+    [Fact]
+    public void ParseMessages_TheAccountsOwnStoryReplyEcho_IsOutbound()
+    {
+        // Real echo shape (webhook_logs): the account answering in a story thread. Parsed as a
+        // reply, but outbound — the flow trigger ignores it (no loop).
+        const string payload = """
+            {"object":"instagram","entry":[{"id":"17841400000000000","messaging":[{
+              "sender":{"id":"17841400000000000"},"recipient":{"id":"1254001234567890"},"timestamp":1569262486134,
+              "message":{"mid":"aWdfZAG1fECHOSTORY","text":"рахмат","is_echo":true,"reply_to":{"story":{"id":"17900000000000001","url":"https://lookaside.fbsbx.com/ig_messaging_cdn/?asset_id=1"}}}}]}]}
+            """;
+
+        var message = Assert.Single(InstagramPayloadParser.ParseMessages(Parse(payload)));
+
+        Assert.Equal(StoryEventKind.Reply, message.Story);
+        Assert.Equal(MessageDirection.Outbound, message.Direction);
     }
 
     [Fact]

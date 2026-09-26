@@ -1,5 +1,7 @@
 using FluentValidation;
+using Office.Api.Channels.Flows;
 using Office.Api.Data.Entities;
+using Office.Api.Features.CommentAutomation;
 
 namespace Office.Api.Features.Flows;
 
@@ -8,9 +10,14 @@ public class CreateFlowRequestValidator : AbstractValidator<CreateFlowRequest>
     public CreateFlowRequestValidator()
     {
         RuleFor(x => x.Name).NotEmpty().MaximumLength(200);
-        RuleFor(x => x.TriggerType).Must(t => t is "instagram_comment" or "instagram_dm")
-            .WithMessage("triggerType бояд 'instagram_comment' ё 'instagram_dm' бошад.");
-        RuleFor(x => x.TriggerConfig).NotNull();
+        RuleFor(x => x.TriggerType).Must(t => FlowTriggerTypes.All.Contains(t))
+            .WithMessage($"triggerType бояд яке аз инҳо бошад: {string.Join(", ", FlowTriggerTypes.All)}.");
+        RuleFor(x => x.TriggerConfig).NotNull().SetValidator(new AutomationTriggerConfigValidator());
+        RuleFor(x => x).Custom((request, context) =>
+        {
+            if (request.TriggerConfig is not null && FlowTriggerTypes.CheckConfig(request.TriggerType, request.TriggerConfig) is { } problem)
+                context.AddFailure(nameof(request.TriggerConfig), problem);
+        });
     }
 }
 
@@ -19,9 +26,14 @@ public class UpdateFlowRequestValidator : AbstractValidator<UpdateFlowRequest>
     public UpdateFlowRequestValidator()
     {
         RuleFor(x => x.Name).NotEmpty().MaximumLength(200);
-        RuleFor(x => x.TriggerType).Must(t => t is "instagram_comment" or "instagram_dm")
-            .WithMessage("triggerType бояд 'instagram_comment' ё 'instagram_dm' бошад.");
-        RuleFor(x => x.TriggerConfig).NotNull();
+        RuleFor(x => x.TriggerType).Must(t => FlowTriggerTypes.All.Contains(t))
+            .WithMessage($"triggerType бояд яке аз инҳо бошад: {string.Join(", ", FlowTriggerTypes.All)}.");
+        RuleFor(x => x.TriggerConfig).NotNull().SetValidator(new AutomationTriggerConfigValidator());
+        RuleFor(x => x).Custom((request, context) =>
+        {
+            if (request.TriggerConfig is not null && FlowTriggerTypes.CheckConfig(request.TriggerType, request.TriggerConfig) is { } problem)
+                context.AddFailure(nameof(request.TriggerConfig), problem);
+        });
     }
 }
 

@@ -123,6 +123,7 @@ public static class InstagramPayloadParser
 
                 var mid = messageEl.GetProperty("mid").GetString()!;
                 var (type, body, mediaUrl, externalContentUrl, externalContentKind) = MapMessageContent(messageEl);
+                var (story, storyId) = ReadStoryEvent(messageEl);
 
                 result.Add(new ParsedWebhookMessage(
                     ConversationExternalId: conversationExternalId,
@@ -140,7 +141,9 @@ public static class InstagramPayloadParser
                     // DownloadMediaAsync онро мустақим GET мекунад.
                     MediaExternalId: mediaUrl,
                     ExternalContentUrl: externalContentUrl,
-                    ExternalContentKind: externalContentKind));
+                    ExternalContentKind: externalContentKind,
+                    Story: story,
+                    StoryId: storyId));
 
                 continue;
             }
@@ -243,6 +246,30 @@ public static class InstagramPayloadParser
             foreach (var evt in messagingEl.EnumerateArray())
                 yield return evt;
         }
+    }
+
+    /// <summary>
+    /// Фазаи 20 (триггерҳои сторис): reply_to.story {id, url} — ҷавоб; attachment-и
+    /// story_mention — қайд (бе id ва бе матн; шакл аз webhook_logs-и воқеӣ, 2026-09-27).
+    /// Ҳамон тартиби MapMessageContent: reply_to.story пеш аз attachment-ҳо.
+    /// </summary>
+    private static (StoryEventKind? Kind, string? StoryId) ReadStoryEvent(JsonElement messageEl)
+    {
+        if (messageEl.TryGetProperty("reply_to", out var replyToEl) && replyToEl.ValueKind == JsonValueKind.Object &&
+            replyToEl.TryGetProperty("story", out var storyEl) && storyEl.ValueKind == JsonValueKind.Object)
+        {
+            var id = storyEl.TryGetProperty("id", out var idEl) && idEl.ValueKind == JsonValueKind.String ? idEl.GetString() : null;
+            return (StoryEventKind.Reply, id);
+        }
+
+        if (messageEl.TryGetProperty("attachments", out var attachmentsEl) && attachmentsEl.ValueKind == JsonValueKind.Array &&
+            attachmentsEl.GetArrayLength() > 0 && attachmentsEl[0].TryGetProperty("type", out var typeEl) &&
+            typeEl.ValueKind == JsonValueKind.String && typeEl.GetString() == "story_mention")
+        {
+            return (StoryEventKind.Mention, null);
+        }
+
+        return (null, null);
     }
 
     private static (MessageType Type, string? Body, string? MediaUrl, string? ExternalContentUrl, string? ExternalContentKind) MapMessageContent(

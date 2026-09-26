@@ -72,6 +72,14 @@ public static class CommentAutomationEndpoints
             .Produces<InstagramMediaListResult>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
+        group.MapGet("/instagram-stories", ListInstagramStoriesAsync)
+            .RequirePermission(Permissions.Channels.Manage)
+            .WithSummary("Сторисҳои фаъоли Instagram (24 соат) — барои триггери «Ҷавоб ба сторис», кэши 1 дақ")
+            .Produces<InstagramMediaListResult>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status502BadGateway);
+
         return app;
     }
 
@@ -229,6 +237,47 @@ public static class CommentAutomationEndpoints
 
         cache.Set(cacheKey, result, TimeSpan.FromMinutes(5));
         return result;
+    }
+
+    /// <summary>
+    /// Фазаи 20. Кормандон ва мизоҷ (CustomerChannelsEndpoints) як handler: канал аз контексти
+    /// филтри tenant ҷустуҷӯ мешавад — канали каси дигар 404. Кэш 1 дақ (сторис зуд илова мешавад).
+    /// </summary>
+    public static async Task<IResult> ListInstagramStoriesAsync(
+        Guid channelId, AppDbContext db, InstagramProvider instagramProvider, IMemoryCache cache, ILogger<Program> logger, CancellationToken ct)
+    {
+        var channel = await db.Channels.FirstOrDefaultAsync(c => c.Id == channelId && c.Type == ChannelType.Instagram, ct);
+        if (channel is null)
+            return Results.NotFound();
+
+        // A disconnected channel has no token to ask Meta with — say so instead of failing.
+        if (!channel.IsActive || channel.RequiresReconnect || string.IsNullOrEmpty(channel.CredentialsEncrypted))
+        {
+            return Results.Problem(
+                title: "Аккаунт пайваст нест",
+                detail: "Instagram-ро аз нав пайваст кунед.",
+                statusCode: StatusCodes.Status409Conflict,
+                extensions: new Dictionary<string, object?> { ["code"] = "reconnect" });
+        }
+
+        var cacheKey = $"ig-stories:{channel.Id}";
+        if (cache.TryGetValue(cacheKey, out InstagramMediaListResult? cached) && cached is not null)
+            return Results.Ok(cached);
+
+        try
+        {
+            var page = await instagramProvider.GetActiveStoriesAsync(channel, ct);
+            var result = new InstagramMediaListResult(
+                page.Items.Select(i => new InstagramMediaListItem(i.Id, i.MediaType, i.ImageUrl, i.Permalink, i.Caption, i.Timestamp)).ToList(),
+                NextCursor: null);
+            cache.Set(cacheKey, result, TimeSpan.FromMinutes(1));
+            return Results.Ok(result);
+        }
+        catch (GraphApiException ex)
+        {
+            logger.LogWarning("Instagram stories: Meta рад кард (Channel {ChannelId})", channel.Id);
+            return Results.Problem(title: "Instagram рад кард", detail: ex.Message, statusCode: StatusCodes.Status502BadGateway);
+        }
     }
 
     private static AutomationRuleListItem ToListItem(AutomationRule rule, int runCount) => new(
