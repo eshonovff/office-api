@@ -501,7 +501,11 @@ public static class ConversationsEndpoints
             principal, db, backgroundJobs, configuration, env, events, ct);
     }
 
-    private static async Task<IResult> UploadVoiceNoteAsync(
+    /// <summary>
+    /// A voice note recorded in the browser — only a recording (VoiceNoteRecording: WebM, Ogg,
+    /// Safari's MP4), stored with its own extension; MediaSendJob makes it the channel's format.
+    /// </summary>
+    public static async Task<IResult> UploadVoiceNoteAsync(
         Guid id,
         IFormFile file,
         ClaimsPrincipal principal,
@@ -523,17 +527,20 @@ public static class ConversationsEndpoints
         if (!ConversationAssignmentPolicy.CanSend(ChannelAccessGuard.CanSeeAllChannels(principal), conversation.AssignedTo, principal.GetUserId()))
             return ReadOnlyProblem();
 
-        if (file.Length <= 0)
-            return Results.BadRequest();
+        var mimeType = VoiceNoteRecording.BaseType(file.ContentType);
+        if (file.Length <= 0 || VoiceNoteRecording.ExtensionFor(mimeType) is not { } extension)
+        {
+            return Results.Problem(
+                title: "Паёми овозӣ фиристода нашуд",
+                detail: "Овоз сабт нашуд ё навъаш ношинос аст — аз нав сабт кунед.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
 
-        // Ҳамеша аудио — MediaRecorder-и браузер webm/opus мефиристад, дар MediaSendJob ба ogg/opus transcode мешавад.
-        if (!MediaUploadValidator.IsWithinLimit(conversation.Channel.Type, "audio/webm", file.Length))
-            return SizeLimitProblem(conversation.Channel.Type, MediaUploadValidator.Classify(conversation.Channel.Type, "audio/webm").MaxSizeBytes);
-
-        var mimeType = string.IsNullOrEmpty(file.ContentType) ? "audio/webm" : file.ContentType;
+        if (!MediaUploadValidator.IsWithinLimit(conversation.Channel.Type, mimeType, file.Length))
+            return SizeLimitProblem(conversation.Channel.Type, MediaUploadValidator.Classify(conversation.Channel.Type, mimeType).MaxSizeBytes);
 
         return await SaveAndEnqueueAsync(
-            conversation, file, MessageType.Audio, mimeType, isVoiceNote: true, forcedExtension: ".webm",
+            conversation, file, MessageType.Audio, mimeType, isVoiceNote: true, forcedExtension: extension,
             principal, db, backgroundJobs, configuration, env, events, ct);
     }
 

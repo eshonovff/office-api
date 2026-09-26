@@ -49,19 +49,6 @@ public static class CustomerChatsEndpoints
         ["application/pdf"] = ".pdf",
     };
 
-    /// <summary>
-    /// What a browser records a voice note in: Chrome and Edge WebM/Opus, Firefox Ogg/Opus, Safari
-    /// AAC in MP4. MediaSendJob always runs it through ffmpeg to AAC for Instagram — a file that is
-    /// not really audio stops there. Stored with its own extension (".mp4", never ".m4a", which
-    /// only the transcode writes).
-    /// </summary>
-    public static readonly IReadOnlyDictionary<string, string> VoiceNoteTypes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-    {
-        ["audio/webm"] = ".webm",
-        ["audio/ogg"] = ".ogg",
-        ["audio/mp4"] = ".mp4",
-    };
-
     private const int DefaultPageSize = 30;
     private const int MaxPageSize = 100;
 
@@ -379,8 +366,8 @@ public static class CustomerChatsEndpoints
         if (await CannotSendAsync(conversation, customerId, db, configuration, ct) is { } refused)
             return refused;
 
-        var mimeType = (file.ContentType ?? "").Split(';')[0].Trim().ToLowerInvariant();
-        if (file.Length <= 0 || !VoiceNoteTypes.TryGetValue(mimeType, out var extension) ||
+        var mimeType = VoiceNoteRecording.BaseType(file.ContentType);
+        if (file.Length <= 0 || VoiceNoteRecording.ExtensionFor(mimeType) is not { } extension ||
             !ChannelCapabilities.CanSendVoice(conversation.Channel.Type))
         {
             return Results.Problem(

@@ -52,6 +52,8 @@ public static class MessagesEndpoints
         CancellationToken ct)
     {
         httpContext.Response.Headers.CacheControl = "private, no-store";
+        // A file is what its stored type says — the browser must never guess another (HTML, script).
+        httpContext.Response.Headers.XContentTypeOptions = "nosniff";
 
         var message = await LoadMessageAsync(messageId, db, ct);
         var hasAccess = message is not null && await access.HasAccessAsync(
@@ -81,6 +83,7 @@ public static class MessagesEndpoints
         CancellationToken ct)
     {
         httpContext.Response.Headers.CacheControl = "private, no-store";
+        httpContext.Response.Headers.XContentTypeOptions = "nosniff";
 
         var message = await LoadMessageAsync(messageId, db, ct);
         var hasAccess = message is not null && await access.HasAccessAsync(

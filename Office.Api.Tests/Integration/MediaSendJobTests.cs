@@ -175,6 +175,24 @@ public class MediaSendJobTests
         Assert.Equal(MessageDeliveryStatus.Sent, reloaded.DeliveryStatus);
     }
 
+    [Fact]
+    public async Task SendAsync_AFirefoxRecording_AlreadyOggOpus_IsStillMadeCleanOnce_ForWhatsApp()
+    {
+        var (db, message) = SeedVoiceNote(mimeType: "audio/ogg", channelType: ChannelType.WhatsApp);
+        var oldPath = Path.Combine(_rootPath, message.MediaUrl!);
+        message.MediaUrl = Path.ChangeExtension(message.MediaUrl!, ".opus"); // VoiceNoteRecording's name for Ogg
+        File.Move(oldPath, Path.Combine(_rootPath, message.MediaUrl));
+        db.SaveChanges();
+        var processor = new CountingMediaProcessor();
+
+        await MakeJob(db, new FakeProvider(), processor).SendAsync(message.Id, isVoiceNote: true, CancellationToken.None);
+
+        var reloaded = await db.Messages.SingleAsync();
+        Assert.Equal(1, processor.TranscodeCallCount);
+        Assert.EndsWith(".ogg", reloaded.MediaUrl);
+        Assert.Equal(("audio/ogg", 5), (reloaded.MimeType, reloaded.VoiceDurationSeconds));
+    }
+
     [Theory]
     [InlineData(ChannelType.Instagram)]
     [InlineData(ChannelType.Facebook)]
