@@ -1,6 +1,6 @@
 using Hangfire;
 using Office.Api.Auth;
-using Office.Api.Channels.Instagram;
+using Office.Api.Channels.ContactProfiles;
 
 namespace Office.Api.Features.Jobs;
 
@@ -16,8 +16,8 @@ public static class JobsEndpoints
     {
         var group = app.MapGroup("/api/jobs").WithTags("Jobs").RequireOwner();
 
-        group.MapPost("/instagram-contact-profile-backfill", TriggerInstagramContactProfileBackfill)
-            .WithSummary("Дастӣ оғоз кардани InstagramContactProfileBackfillJob (алтернатива ба Hangfire dashboard)")
+        group.MapPost("/contact-profile-backfill", TriggerContactProfileBackfill)
+            .WithSummary("Дастӣ оғоз кардани ContactProfileBackfillJob — номҳо ва суратҳои контактҳо (алтернатива ба Hangfire dashboard)")
             .Produces<TriggerJobResponse>(StatusCodes.Status202Accepted)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden);
@@ -25,9 +25,9 @@ public static class JobsEndpoints
         return app;
     }
 
-    private static IResult TriggerInstagramContactProfileBackfill()
+    private static IResult TriggerContactProfileBackfill()
     {
-        var jobId = BackgroundJob.Enqueue<InstagramContactProfileBackfillJob>(j => j.RunAsync(CancellationToken.None));
+        var jobId = BackgroundJob.Enqueue<ContactProfileBackfillJob>(j => j.RunAsync(CancellationToken.None));
         return Results.Accepted(value: new TriggerJobResponse(jobId));
     }
 }

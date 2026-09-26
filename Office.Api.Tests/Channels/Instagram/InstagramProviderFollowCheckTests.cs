@@ -13,8 +13,7 @@ using Office.Api.Realtime;
 namespace Office.Api.Tests.Channels.Instagram;
 
 /// <summary>
-/// CheckFollowStatusAsync бо HttpMessageHandler-и сохта — ҳамон алгуи
-/// InstagramContactProfileBackfillJobTests. Тамаркуз: кэши интихобии (Following/Unknown кэш
+/// CheckFollowStatusAsync бо HttpMessageHandler-и сохта. Тамаркуз: кэши интихобии (Following/Unknown кэш
 /// мешавад, NotFollowing НЕ — санҷиши зинда 2026-09-15 нишон дод, ки NotFollowing-и кэшшуда
 /// корбареро, ки ҳамон лаҳза обуна шудааст, ҷазо медиҳад) ва буҷаи соатӣ.
 /// </summary>
