@@ -155,6 +155,26 @@ public class MediaSendJobTests
         Assert.Equal("audio/mp4", provider.LastUploadMimeType);
     }
 
+    [Fact]
+    public async Task SendAsync_ASafariRecording_AlreadyAac_IsStillMadeCleanOnce_AndMeasured()
+    {
+        var (db, message) = SeedVoiceNote(mimeType: "audio/mp4", channelType: ChannelType.Instagram);
+        var oldPath = Path.Combine(_rootPath, message.MediaUrl!);
+        message.MediaUrl = Path.ChangeExtension(message.MediaUrl!, ".mp4");
+        File.Move(oldPath, Path.Combine(_rootPath, message.MediaUrl));
+        db.SaveChanges();
+        var processor = new CountingMediaProcessor();
+
+        await MakeJob(db, new FakeProvider(), processor).SendAsync(message.Id, isVoiceNote: true, CancellationToken.None);
+        await MakeJob(db, new FakeProvider(), processor).SendAsync(message.Id, isVoiceNote: true, CancellationToken.None); // a retry
+
+        var reloaded = await db.Messages.SingleAsync();
+        Assert.Equal(1, processor.AacCallCount); // once: ffmpeg checked it is audio; the retry left it
+        Assert.EndsWith(".m4a", reloaded.MediaUrl);
+        Assert.Equal(("audio/mp4", 5), (reloaded.MimeType, reloaded.VoiceDurationSeconds));
+        Assert.Equal(MessageDeliveryStatus.Sent, reloaded.DeliveryStatus);
+    }
+
     [Theory]
     [InlineData(ChannelType.Instagram)]
     [InlineData(ChannelType.Facebook)]
@@ -301,6 +321,14 @@ public class MediaSendJobTests
         {
             TranscodeCallCount++;
             return base.TranscodeToOggOpusAsync(inputPath, outputPath, ct);
+        }
+
+        public int AacCallCount { get; private set; }
+
+        public override Task TranscodeToAacAsync(string inputPath, string outputPath, CancellationToken ct)
+        {
+            AacCallCount++;
+            return base.TranscodeToAacAsync(inputPath, outputPath, ct);
         }
     }
 

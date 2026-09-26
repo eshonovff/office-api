@@ -57,6 +57,34 @@ public class FfmpegArgumentBuilderTests
         Assert.Equal("voice.ogg", args[^1]);
     }
 
+    public static TheoryData<string, string[], string> EveryInput => new()
+    {
+        { "ogg", [.. FfmpegArgumentBuilder.TranscodeToOggOpus("in.webm", "o.ogg")], FfmpegArgumentBuilder.AudioDemuxers },
+        { "aac", [.. FfmpegArgumentBuilder.TranscodeToAac("in.webm", "o.m4a")], FfmpegArgumentBuilder.AudioDemuxers },
+        { "pcm", [.. FfmpegArgumentBuilder.ExtractRawPcm("in.webm", "o.pcm")], FfmpegArgumentBuilder.AudioDemuxers },
+        { "probe", [.. FfmpegArgumentBuilder.ProbeDurationSeconds("in.webm")], FfmpegArgumentBuilder.AudioDemuxers },
+        { "jpeg", [.. FfmpegArgumentBuilder.ConvertImageToJpeg("in.webm", "o.jpg")], FfmpegArgumentBuilder.ImageDemuxers },
+        { "thumb", [.. FfmpegArgumentBuilder.GenerateImageThumbnail("in.webm", "o.jpg", 128)], FfmpegArgumentBuilder.ImageDemuxers },
+    };
+
+    [Theory]
+    [MemberData(nameof(EveryInput))]
+    public void EveryInput_IsReadOnlyAsALocalFile_WithTheExpectedFormatsOnly(string _, string[] args, string demuxers)
+    {
+        var input = Array.IndexOf(args, "in.webm");
+        Assert.True(input > 0);
+        var before = args[..input];
+        Assert.Equal("file", before[Array.IndexOf(before, "-protocol_whitelist") + 1]);
+        Assert.Equal(demuxers, before[Array.IndexOf(before, "-format_whitelist") + 1]);
+    }
+
+    [Fact]
+    public void TheAllowedFormats_NeverIncludeOnesThatOpenOtherFilesOrAddresses()
+    {
+        foreach (var list in new[] { FfmpegArgumentBuilder.AudioDemuxers, FfmpegArgumentBuilder.ImageDemuxers })
+            Assert.Empty(list.Split(',').Intersect(["hls", "concat", "tty", "lavfi", "sdp", "rtp", "rtsp", "data", "image2pipe", "mpjpeg"]));
+    }
+
     [Fact]
     public void AllBuilders_KeepEachArgumentAsASeparateArrayElement()
     {
