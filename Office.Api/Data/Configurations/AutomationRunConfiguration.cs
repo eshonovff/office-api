@@ -23,5 +23,7 @@ public class AutomationRunConfiguration : IEntityTypeConfiguration<AutomationRun
         // Cooldown-и WebhookProcessor'ро истифода мебарад: "охирин run барои ин actor дар ин
         // пост, дар ин rule" — ниг. CommentAutomationProcessor.
         builder.HasIndex(r => new { r.RuleId, r.ActorExternalId, r.TargetMediaExternalId, r.CreatedAt });
+        // Analytics: a rule's runs in a period.
+        builder.HasIndex(r => new { r.RuleId, r.CreatedAt });
     }
 }

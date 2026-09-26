@@ -76,6 +76,9 @@ public record ActionNodeConfig(
     public const string KindCollectInput = "collect_input";
     public const string KindHttpRequest = "http_request";
     public const string KindGotoFlow = "goto_flow";
+
+    /// <summary>The goal of the automation was reached — counted once per person (FlowConversion).</summary>
+    public const string KindConversion = "conversion";
 }
 
 public record NoteNodeConfig(string Text);

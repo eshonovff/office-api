@@ -39,9 +39,14 @@ public record FlowNodeStat(Guid NodeId, int ContactCount);
 /// <summary>Барои дидани сабаби воқеии "Ноком" дар статистика — Error-и FlowSession, бе он ки Stats API-ро аз нав тарҳрезӣ кунем.</summary>
 public record FlowFailure(Guid SessionId, string Error, DateTimeOffset CreatedAt);
 
+/// <summary>How many people clicked one "next" button of a message (each person once).</summary>
+public record FlowButtonStat(Guid NodeId, int ButtonIndex, int ContactCount);
+
+/// <param name="Conversions">People who reached the "Конверсия" step (once each).</param>
 public record FlowStats(
     int TotalSessions, int FinishedSessions, int ActiveOrWaitingSessions, int FailedSessions,
-    IReadOnlyList<FlowNodeStat> Nodes, IReadOnlyList<FlowFailure> RecentFailures);
+    IReadOnlyList<FlowNodeStat> Nodes, IReadOnlyList<FlowFailure> RecentFailures,
+    IReadOnlyList<FlowButtonStat> Buttons, int Conversions);
 
 public record FlowTemplateListItem(Guid Id, string Name, string? Description);
 
