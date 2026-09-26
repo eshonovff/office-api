@@ -6,6 +6,7 @@ using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using Office.Api.Channels;
+using Office.Api.Channels.Facebook;
 using Office.Api.Channels.Instagram;
 using Office.Api.Data;
 using Office.Api.Data.Entities;
@@ -75,6 +76,40 @@ public class InstagramProviderUploadTests
         Assert.Equal("123456", id);
         Assert.EndsWith("/17841400000000000/message_attachments", handler.Url);
         return handler;
+    }
+
+    /// <summary>Facebook: the same documented form (it tolerated "file", but sometimes failed with subcode 2018074).</summary>
+    private static async Task<CapturingHandler> UploadToFacebook(string mimeType)
+    {
+        var db = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        var channel = new Channel
+        {
+            Id = Guid.CreateVersion7(), Type = ChannelType.Facebook, Name = "fb", ExternalId = "1000",
+            CredentialsEncrypted = """{"pageId":"1000","pageAccessToken":"tok"}""", IsActive = true,
+        };
+        var handler = new CapturingHandler();
+        var provider = new FacebookProvider(
+            new HttpClient(handler), new PassthroughProtector(), new ConfigurationBuilder().Build(), db,
+            new NoOpNotificationService(), NullLogger<FacebookProvider>.Instance);
+
+        Assert.Equal("123456", await provider.UploadMediaAsync(channel, new MemoryStream([1, 2, 3]), mimeType, "x", CancellationToken.None));
+        Assert.EndsWith("/me/message_attachments", handler.Url);
+        return handler;
+    }
+
+    [Theory]
+    [InlineData("image/jpeg", "image")]
+    [InlineData("video/mp4", "video")]
+    [InlineData("audio/mp4", "audio")]
+    [InlineData("audio/webm;codecs=opus", "audio")] // used to throw: the constructor refused a parameter
+    [InlineData("application/pdf", "file")]
+    public async Task Facebook_UploadsAsWhatTheFileIs(string mimeType, string expectedType)
+    {
+        var handler = await UploadToFacebook(mimeType);
+
+        var attachment = JsonDocument.Parse(handler.Message!).RootElement.GetProperty("attachment");
+        Assert.Equal(expectedType, attachment.GetProperty("type").GetString());
+        Assert.Equal(mimeType.Split(';')[0], handler.FileContentType);
     }
 
     [Theory]

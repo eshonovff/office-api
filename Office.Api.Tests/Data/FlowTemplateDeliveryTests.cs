@@ -53,6 +53,7 @@ public class FlowTemplateDeliveryTests
         public Task<int?> GetAudioDurationSecondsAsync(string inputPath, CancellationToken ct) => throw new NotSupportedException();
         public virtual Task GenerateImageThumbnailAsync(string inputPath, string outputPath, int maxDimension, CancellationToken ct) => throw new NotSupportedException();
         public Task<IReadOnlyList<short>> GenerateWaveformPeaksAsync(string inputPath, int peakCount, CancellationToken ct) => throw new NotSupportedException();
+        public Task ConvertImageToJpegAsync(string inputPath, string outputPath, CancellationToken ct) => throw new NotSupportedException();
     }
 
     /// <summary>ffmpeg-и воқеиро тақлид мекунад — байтҳои сохта ба outputPath менависад, то

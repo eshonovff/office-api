@@ -7,6 +7,7 @@ using Office.Api.Channels;
 using Office.Api.Channels.WhatsApp;
 using Office.Api.Data;
 using Office.Api.Data.Entities;
+using Office.Api.Media;
 using Office.Api.Realtime;
 
 namespace Office.Api.Channels.Facebook;
@@ -96,16 +97,26 @@ public class FacebookProvider(
         return new DownloadedMedia(buffer, response.Content.Headers.ContentType?.MediaType);
     }
 
+    /// <summary>
+    /// The attachment is uploaded as what it is (image / video / audio / file) — the form Meta
+    /// documents, and the one Instagram strictly requires (an image uploaded as "file" is never
+    /// sent there — see InstagramProvider.UploadMediaAsync). Facebook tolerated "file" in the
+    /// August check, yet also failed sometimes with "could not fetch the attachment by its id"
+    /// (subcode 2018074); the documented form removes the mismatch.
+    /// </summary>
     public async Task<string> UploadMediaAsync(Channel channel, Stream content, string mimeType, string fileName, CancellationToken ct)
     {
         var credentials = GetCredentials(channel);
 
+        var attachmentType = ToFacebookAttachmentType(MediaUploadValidator.Classify(ChannelType.Facebook, mimeType).Type);
         using var form = new MultipartFormDataContent();
         // is_reusable=true: attachment_id-ро метавон дар якчанд паём истифода бурд — ба мо лозим
         // нест (як фиристодан як мессиҷ), вале акнун сохтани дубора ба ҳар message заруратро бартараф мекунад.
-        form.Add(new StringContent("""{"attachment":{"type":"file","payload":{"is_reusable":true}}}"""), "message");
+        form.Add(new StringContent(JsonSerializer.Serialize(
+            new { attachment = new { type = attachmentType, payload = new { is_reusable = true } } })), "message");
         using var streamContent = new StreamContent(content);
-        streamContent.Headers.ContentType = new MediaTypeHeaderValue(mimeType);
+        // Parse, not the constructor: a type with a parameter ("audio/webm;codecs=opus") would throw.
+        streamContent.Headers.ContentType = MediaTypeHeaderValue.Parse(mimeType);
         form.Add(streamContent, "filedata", fileName);
 
         using var request = new HttpRequestMessage(HttpMethod.Post, $"{GraphApiBaseUrl}/{GraphApiVersion}/me/message_attachments")

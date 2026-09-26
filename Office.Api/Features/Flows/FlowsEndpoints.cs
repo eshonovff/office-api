@@ -176,6 +176,39 @@ public static class FlowsEndpoints
                     if (File.Exists(targetPath)) File.Delete(targetPath);
                 }
             }
+            else if (MediaUploadValidator.NeedsJpegConversion(channel.Type, mimeType))
+            {
+                // WEBP, HEIC, … — Instagram refuses them as images (WEBP: 500, code 1, checked
+                // live 2026-09-26). A JPEG of the same picture goes instead.
+                var tempDir = Path.Combine(Path.GetTempPath(), "flow-media-uploads");
+                Directory.CreateDirectory(tempDir);
+                var sourcePath = Path.Combine(tempDir, $"{Guid.CreateVersion7()}.src");
+                var jpegPath = Path.ChangeExtension(sourcePath, ".jpg");
+                try
+                {
+                    await using (var sourceStream = File.Create(sourcePath))
+                        await file.CopyToAsync(sourceStream, ct);
+
+                    await mediaProcessor.ConvertImageToJpegAsync(sourcePath, jpegPath, ct);
+                    if (new FileInfo(jpegPath).Length > MediaUploadValidator.InstagramImageMaxBytes)
+                    {
+                        return Results.Problem(
+                            title: "Файл калон аст",
+                            detail: $"Сурат баъд аз табдил ба JPG аз {MediaUploadValidator.InstagramImageMaxBytes / (1024 * 1024)} МБ калон шуд — сурати хурдтар интихоб кунед.",
+                            statusCode: StatusCodes.Status400BadRequest);
+                    }
+
+                    await using var jpegStream = File.OpenRead(jpegPath);
+                    attachmentId = await instagramProvider.UploadMediaAsync(
+                        channel, jpegStream, "image/jpeg", Path.ChangeExtension(file.FileName, ".jpg"), ct);
+                    blockType = MessageBlock.TypeImage;
+                }
+                finally
+                {
+                    if (File.Exists(sourcePath)) File.Delete(sourcePath);
+                    if (File.Exists(jpegPath)) File.Delete(jpegPath);
+                }
+            }
             else
             {
                 await using (var stream = file.OpenReadStream())
