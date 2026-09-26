@@ -9,11 +9,13 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Logging.Abstractions;
 using Office.Api.Auth;
+using Office.Api.Common;
 using Office.Api.Data;
 using Office.Api.Data.Entities;
 using Office.Api.Features.Conversations;
 using Office.Api.Features.CustomerContacts;
 using Office.Api.Features.DataDeletion;
+using Office.Api.Tests.Common;
 
 namespace Office.Api.Tests.Features.CustomerContacts;
 
@@ -291,23 +293,49 @@ public class CustomerContactsTests : IDisposable
     // ── Export ──────────────────────────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task Export_HasOnlyTheCallersRows_AndDefusesFormulas()
+    public async Task Export_IsAnExcelFile_WithOnlyTheCallersRows_InColumns_AndNoFormulas()
     {
         await using var db = AsA();
         var result = await CustomerContactsEndpoints.ExportAsync(null, null, null, null, PrincipalA, db, _configuration, NullLogger<Program>.Instance, CancellationToken.None);
 
         var file = Assert.IsType<FileContentHttpResult>(result);
-        var bytes = file.FileContents.ToArray();
-        Assert.Equal(Encoding.UTF8.GetPreamble(), bytes[..3]);
-        var csv = Encoding.UTF8.GetString(bytes[3..]);
+        Assert.Equal(XlsxSheet.ContentType, file.ContentType);
+        Assert.EndsWith(".xlsx", file.FileDownloadName);
+        var xlsx = new XlsxTestReader(file.FileContents.ToArray());
 
-        Assert.Contains("\"Нилуфар Ахмедова\"", csv);
-        Assert.Contains("\"'+992900000001\"", csv); // a phone starting with + stays text, not a formula
-        Assert.Contains("\"'=HYPERLINK(\"\"http://evil.example\"\",\"\"click\"\")\"", csv);
-        Assert.DoesNotContain("Каримова", csv);
-        Assert.DoesNotContain("+992900000002", csv);
-        Assert.DoesNotContain("company_fan", csv);
-        Assert.Equal(3, csv.Split("\r\n", StringSplitOptions.RemoveEmptyEntries).Length); // header + a1 + a2
+        // One row per contact, the newest activity first; each value in its own column.
+        Assert.Equal(3, xlsx.Rows.Count); // header + a1 + a2
+        Assert.Equal(["№", "Ном", "Instagram", "Телефон", "Тегҳо", "Аввалин тамос", "Охирин паём"], xlsx.Line(0));
+        var a1 = xlsx.Rows[1];
+        Assert.Equal(["1", "Нилуфар Ахмедова", "@nilufar_a", "+992900000001", "vip"], xlsx.Line(1).Take(5));
+        Assert.Contains("https://instagram.com/nilufar_a", xlsx.Parts["xl/worksheets/_rels/sheet1.xml.rels"]);
+        Assert.NotNull(a1[5].Value); // a real date, not text
+        Assert.Null(a1[5].Type);
+
+        // What strangers typed is text: never a formula, and marked typed-as-text when it looks like one.
+        Assert.Empty(xlsx.Sheet.Descendants(XlsxTestReader.Main + "f"));
+        Assert.Equal(4, a1[3].Style); // "+992…" — quotePrefix
+        var a2 = xlsx.Rows[2];
+        Assert.Equal("=HYPERLINK(\"http://evil.example\",\"click\")", a2[1].Text);
+        Assert.Equal(5, a2[1].Style); // quotePrefix, striped row
+
+        // Nothing of B's or the company's.
+        var all = string.Concat(xlsx.Parts.Values);
+        Assert.DoesNotContain("Каримова", all);
+        Assert.DoesNotContain("+992900000002", all);
+        Assert.DoesNotContain("company_fan", all);
+        Assert.DoesNotContain("nilufar_b", all);
+    }
+
+    [Fact]
+    public async Task Export_InRussian_HasRussianHeaders()
+    {
+        await using var db = AsA();
+        var result = await CustomerContactsEndpoints.ExportAsync(null, null, null, "ru", PrincipalA, db, _configuration, NullLogger<Program>.Instance, CancellationToken.None);
+
+        var xlsx = new XlsxTestReader(Assert.IsType<FileContentHttpResult>(result).FileContents.ToArray());
+        Assert.Equal(["№", "Имя", "Instagram", "Телефон", "Теги", "Первый контакт", "Последнее сообщение"], xlsx.Line(0));
+        Assert.Contains("name=\"Контакты\"", xlsx.Parts["xl/workbook.xml"]);
     }
 
     // ── Delete ──────────────────────────────────────────────────────────────────────────────
@@ -371,18 +399,52 @@ public class CustomerContactsTests : IDisposable
         Assert.True(File.Exists(outside));
     }
 
-    // ── CSV and input limits ────────────────────────────────────────────────────────────────
+    // ── Excel and input limits ──────────────────────────────────────────────────────────────
 
     [Theory]
-    [InlineData("=1+1", "\"'=1+1\"")]
-    [InlineData("+992900000001", "\"'+992900000001\"")]
-    [InlineData("-5", "\"'-5\"")]
-    [InlineData("@SUM(A1)", "\"'@SUM(A1)\"")]
-    [InlineData("\tx", "\"'\tx\"")]
-    [InlineData("say \"hi\"", "\"say \"\"hi\"\"\"")]
-    [InlineData("Нилуфар", "\"Нилуфар\"")]
-    public void CsvField_IsQuoted_AndNeverAFormula(string value, string expected) =>
-        Assert.Equal(expected, ContactCsvWriter.Field(value));
+    [InlineData("=1+1", true)]
+    [InlineData("+992900000001", true)]
+    [InlineData("-5", true)]
+    [InlineData("@SUM(A1)", true)]
+    [InlineData("\tx", true)]
+    [InlineData("\rx", true)]
+    [InlineData("say \"hi\"", false)]
+    [InlineData("Нилуфар", false)]
+    [InlineData("", false)]
+    public void LooksLikeFormula_CatchesWhatASpreadsheetWouldRun(string value, bool expected) =>
+        Assert.Equal(expected, XlsxSheet.LooksLikeFormula(value));
+
+    [Fact]
+    public void ExcelSheet_AnAccountColumnOnlyWithMoreThanOneAccount_DetailsMostFilledFirst_NoLinkForAStrangeUsername()
+    {
+        var at = DateTimeOffset.UtcNow;
+        ContactXlsxWriter.Row Row(string channel, string? username, Dictionary<string, string> variables) =>
+            new("N", username, channel, [], at, null, variables);
+
+        var one = new XlsxTestReader(ContactXlsxWriter.Write(
+            [Row("a.shop", "ok_name", new() { ["city"] = "Душанбе", ["phone"] = "1" }), Row("a.shop", "bad name/../x", new() { ["phone"] = "2" })],
+            ContactXlsxWriter.Tajik, TimeSpan.FromHours(5)));
+        Assert.Equal(["№", "Ном", "Instagram", "Телефон", "city", "Тегҳо", "Аввалин тамос", "Охирин паём"], one.Line(0)); // a known key gets a header, the мизоҷ's own stays
+        Assert.Equal("@bad name/../x", one.Rows[2][2].Text);
+        Assert.DoesNotContain("bad name", one.Parts["xl/worksheets/_rels/sheet1.xml.rels"]); // text, not a link
+
+        var two = new XlsxTestReader(ContactXlsxWriter.Write(
+            [Row("a.shop", null, []), Row("a.second", null, [])], ContactXlsxWriter.Tajik, TimeSpan.FromHours(5)));
+        Assert.Equal("Аккаунт", two.Line(0)[^1]);
+        Assert.Equal(["a.shop", "a.second"], two.Rows.Skip(1).Select(r => r[^1].Text));
+    }
+
+    [Fact]
+    public void ExcelSheet_DatesAreInLocalTime()
+    {
+        var utc = new DateTimeOffset(2026, 9, 25, 7, 40, 37, 512, TimeSpan.Zero);
+        var xlsx = new XlsxTestReader(ContactXlsxWriter.Write(
+            [new ContactXlsxWriter.Row("N", null, "a.shop", [], utc, utc.AddHours(1), new Dictionary<string, string>())],
+            ContactXlsxWriter.Tajik, TimeSpan.FromHours(5)));
+
+        var first = double.Parse(xlsx.Rows[1][4].Value!, System.Globalization.CultureInfo.InvariantCulture);
+        Assert.Equal(new DateTime(2026, 9, 25, 12, 40, 0), DateTime.FromOADate(first)); // 07:40 UTC is 12:40 in Dushanbe, to the minute
+    }
 
     [Fact]
     public void Validators_BoundTagsAndDetails()
