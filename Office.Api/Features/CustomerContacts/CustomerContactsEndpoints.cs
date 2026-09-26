@@ -46,8 +46,8 @@ public static class CustomerContactsEndpoints
 
         contacts.MapGet("/export", ExportAsync)
             .RequireRateLimiting(ExportRateLimitPolicy)
-            .WithSummary("Контактҳо ба Excel (CSV) — бо ҳамон филтрҳо; тариф лозим")
-            .Produces(StatusCodes.Status200OK, contentType: "text/csv")
+            .WithSummary("Контактҳо ба Excel (.xlsx) — бо ҳамон филтрҳо; тариф лозим")
+            .Produces(StatusCodes.Status200OK, contentType: XlsxSheet.ContentType)
             .ProducesProblem(StatusCodes.Status403Forbidden);
 
         contacts.MapGet("/{id:guid}", GetAsync)
@@ -305,20 +305,20 @@ public static class CustomerContactsEndpoints
                 .Select(v => new { v.ContactId, v.Key, v.Value }).ToListAsync(ct))
             .GroupBy(v => v.ContactId).ToDictionary(g => g.Key, g => (IReadOnlyDictionary<string, string>)g.ToDictionary(v => v.Key, v => v.Value));
 
-        var csv = ContactCsvWriter.Write(
-            rows.Select(r => new ContactCsvWriter.Row(
+        var file = ContactXlsxWriter.Write(
+            rows.Select(r => new ContactXlsxWriter.Row(
                 r.ContactName, r.ContactUsername, r.ChannelName,
                 tags.GetValueOrDefault(r.Id, []),
                 r.CreatedAt, r.LastMessageAt,
                 variables.GetValueOrDefault(r.Id, EmptyVariables))).ToList(),
-            lang == "ru" ? ContactCsvWriter.Russian : ContactCsvWriter.Tajik,
+            lang == "ru" ? ContactXlsxWriter.Russian : ContactXlsxWriter.Tajik,
             TimeSpan.FromHours(OfficeLocalDate.OfficeUtcOffsetHours));
 
         // Who and how many — never the content.
         logger.LogInformation("Contacts export by customer {CustomerId}: {Count} rows", principal.GetUserId(), rows.Count);
 
         var date = DateTimeOffset.UtcNow.ToOffset(TimeSpan.FromHours(OfficeLocalDate.OfficeUtcOffsetHours)).ToString("yyyy-MM-dd");
-        return Results.File(csv, "text/csv; charset=utf-8", $"contacts-{date}.csv");
+        return Results.File(file, XlsxSheet.ContentType, $"contacts-{date}.xlsx");
     }
 
     public static async Task<IResult> DeleteAsync(

@@ -61,6 +61,7 @@ public class TenantIsolationTests
         var flowId = Own(Guid.NewGuid(), tag);
         var nodeId = Own(Guid.NewGuid(), tag);
         var sessionId = Own(Guid.NewGuid(), tag);
+        var broadcastId = Own(Guid.NewGuid(), tag);
 
         db.Channels.Add(new Channel
         {
@@ -96,11 +97,13 @@ public class TenantIsolationTests
             Id = Own(Guid.NewGuid(), tag), ChannelId = channelId, ExternalId = $"comment-{tag}", MediaExternalId = $"media-{tag}",
             AuthorExternalId = $"fan-{tag}", Text = tag, CommentedAt = now, ReceivedAt = now,
         });
+        db.Broadcasts.Add(new Broadcast { Id = broadcastId, ChannelId = channelId, Name = tag, Text = tag, ScheduledAt = now, CreatedAt = now });
+        db.BroadcastRecipients.Add(new BroadcastRecipient { BroadcastId = broadcastId, ContactId = conversationId });
         return channelId;
     }
 
     /// <summary>
-    /// What each of the 15 channel-owned tables shows this caller. Only the table's OWN columns
+    /// What each of the 17 channel-owned tables shows this caller. Only the table's OWN columns
     /// are read — never a navigation: a navigation join applies the parent's filter as well and
     /// would hide a missing filter on the table itself (while a plain Where on ConversationId
     /// in real code would leak). Verified: removing any one table's filter fails these tests.
@@ -126,6 +129,8 @@ public class TenantIsolationTests
             ["flow_sessions"] = Owners(db.FlowSessions.Select(s => s.Id)),
             ["flow_session_steps"] = Owners(db.FlowSessionSteps.Select(s => s.Id)),
             ["instagram_comments"] = Owners(db.InstagramComments.Select(c => c.Id)),
+            ["broadcasts"] = Owners(db.Broadcasts.Select(b => b.Id)),
+            ["broadcast_recipients"] = Owners(db.BroadcastRecipients.Select(r => r.BroadcastId)),
         };
     }
 
@@ -188,6 +193,7 @@ public class TenantIsolationTests
         Assert.Null(customerA.Channels.FirstOrDefault(c => c.Id == _channelIds["company"]));
         Assert.Empty(customerA.Flows.Where(f => f.ChannelId == _channelIds["company"]));
         Assert.Empty(customerA.Conversations.Where(c => c.ChannelId == _channelIds["b"]));
+        Assert.Empty(customerA.Broadcasts.Where(b => b.ChannelId == _channelIds["b"]));
         Assert.NotNull(customerA.Channels.FirstOrDefault(c => c.Id == _channelIds["a"]));
     }
 
