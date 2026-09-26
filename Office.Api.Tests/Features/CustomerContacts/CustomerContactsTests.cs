@@ -108,6 +108,13 @@ public class CustomerContactsTests : IDisposable
             Comment(_channelA, "ca-1", "fan-1", parent: null),
             Comment(_channelA, "ca-1-reply", "ig-a", parent: "ca-1"),
             Comment(_channelB, "cb-1", "fan-1", parent: null));
+        var broadcastA = new Broadcast { Id = Guid.NewGuid(), ChannelId = _channelA, Name = "A", Text = "a", ScheduledAt = DateTimeOffset.UtcNow, CreatedAt = DateTimeOffset.UtcNow };
+        var broadcastB = new Broadcast { Id = Guid.NewGuid(), ChannelId = _channelB, Name = "B", Text = "b", ScheduledAt = DateTimeOffset.UtcNow, CreatedAt = DateTimeOffset.UtcNow };
+        db.Broadcasts.AddRange(broadcastA, broadcastB);
+        db.BroadcastRecipients.AddRange(
+            new BroadcastRecipient { BroadcastId = broadcastA.Id, ContactId = _a1, Status = BroadcastRecipientStatus.Sent },
+            new BroadcastRecipient { BroadcastId = broadcastA.Id, ContactId = _a2, Status = BroadcastRecipientStatus.Sent },
+            new BroadcastRecipient { BroadcastId = broadcastB.Id, ContactId = _b1, Status = BroadcastRecipientStatus.Sent });
         db.SaveChanges();
 
         Directory.CreateDirectory(Path.Combine(_contentRoot, "uploads", "whatsapp-media", _channelA.ToString()));
@@ -324,6 +331,7 @@ public class CustomerContactsTests : IDisposable
         Assert.Empty(await all.FlowSessionSteps.ToListAsync());
         Assert.False(await all.AutomationRuns.AnyAsync(r => r.TriggerExternalId == "ca-1"));
         Assert.False(await all.InstagramComments.AnyAsync(c => c.ChannelId == _channelA)); // their comment and the reply under it
+        Assert.False(await all.BroadcastRecipients.AnyAsync(r => r.ContactId == _a1));
         Assert.False(File.Exists(Path.Combine(_contentRoot, "uploads", _a1MediaPath)));
 
         // Everyone else stays: A's other contact, B's contact with the same Instagram id, the company's.
@@ -332,6 +340,9 @@ public class CustomerContactsTests : IDisposable
         Assert.True(await all.AutomationRuns.AnyAsync(r => r.TriggerExternalId == "cb-1"));
         Assert.True(await all.InstagramComments.AnyAsync(c => c.ExternalId == "cb-1"));
         Assert.True(await all.ContactTags.AnyAsync(t => t.ContactId == _b1));
+        Assert.True(await all.BroadcastRecipients.AnyAsync(r => r.ContactId == _a2));
+        Assert.True(await all.BroadcastRecipients.AnyAsync(r => r.ContactId == _b1));
+        Assert.Equal(2, await all.Broadcasts.CountAsync()); // the broadcast itself stays — only this person's record goes
     }
 
     [Fact]

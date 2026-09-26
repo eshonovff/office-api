@@ -16,6 +16,7 @@ using Microsoft.OpenApi;
 using Office.Api.Auth;
 using Office.Api.Channels;
 using Office.Api.Channels.Automation;
+using Office.Api.Channels.Broadcasts;
 using Office.Api.Channels.Comments;
 using Office.Api.Channels.Flows;
 using Office.Api.Channels.Facebook;
@@ -42,6 +43,7 @@ using Office.Api.Features.Roles;
 using Office.Api.Features.Tasks;
 using Office.Api.Features.Subscriptions;
 using Office.Api.Features.CustomerAccount;
+using Office.Api.Features.CustomerBroadcasts;
 using Office.Api.Features.CustomerChannels;
 using Office.Api.Features.CustomerChats;
 using Office.Api.Features.CustomerCommentRules;
@@ -349,13 +351,15 @@ builder.Services.AddRateLimiter(options =>
     // A мизоҷ's manual actions on Instagram — chat replies (CustomerChatsEndpoints) and comment
     // actions (CustomerCommentsEndpoints), each its own bucket: a burst would get their account
     // rate-limited or flagged by Meta. The contacts export is its own, tighter bucket: it hands
-    // out personal data in bulk. The limiter runs before authentication, so the bucket is the
-    // bearer token itself (one session), else the address.
+    // out personal data in bulk; so is creating a broadcast — each one messages many people. The
+    // limiter runs before authentication, so the bucket is the bearer token itself (one
+    // session), else the address.
     foreach (var (policy, permitLimit) in new[]
     {
         (CustomerChatsEndpoints.SendRateLimitPolicy, 30),
         (CustomerCommentsEndpoints.ActionRateLimitPolicy, 30),
         (CustomerContactsEndpoints.ExportRateLimitPolicy, 5),
+        (CustomerBroadcastsEndpoints.CreateRateLimitPolicy, 5),
     })
     {
         options.AddPolicy(policy, context =>
@@ -444,6 +448,7 @@ builder.Services.AddHttpClient<FlowEngine>(client =>
     })
     .ConfigurePrimaryHttpMessageHandler(SsrfSafeHttpHandler.Create);
 builder.Services.AddScoped<FlowEngineJob>();
+builder.Services.AddScoped<BroadcastSendJob>();
 builder.Services.AddScoped<DataDeletionJob>();
 builder.Services.AddScoped<FlowTriggerProcessor>();
 
@@ -528,6 +533,7 @@ app.MapCustomerChatsEndpoints();
 app.MapCustomerCommentsEndpoints();
 app.MapCustomerCommentRulesEndpoints();
 app.MapCustomerContactsEndpoints();
+app.MapCustomerBroadcastsEndpoints();
 app.MapCustomerSubscriptionsEndpoints();
 app.MapCustomerChannelsEndpoints();
 app.MapCustomerFlowsEndpoints();

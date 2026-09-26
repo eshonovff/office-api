@@ -568,7 +568,8 @@ public class FlowEngine(AppDbContext db, InstagramProvider instagramProvider, IB
     /// username, chatLink". Conversation ном/насабро ҷудо нигоҳ намедорад — тахминан ҷудо мекунем
     /// (аввалин калима = firstName), чунки Meta ин ду майдонро алоҳида намедиҳад.
     /// </summary>
-    private static Dictionary<string, string> BuildContactFields(Conversation contact)
+    /// <summary>The {{firstName}}, {{username}}, … a message can use — shared with broadcasts.</summary>
+    public static Dictionary<string, string> BuildContactFields(Conversation contact)
     {
         var fullName = contact.ContactName ?? contact.ContactUsername ?? "";
         var spaceIndex = fullName.IndexOf(' ');

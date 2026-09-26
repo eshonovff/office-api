@@ -19,6 +19,10 @@ public class ChannelDataEraserTests
 
     private readonly string _databaseName = Guid.NewGuid().ToString();
     private readonly Dictionary<string, Guid> _channel = [];
+    private readonly Dictionary<string, Seeded> _seeded = [];
+
+    /// <summary>The ids each tree was seeded with — counted by these, a leftover can't hide.</summary>
+    private sealed record Seeded(Guid ContactId, Guid RuleId, Guid FlowId, Guid SessionId, Guid BroadcastId);
 
     public ChannelDataEraserTests()
     {
@@ -38,7 +42,7 @@ public class ChannelDataEraserTests
         new DbContextOptionsBuilder<AppDbContext>().UseInMemoryDatabase(_databaseName).Options,
         tenant is null ? null : new FixedTenant(tenant.Value));
 
-    private static Guid Seed(AppDbContext db, string tag, Guid? owner, Guid staffId)
+    private Guid Seed(AppDbContext db, string tag, Guid? owner, Guid staffId)
     {
         var now = DateTimeOffset.UtcNow;
         var channelId = Guid.NewGuid();
@@ -70,40 +74,47 @@ public class ChannelDataEraserTests
             Id = Guid.NewGuid(), ChannelId = channelId, ExternalId = tag, MediaExternalId = tag,
             AuthorExternalId = tag, Text = tag, CommentedAt = now, ReceivedAt = now,
         });
+        var broadcastId = Guid.NewGuid();
+        db.Broadcasts.Add(new Broadcast { Id = broadcastId, ChannelId = channelId, Name = tag, Text = tag, ScheduledAt = now, CreatedAt = now });
+        db.BroadcastRecipients.Add(new BroadcastRecipient { BroadcastId = broadcastId, ContactId = contactId });
+        _seeded[tag] = new Seeded(contactId, ruleId, flowId, sessionId, broadcastId);
         return channelId;
     }
 
-    /// <summary>Row counts in all 15 channel-owned tables — read unfiltered (System).</summary>
+    /// <summary>
+    /// Row counts in all 17 channel-owned tables — read with the tenant filters OFF: a filter that
+    /// joins to the channel would hide rows left behind by a deleted channel (the in-memory
+    /// provider has no foreign keys to cascade), and a leftover is exactly what this must catch.
+    /// </summary>
     private int[] CountsFor(string tag)
     {
         using var db = Open(null);
         var channelId = _channel[tag];
-        var contacts = db.Conversations.Where(c => c.ChannelId == channelId).Select(c => c.Id).ToList();
-        var flows = db.Flows.Where(f => f.ChannelId == channelId).Select(f => f.Id).ToList();
-        var rules = db.AutomationRules.Where(r => r.ChannelId == channelId).Select(r => r.Id).ToList();
-        var sessions = db.FlowSessions.Where(s => flows.Contains(s.FlowId)).Select(s => s.Id).ToList();
+        var ids = _seeded[tag];
         return
         [
-            db.Channels.Count(c => c.Id == channelId),
-            db.ChannelMembers.Count(m => m.ChannelId == channelId),
-            contacts.Count,
-            db.Messages.Count(m => contacts.Contains(m.ConversationId)),
-            db.ConversationAssignmentEvents.Count(e => contacts.Contains(e.ConversationId)),
-            db.ContactTags.Count(t => t.Tag == tag),
-            db.ContactVariables.Count(v => v.Value == tag),
-            rules.Count,
-            db.AutomationRuns.Count(r => r.TriggerExternalId == tag),
-            flows.Count,
-            db.FlowNodes.Count(n => flows.Contains(n.FlowId)),
-            db.FlowEdges.Count(e => flows.Contains(e.FlowId)),
-            sessions.Count,
-            db.FlowSessionSteps.Count(s => sessions.Contains(s.SessionId)),
-            db.InstagramComments.Count(c => c.ChannelId == channelId),
+            db.Channels.IgnoreQueryFilters().Count(c => c.Id == channelId),
+            db.ChannelMembers.IgnoreQueryFilters().Count(m => m.ChannelId == channelId),
+            db.Conversations.IgnoreQueryFilters().Count(c => c.Id == ids.ContactId),
+            db.Messages.IgnoreQueryFilters().Count(m => m.ConversationId == ids.ContactId),
+            db.ConversationAssignmentEvents.IgnoreQueryFilters().Count(e => e.ConversationId == ids.ContactId),
+            db.ContactTags.IgnoreQueryFilters().Count(t => t.ContactId == ids.ContactId),
+            db.ContactVariables.IgnoreQueryFilters().Count(v => v.ContactId == ids.ContactId),
+            db.AutomationRules.IgnoreQueryFilters().Count(r => r.Id == ids.RuleId),
+            db.AutomationRuns.IgnoreQueryFilters().Count(r => r.RuleId == ids.RuleId),
+            db.Flows.IgnoreQueryFilters().Count(f => f.Id == ids.FlowId),
+            db.FlowNodes.IgnoreQueryFilters().Count(n => n.FlowId == ids.FlowId),
+            db.FlowEdges.IgnoreQueryFilters().Count(e => e.FlowId == ids.FlowId),
+            db.FlowSessions.IgnoreQueryFilters().Count(x => x.Id == ids.SessionId),
+            db.FlowSessionSteps.IgnoreQueryFilters().Count(x => x.SessionId == ids.SessionId),
+            db.InstagramComments.IgnoreQueryFilters().Count(c => c.ChannelId == channelId),
+            db.Broadcasts.IgnoreQueryFilters().Count(b => b.Id == ids.BroadcastId),
+            db.BroadcastRecipients.IgnoreQueryFilters().Count(r => r.BroadcastId == ids.BroadcastId),
         ];
     }
 
-    private static readonly int[] Full = Enumerable.Repeat(1, 15).ToArray();
-    private static readonly int[] Gone = new int[15];
+    private static readonly int[] Full = Enumerable.Repeat(1, 17).ToArray();
+    private static readonly int[] Gone = new int[17];
 
     [Fact]
     public async Task Erase_RemovesTheWholeTree_AndNothingElse()

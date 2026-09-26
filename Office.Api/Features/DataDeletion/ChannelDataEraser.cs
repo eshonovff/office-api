@@ -7,7 +7,8 @@ namespace Office.Api.Features.DataDeletion;
 /// <summary>
 /// Removes channels and everything under them: contacts (conversations) with their messages,
 /// tags, variables and assignment history; flows with nodes, edges, sessions and steps;
-/// comment-automation rules and runs; stored Instagram comments; members; the channel itself. Used by Meta's data-deletion
+/// comment-automation rules and runs; stored Instagram comments; broadcasts and their
+/// recipients; members; the channel itself. Used by Meta's data-deletion
 /// callback (DataDeletionJob) and by a мизоҷ deleting their account.
 ///
 /// Rows are loaded and removed in ONE SaveChanges — EF orders the deletes by foreign key, and
@@ -29,6 +30,11 @@ public static class ChannelDataEraser
         var conversationIds = await db.Conversations.Where(c => channelIds.Contains(c.ChannelId)).Select(c => c.Id).ToListAsync(ct);
         var flowIds = await db.Flows.Where(f => channelIds.Contains(f.ChannelId)).Select(f => f.Id).ToListAsync(ct);
         var ruleIds = await db.AutomationRules.Where(r => channelIds.Contains(r.ChannelId)).Select(r => r.Id).ToListAsync(ct);
+
+        var broadcastIds = await db.Broadcasts.Where(b => channelIds.Contains(b.ChannelId)).Select(b => b.Id).ToListAsync(ct);
+        db.BroadcastRecipients.RemoveRange(await db.BroadcastRecipients
+            .Where(r => broadcastIds.Contains(r.BroadcastId) || conversationIds.Contains(r.ContactId)).ToListAsync(ct));
+        db.Broadcasts.RemoveRange(await db.Broadcasts.Where(b => broadcastIds.Contains(b.Id)).ToListAsync(ct));
 
         // Sessions hang off both a flow and a contact — either side is reason enough to go.
         var sessions = await db.FlowSessions

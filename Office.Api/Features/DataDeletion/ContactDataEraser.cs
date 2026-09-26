@@ -8,9 +8,9 @@ namespace Office.Api.Features.DataDeletion;
 /// Removes one contact (a person on one channel) and everything the system kept about them: the
 /// conversation with its messages, their files, tags, variables and assignment history; the
 /// flow sessions they went through; their comments on this channel and the account's replies
-/// under them; the comment auto-reply runs about them; and the raw webhook payloads that carried
-/// their messages or comments. Nothing on Instagram itself is touched. If they write again, they
-/// come back as a new contact.
+/// under them; the comment auto-reply runs about them; the broadcasts' record of them; and the raw
+/// webhook payloads that carried their messages or comments. Nothing on Instagram itself is
+/// touched. If they write again, they come back as a new contact.
 ///
 /// As in ChannelDataEraser: rows are loaded and removed in ONE SaveChanges, the caller wraps it in
 /// a transaction, and files go only after the commit (a failed commit must not have lost them).
@@ -55,6 +55,7 @@ public static class ContactDataEraser
         db.InstagramComments.RemoveRange(await db.InstagramComments
             .Where(c => c.ChannelId == contact.ChannelId && c.ParentExternalId != null && commentIds.Contains(c.ParentExternalId)).ToListAsync(ct));
 
+        db.BroadcastRecipients.RemoveRange(await db.BroadcastRecipients.Where(r => r.ContactId == contact.Id).ToListAsync(ct));
         db.ContactTags.RemoveRange(await db.ContactTags.Where(t => t.ContactId == contact.Id).ToListAsync(ct));
         db.ContactVariables.RemoveRange(await db.ContactVariables.Where(v => v.ContactId == contact.Id).ToListAsync(ct));
         db.ConversationAssignmentEvents.RemoveRange(
