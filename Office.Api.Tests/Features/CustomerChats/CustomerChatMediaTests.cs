@@ -15,6 +15,7 @@ using Office.Api.Data;
 using Office.Api.Data.Entities;
 using Office.Api.Features.Conversations;
 using Office.Api.Features.CustomerChats;
+using Office.Api.Media;
 using Office.Api.Realtime;
 
 namespace Office.Api.Tests.Features.CustomerChats;
@@ -264,7 +265,7 @@ public class CustomerChatMediaTests : IDisposable
 
     [Theory]
     [InlineData("audio/webm;codecs=opus", ".webm", "audio/webm")] // Chrome, Edge
-    [InlineData("audio/ogg;codecs=opus", ".ogg", "audio/ogg")] // Firefox
+    [InlineData("audio/ogg;codecs=opus", ".opus", "audio/ogg")] // Firefox — ".opus", so the job still runs it through ffmpeg
     [InlineData("audio/mp4", ".mp4", "audio/mp4")] // Safari (iPhone) — ".mp4", so the job still makes it clean AAC
     public async Task AVoiceNote_IsStoredUnderANewName_AndQueuedAsAVoiceNote(string contentType, string extension, string storedType)
     {
@@ -352,8 +353,9 @@ public class CustomerChatMediaTests : IDisposable
     [Fact]
     public void VoiceNoteTypes_AreOnlyRecordings_NeverWhatOnlyTheTranscodeWrites()
     {
-        Assert.All(CustomerChatsEndpoints.VoiceNoteTypes.Keys, k => Assert.StartsWith("audio/", k));
-        Assert.DoesNotContain(".m4a", CustomerChatsEndpoints.VoiceNoteTypes.Values); // else a Safari file would skip ffmpeg
-        Assert.All(CustomerChatsEndpoints.VoiceNoteTypes.Values, ext => Assert.Matches(@"^\.[a-z0-9]{3,4}$", ext));
+        Assert.All(VoiceNoteRecording.Types.Keys, k => Assert.StartsWith("audio/", k));
+        Assert.DoesNotContain(".m4a", VoiceNoteRecording.Types.Values); // else a Safari file would skip ffmpeg (Instagram, Facebook)
+        Assert.DoesNotContain(".ogg", VoiceNoteRecording.Types.Values); // else a Firefox file would skip ffmpeg (WhatsApp)
+        Assert.All(VoiceNoteRecording.Types.Values, ext => Assert.Matches(@"^\.[a-z0-9]{3,4}$", ext));
     }
 }
