@@ -124,51 +124,88 @@ public class MediaSendJobTests
         Assert.Null(reloaded.FailureReason); // cleared on the successful retry
     }
 
-    // SendAsync_InstagramVoiceNote_TranscodesToAacNotOgg was retired 2026-08-25: the new
-    // ChannelCapabilities.CanSendVoice guard (see SendAsync_InstagramVoiceNote_RejectedByCapabilityGuard_
-    // BeforeAnyTranscodeOrUpload below) now rejects every Instagram voice note before SendAsync ever
-    // reaches TranscodeVoiceNoteAsync, so the aac/m4a-not-ogg behavior it verified is unreachable
-    // through this entry point for as long as that flag is false. The transcode logic itself is
-    // untouched (see TranscodeVoiceNoteAsync's own comment for the aac/m4a-vs-ogg/opus finding) —
-    // this coverage should come back once CanSendVoice(Instagram) flips true post-App-Review.
+    // Instagram media in chats was switched off 2026-08-25 as "blocked until App Review"; the real
+    // cause was the upload typed "file" (checked live 2026-09-26 — image, video, voice, PDF all
+    // delivered once typed). These cover what the job now does for Instagram.
 
-    [Theory]
-    [InlineData(ChannelType.Instagram)]
-    public async Task SendAsync_ChannelCannotSendMedia_RejectsWithoutCallingProviderAndDoesNotRethrow(ChannelType channelType)
+    private (AppDbContext Db, Message Message) SeedImage(string mimeType, string fileName, ChannelType channelType)
     {
-        // The regression this closes: before this guard, a media send to Instagram hit Meta's
-        // Send API (which App-Review-gates it), got a real HTTP 500, and Hangfire retried it
-        // three times (30s/300s/1800s) — a slow, noisy way to fail at something we already know
-        // is impossible. Now it's rejected immediately, no network call, no retry. Facebook is NOT
-        // in this list — confirmed working live 2026-08-26 (5/5 real Graph API sends succeeded
-        // with the exact production code path, see ChannelCapabilities for the evidence).
-        var (db, message) = SeedVoiceNote(mimeType: "image/jpeg", channelType: channelType);
-        var provider = new FakeProvider();
-
-        var exception = await Record.ExceptionAsync(() => MakeJob(db, provider).SendAsync(message.Id, isVoiceNote: false, CancellationToken.None));
-
-        Assert.Null(exception); // terminal, not transient — Hangfire must not retry
-        Assert.Equal(0, provider.UploadCallCount);
-        Assert.Equal(0, provider.SendMediaCallCount);
-        var reloaded = await db.Messages.SingleAsync();
-        Assert.Equal(MessageDeliveryStatus.Failed, reloaded.DeliveryStatus);
-        Assert.Contains(channelType.ToString(), reloaded.FailureReason);
+        var (db, message) = SeedVoiceNote(mimeType: mimeType, channelType: channelType);
+        var oldPath = Path.Combine(_rootPath, message.MediaUrl!);
+        message.Type = MessageType.Image;
+        message.MediaUrl = Path.Combine(Path.GetDirectoryName(message.MediaUrl!)!, fileName);
+        message.OriginalFileName = "photo" + Path.GetExtension(fileName);
+        File.Move(oldPath, Path.Combine(_rootPath, message.MediaUrl));
+        db.SaveChanges();
+        return (db, message);
     }
 
     [Fact]
-    public async Task SendAsync_InstagramVoiceNote_RejectedByCapabilityGuard_BeforeAnyTranscodeOrUpload()
+    public async Task SendAsync_InstagramVoiceNote_IsTranscodedToAac_AndSent()
     {
         var (db, message) = SeedVoiceNote(channelType: ChannelType.Instagram);
         var provider = new FakeProvider();
-        var transcodeCounter = new CountingMediaProcessor();
 
-        await MakeJob(db, provider, transcodeCounter).SendAsync(message.Id, isVoiceNote: true, CancellationToken.None);
+        await MakeJob(db, provider).SendAsync(message.Id, isVoiceNote: true, CancellationToken.None);
 
-        Assert.Equal(0, transcodeCounter.TranscodeCallCount);
-        Assert.Equal(0, provider.UploadCallCount);
         var reloaded = await db.Messages.SingleAsync();
-        Assert.Equal(MessageDeliveryStatus.Failed, reloaded.DeliveryStatus);
-        Assert.Contains("Instagram", reloaded.FailureReason);
+        Assert.Equal(MessageDeliveryStatus.Sent, reloaded.DeliveryStatus);
+        Assert.Equal("audio/mp4", reloaded.MimeType); // aac/m4a — Meta refuses ogg/opus
+        Assert.EndsWith(".m4a", reloaded.MediaUrl);
+        Assert.Equal("audio/mp4", provider.LastUploadMimeType);
+    }
+
+    [Theory]
+    [InlineData(ChannelType.Instagram)]
+    [InlineData(ChannelType.Facebook)]
+    public async Task SendAsync_WebpImage_IsSentAsAJpeg_AndARetryDoesNotConvertAgain(ChannelType channelType)
+    {
+        var (db, message) = SeedImage("image/webp", "photo.webp", channelType);
+        var processor = new FakeMediaProcessor();
+        var failing = new FakeProvider { UploadException = new InvalidOperationException("transient") };
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => MakeJob(db, failing, processor).SendAsync(message.Id, isVoiceNote: false, CancellationToken.None));
+        var afterFirst = await db.Messages.SingleAsync();
+        Assert.Equal(("image/jpeg", ".jpg"), (afterFirst.MimeType, Path.GetExtension(afterFirst.MediaUrl)));
+        Assert.Equal("photo.jpg", afterFirst.OriginalFileName);
+        Assert.False(File.Exists(Path.Combine(_rootPath, Path.ChangeExtension(afterFirst.MediaUrl!, ".webp")))); // the original is gone
+
+        var provider = new FakeProvider();
+        await MakeJob(db, provider, processor).SendAsync(message.Id, isVoiceNote: false, CancellationToken.None);
+
+        Assert.Single(processor.ConvertedToJpeg); // converted once, not again on the retry
+        Assert.Equal("image/jpeg", provider.LastUploadMimeType);
+        Assert.Equal(MessageDeliveryStatus.Sent, (await db.Messages.SingleAsync()).DeliveryStatus);
+    }
+
+    [Fact]
+    public async Task SendAsync_AWebpNamedJpg_IsNeverWrittenOverWhileBeingRead()
+    {
+        var (db, message) = SeedImage("image/webp", "photo.jpg", ChannelType.Instagram);
+        var processor = new FakeMediaProcessor();
+
+        await MakeJob(db, new FakeProvider(), processor).SendAsync(message.Id, isVoiceNote: false, CancellationToken.None);
+
+        var reloaded = await db.Messages.SingleAsync();
+        Assert.EndsWith("photo-converted.jpg", reloaded.MediaUrl);
+        Assert.Equal(MessageDeliveryStatus.Sent, reloaded.DeliveryStatus);
+    }
+
+    [Theory]
+    [InlineData(ChannelType.Instagram, "image/jpeg", "photo.jpg")]
+    [InlineData(ChannelType.Instagram, "image/png", "photo.png")]
+    [InlineData(ChannelType.WhatsApp, "image/webp", "photo.webp")] // WhatsApp is left as it was
+    public async Task SendAsync_ImagesThatNeedNoConversion_GoAsTheyAre(ChannelType channelType, string mimeType, string fileName)
+    {
+        var (db, message) = SeedImage(mimeType, fileName, channelType);
+        var processor = new FakeMediaProcessor();
+        var provider = new FakeProvider();
+
+        await MakeJob(db, provider, processor).SendAsync(message.Id, isVoiceNote: false, CancellationToken.None);
+
+        Assert.Empty(processor.ConvertedToJpeg);
+        Assert.Equal(mimeType, provider.LastUploadMimeType);
+        Assert.Equal(MessageDeliveryStatus.Sent, (await db.Messages.SingleAsync()).DeliveryStatus);
     }
 
     [Fact]
@@ -194,6 +231,7 @@ public class MediaSendJobTests
         public Exception? SendException;
         public int UploadCallCount;
         public int SendMediaCallCount;
+        public string? LastUploadMimeType;
 
         public bool VerifyWebhookToken(string verifyToken) => throw new NotSupportedException();
         public string? ExtractChannelExternalId(System.Text.Json.JsonElement payload) => throw new NotSupportedException();
@@ -209,6 +247,7 @@ public class MediaSendJobTests
         public Task<string> UploadMediaAsync(Channel channel, Stream content, string mimeType, string fileName, CancellationToken ct)
         {
             UploadCallCount++;
+            LastUploadMimeType = mimeType;
             return UploadException is not null ? throw UploadException : Task.FromResult("attachment-id-1");
         }
 
@@ -243,6 +282,15 @@ public class MediaSendJobTests
         public Task<int?> GetAudioDurationSecondsAsync(string inputPath, CancellationToken ct) => Task.FromResult<int?>(5);
         public Task GenerateImageThumbnailAsync(string inputPath, string outputPath, int maxDimension, CancellationToken ct) => throw new NotSupportedException();
         public Task<IReadOnlyList<short>> GenerateWaveformPeaksAsync(string inputPath, int peakCount, CancellationToken ct) => Task.FromResult<IReadOnlyList<short>>([]);
+
+        public List<string> ConvertedToJpeg { get; } = [];
+
+        public virtual Task ConvertImageToJpegAsync(string inputPath, string outputPath, CancellationToken ct)
+        {
+            ConvertedToJpeg.Add(Path.GetFileName(inputPath));
+            File.WriteAllBytes(outputPath, [0xFF, 0xD8, 0xFF, 0xD9]);
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class CountingMediaProcessor : FakeMediaProcessor

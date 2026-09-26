@@ -21,6 +21,9 @@ public class FfmpegMediaProcessor(ILogger<FfmpegMediaProcessor> logger) : IMedia
     public Task GenerateImageThumbnailAsync(string inputPath, string outputPath, int maxDimension, CancellationToken ct) =>
         RunAsync("ffmpeg", FfmpegArgumentBuilder.GenerateImageThumbnail(inputPath, outputPath, maxDimension), ct);
 
+    public Task ConvertImageToJpegAsync(string inputPath, string outputPath, CancellationToken ct) =>
+        RunAsync("ffmpeg", FfmpegArgumentBuilder.ConvertImageToJpeg(inputPath, outputPath), ct);
+
     public async Task<int?> GetAudioDurationSecondsAsync(string inputPath, CancellationToken ct)
     {
         var output = await RunAsync("ffprobe", FfmpegArgumentBuilder.ProbeDurationSeconds(inputPath), ct);

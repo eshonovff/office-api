@@ -8,6 +8,7 @@ using Office.Api.Channels;
 using Office.Api.Channels.WhatsApp;
 using Office.Api.Data;
 using Office.Api.Data.Entities;
+using Office.Api.Media;
 using Office.Api.Realtime;
 
 namespace Office.Api.Channels.Instagram;
@@ -158,16 +159,22 @@ public class InstagramProvider(
     }
 
     /// <summary>
-    /// НАЗАРАСОН: message_attachments-и Facebook барои Instagram санҷиши зинда нашудааст —
-    /// ин ҷо ҳамон endpoint/шакл фарз карда шудааст (graph.instagram.com-и ҳамон host).
-    /// Агар Meta барои Instagram шакли дигар талаб кунад, ин метод бояд аввалин бошад, ки санҷида мешавад.
+    /// Uploads a file once (a reusable attachment_id for any later message). The attachment's
+    /// type MUST be the one it is sent as: Instagram accepts an image uploaded as "file" (200) but
+    /// then never sends it — POST /messages answers 500 "Service temporarily unavailable" (code 2,
+    /// is_transient), every time, whatever the size. Checked live 2026-09-26 on the same account,
+    /// same recipient: 106 KB and 1.2 MB images uploaded as "image" → sent (200); uploaded as
+    /// "file" → 500. This — not App Review, as was thought in August — is why images from flows
+    /// and broadcasts never arrived.
     /// </summary>
     public async Task<string> UploadMediaAsync(Channel channel, Stream content, string mimeType, string fileName, CancellationToken ct)
     {
         var credentials = GetCredentials(channel);
 
+        var attachmentType = ToInstagramAttachmentType(MediaUploadValidator.Classify(ChannelType.Instagram, mimeType).Type);
         using var form = new MultipartFormDataContent();
-        form.Add(new StringContent("""{"attachment":{"type":"file","payload":{"is_reusable":true}}}"""), "message");
+        form.Add(new StringContent(JsonSerializer.Serialize(
+            new { attachment = new { type = attachmentType, payload = new { is_reusable = true } } })), "message");
         using var streamContent = new StreamContent(content);
         // Parse (на конструктор): mimeType метавонад параметр дошта бошад (масалан
         // "audio/webm;codecs=opus"-и MediaRecorder-и браузер) — конструктори MediaTypeHeaderValue

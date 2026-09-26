@@ -37,6 +37,17 @@ public class FfmpegArgumentBuilderTests
     }
 
     [Fact]
+    public void ConvertImageToJpeg_OneFrame_AtMost4096Wide_NameKeptWhole()
+    {
+        var args = FfmpegArgumentBuilder.ConvertImageToJpeg("a.webp; rm -rf / #", "out put.jpg");
+
+        Assert.Single(args, a => a == "a.webp; rm -rf / #"); // one argument, never a shell string
+        Assert.Contains("scale='min(iw,4096)':-2", args); // a big photo is made smaller, a small one never bigger
+        Assert.Equal(["-frames:v", "1"], args.SkipWhile(a => a != "-frames:v").Take(2));
+        Assert.Equal("out put.jpg", args[^1]);
+    }
+
+    [Fact]
     public void ProbeDurationSeconds_TargetsFormatDurationOnly()
     {
         var args = FfmpegArgumentBuilder.ProbeDurationSeconds("voice.ogg");

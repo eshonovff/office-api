@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using Office.Api.Auth;
+using Office.Api.Channels;
 using Office.Api.Channels.WhatsApp;
 using Office.Api.Common;
 using Office.Api.Data;
@@ -24,6 +25,28 @@ public static class CustomerChatsEndpoints
 {
     public const string SendRateLimitPolicy = "customer-chat-send";
     public const string MediaBase = "/api/public/messages";
+
+    /// <summary>
+    /// What a мизоҷ may send in a chat — what Instagram delivers (checked live 2026-09-26), and
+    /// nothing a browser would run if the file were opened (no SVG, no HTML). WEBP/HEIC are
+    /// converted to JPEG by MediaSendJob before upload. Each maps to the extension it is stored with.
+    /// </summary>
+    public static readonly IReadOnlyDictionary<string, string> SendableMediaTypes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["image/jpeg"] = ".jpg",
+        ["image/png"] = ".png",
+        ["image/gif"] = ".gif",
+        ["image/webp"] = ".webp",
+        ["image/heic"] = ".heic",
+        ["image/heif"] = ".heif",
+        ["video/mp4"] = ".mp4",
+        ["video/quicktime"] = ".mov",
+        ["audio/mp4"] = ".m4a",
+        ["audio/x-m4a"] = ".m4a",
+        ["audio/aac"] = ".aac",
+        ["audio/mpeg"] = ".mp3",
+        ["application/pdf"] = ".pdf",
+    };
 
     private const int DefaultPageSize = 30;
     private const int MaxPageSize = 100;
@@ -59,6 +82,17 @@ public static class CustomerChatsEndpoints
             .WithSummary("Ҷавоби матнӣ — бо таъхири бекоркунӣ (мисли кормандон); тариф лозим")
             .Produces<MessageDto>(StatusCodes.Status201Created)
             .ProducesValidationProblem()
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status429TooManyRequests);
+
+        chats.MapPost("/{id:guid}/media", SendMediaAsync)
+            .DisableAntiforgery()
+            .RequireRateLimiting(SendRateLimitPolicy)
+            .WithSummary("Фиристодани сурат, видео, овоз ё PDF — тариф лозим")
+            .Produces<MessageDto>(StatusCodes.Status202Accepted)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict)
@@ -246,6 +280,104 @@ public static class CustomerChatsEndpoints
         await events.MessageSentAsync(conversation.ChannelId, assignedTo: null, dto, ct);
 
         return Results.Created($"/api/public/conversations/{id}/messages/{message.Id}", dto);
+    }
+
+    /// <summary>
+    /// A photo, video, audio or PDF into the мизоҷ's own chat — the same checks as a text reply
+    /// (their chat, a plan, a connected account, the 24-hour window), then MediaSendJob sends it
+    /// exactly as the staff inbox does. The file is stored under a new name with the extension of
+    /// its (allowed) type — never the name or path the browser gave.
+    /// </summary>
+    public static async Task<IResult> SendMediaAsync(
+        Guid id,
+        IFormFile file,
+        ClaimsPrincipal principal,
+        AppDbContext db,
+        IBackgroundJobClient backgroundJobs,
+        IConfiguration configuration,
+        IWebHostEnvironment env,
+        IInboxEventPublisher events,
+        CancellationToken ct)
+    {
+        var conversation = await db.Conversations.Include(c => c.Channel).FirstOrDefaultAsync(c => c.Id == id, ct);
+        if (conversation is null)
+            return Results.NotFound();
+
+        var customerId = principal.GetUserId();
+        if (await CustomerEntitlements.LoadLimitsAsync(customerId, db, configuration, ct) is null)
+            return CustomerEntitlements.NoAccessProblem();
+
+        if (!conversation.Channel.IsActive || conversation.Channel.RequiresReconnect)
+        {
+            return Results.Problem(
+                title: "Аккаунт пайваст нест",
+                detail: "Instagram-ро дар бахши «Автоматизатсия» аз нав пайваст кунед, баъд ҷавоб диҳед.",
+                statusCode: StatusCodes.Status409Conflict,
+                extensions: new Dictionary<string, object?> { ["code"] = "reconnect" });
+        }
+
+        if (conversation.WindowExpiresAt is { } windowEnd && windowEnd <= DateTimeOffset.UtcNow)
+        {
+            return Results.Problem(
+                title: "Вақти ҷавоб гузашт",
+                detail: "Instagram ҷавобро танҳо то 24 соат баъд аз паёми охирини мухлис иҷозат медиҳад.",
+                statusCode: StatusCodes.Status409Conflict,
+                extensions: new Dictionary<string, object?> { ["code"] = "window_closed" });
+        }
+
+        var mimeType = (file.ContentType ?? "").Split(';')[0].Trim().ToLowerInvariant();
+        if (!SendableMediaTypes.TryGetValue(mimeType, out var extension) || !ChannelCapabilities.CanSendMedia(conversation.Channel.Type))
+        {
+            return Results.Problem(
+                title: "Ин навъи файл фиристода намешавад",
+                detail: "Сурат (JPG, PNG, GIF, WEBP, HEIC), видео (MP4, MOV), овоз (M4A, MP3) ё PDF фиристед.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        var (messageType, maxSizeBytes) = MediaUploadValidator.Classify(conversation.Channel.Type, mimeType);
+        if (!MediaUploadValidator.IsWithinLimit(conversation.Channel.Type, mimeType, file.Length))
+        {
+            return Results.Problem(
+                title: "Файл калон аст",
+                detail: $"Барои ин навъи файл ҳадди аксар {maxSizeBytes / (1024 * 1024)} МБ аст.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        var rootPath = UploadsPathResolver.ResolveRootPath(configuration, env);
+        var relativePath = Path.Combine("whatsapp-media", conversation.ChannelId.ToString(), $"{Guid.CreateVersion7()}{extension}");
+        var fullPath = Path.Combine(rootPath, relativePath);
+        Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+        await using (var stream = File.Create(fullPath))
+            await file.CopyToAsync(stream, ct);
+
+        var senderName = await db.Customers.AsNoTracking()
+            .Where(c => c.Id == customerId).Select(c => c.FullName).FirstAsync(ct);
+        var originalName = Path.GetFileName(file.FileName ?? "");
+        var message = new Message
+        {
+            Id = Guid.CreateVersion7(),
+            ConversationId = conversation.Id,
+            Direction = MessageDirection.Outbound,
+            Type = messageType,
+            MediaUrl = relativePath,
+            MimeType = mimeType,
+            SizeBytes = file.Length,
+            OriginalFileName = string.IsNullOrWhiteSpace(originalName) ? null : originalName.Length > 200 ? originalName[..200] : originalName,
+            DeliveryStatus = MessageDeliveryStatus.Pending,
+            // SentByUserId points at staff users — a мизоҷ is not one; the name snapshot is enough.
+            SentByUserId = null,
+            SentByUserName = senderName,
+            CreatedAt = DateTimeOffset.UtcNow,
+        };
+        db.Messages.Add(message);
+        await db.SaveChangesAsync(ct);
+
+        backgroundJobs.Enqueue<MediaSendJob>(j => j.SendAsync(message.Id, false, CancellationToken.None));
+
+        var dto = MessageDto.FromEntity(message, MediaBase);
+        await events.MessageSentAsync(conversation.ChannelId, assignedTo: null, dto, ct);
+
+        return Results.Accepted($"/api/public/conversations/{id}/messages/{message.Id}", dto);
     }
 
     /// <summary>
