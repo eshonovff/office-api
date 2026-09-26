@@ -51,7 +51,6 @@ public class MediaUploadValidatorTests
     }
 
     [Theory]
-    [InlineData(ChannelType.Instagram, "image/jpeg", MessageType.Image)]
     [InlineData(ChannelType.Instagram, "video/mp4", MessageType.Video)]
     [InlineData(ChannelType.Instagram, "application/pdf", MessageType.File)]
     [InlineData(ChannelType.Facebook, "image/jpeg", MessageType.Image)]
@@ -65,15 +64,25 @@ public class MediaUploadValidatorTests
         Assert.Equal(MediaUploadValidator.MessengerAttachmentMaxBytes, maxSizeBytes);
     }
 
-    [Theory]
-    [InlineData(ChannelType.Instagram)]
-    [InlineData(ChannelType.Facebook)]
-    public void IsWithinLimit_MessengerImageAt20MB_ReturnsTrue_EvenThoughItWouldFailOnWhatsApp(ChannelType channelType)
+    [Fact]
+    public void Classify_InstagramImage_HasInstagramsOwn8MBLimit()
+    {
+        var (type, maxSizeBytes) = MediaUploadValidator.Classify(ChannelType.Instagram, "image/jpeg");
+
+        Assert.Equal(MessageType.Image, type);
+        Assert.Equal(8 * 1024 * 1024, maxSizeBytes);
+        Assert.True(MediaUploadValidator.IsWithinLimit(ChannelType.Instagram, "image/png", 8 * 1024 * 1024));
+        Assert.False(MediaUploadValidator.IsWithinLimit(ChannelType.Instagram, "image/png", 8 * 1024 * 1024 + 1));
+    }
+
+    [Fact]
+    public void IsWithinLimit_FacebookImageAt20MB_ReturnsTrue_EvenThoughItWouldFailOnWhatsAppAndInstagram()
     {
         const long twentyMb = 20 * 1024 * 1024;
 
-        Assert.True(MediaUploadValidator.IsWithinLimit(channelType, "image/jpeg", twentyMb));
+        Assert.True(MediaUploadValidator.IsWithinLimit(ChannelType.Facebook, "image/jpeg", twentyMb));
         Assert.False(MediaUploadValidator.IsWithinLimit(ChannelType.WhatsApp, "image/jpeg", twentyMb));
+        Assert.False(MediaUploadValidator.IsWithinLimit(ChannelType.Instagram, "image/jpeg", twentyMb));
     }
 
     [Theory]
@@ -99,14 +108,40 @@ public class MediaUploadValidatorTests
             limits);
     }
 
-    [Theory]
-    [InlineData(ChannelType.Instagram)]
-    [InlineData(ChannelType.Facebook)]
-    public void LimitsFor_MessengerChannels_AllThreeCategoriesShareTheSameFlatLimit(ChannelType channelType)
+    [Fact]
+    public void LimitsFor_Facebook_AllThreeCategoriesShareTheSameFlatLimit()
     {
-        var limits = MediaUploadValidator.LimitsFor(channelType);
+        var limits = MediaUploadValidator.LimitsFor(ChannelType.Facebook);
 
         Assert.All(limits, limit => Assert.Equal(MediaUploadValidator.MessengerAttachmentMaxBytes, limit.MaxSizeBytes));
         Assert.Equal(["image", "audioVideo", "document"], limits.Select(l => l.Category));
     }
+
+    [Fact]
+    public void LimitsFor_Instagram_ImagesHave8MB_TheRest25MB()
+    {
+        Assert.Equal(
+            new[]
+            {
+                new MediaTypeLimit("image", 8 * 1024 * 1024),
+                new MediaTypeLimit("audioVideo", MediaUploadValidator.MessengerAttachmentMaxBytes),
+                new MediaTypeLimit("document", MediaUploadValidator.MessengerAttachmentMaxBytes),
+            },
+            MediaUploadValidator.LimitsFor(ChannelType.Instagram));
+    }
+
+    [Theory]
+    [InlineData(ChannelType.Instagram, "image/webp", true)]
+    [InlineData(ChannelType.Instagram, "image/heic", true)]
+    [InlineData(ChannelType.Instagram, "image/bmp", true)]
+    [InlineData(ChannelType.Facebook, "image/webp", true)]
+    [InlineData(ChannelType.Instagram, "image/jpeg", false)]
+    [InlineData(ChannelType.Instagram, "image/png", false)]
+    [InlineData(ChannelType.Instagram, "image/gif", false)]
+    [InlineData(ChannelType.Instagram, "IMAGE/JPEG", false)]
+    [InlineData(ChannelType.Instagram, "video/mp4", false)]
+    [InlineData(ChannelType.Instagram, "application/pdf", false)]
+    [InlineData(ChannelType.WhatsApp, "image/webp", false)] // WhatsApp is left as it was
+    public void NeedsJpegConversion_OnlyImagesMetaWontTake(ChannelType channelType, string mimeType, bool expected) =>
+        Assert.Equal(expected, MediaUploadValidator.NeedsJpegConversion(channelType, mimeType));
 }

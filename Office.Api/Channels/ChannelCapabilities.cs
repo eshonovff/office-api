@@ -9,7 +9,11 @@ namespace Office.Api.Channels;
 ///
 /// Instagram (санҷида зинда 2026-08-25): message_attachments 200 мегардонад, вале POST
 /// /messages бо ҳамон attachment_id ҲАМЕША 500 "Service temporarily unavailable" (code 2,
-/// is_transient) медиҳад — то Meta App Review нагузарад. Аз ин рӯ false.
+/// is_transient) медиҳад. Он вақт гумон шуд, ки сабаб App Review аст — **нодуруст.** Сабаби
+/// аслӣ (санҷида зинда 2026-09-26): InstagramProvider.UploadMediaAsync ҳама чизро ҳамчун "file"
+/// бор мекард. Бо навъи дуруст ҳама расиданд: сурат (106 KB, 1.2 MB), видео (mp4), овоз (m4a —
+/// ҳамон формате, ки MediaSendJob месозад), PDF. WEBP-ро Instagram рад мекунад (500, code 1) —
+/// MediaSendJob онро пеш аз боркунӣ ба JPEG табдил медиҳад. Аз ин рӯ Instagram — true.
 ///
 /// Facebook (санҷида зинда 2026-08-26, ниг. report): 3 паёми ноком дар DB (subcode 2018074,
 /// "Не удалось скачать вложение с помощью его ID") бо скрипти мустақил (бе Hangfire, ҳамон
@@ -27,7 +31,9 @@ namespace Office.Api.Channels;
 /// </summary>
 public static class ChannelCapabilities
 {
-    public static bool CanSendMedia(ChannelType channelType) => channelType is ChannelType.WhatsApp or ChannelType.Facebook;
+    public static bool CanSendMedia(ChannelType channelType) =>
+        channelType is ChannelType.WhatsApp or ChannelType.Facebook or ChannelType.Instagram;
 
-    public static bool CanSendVoice(ChannelType channelType) => channelType is ChannelType.WhatsApp or ChannelType.Facebook;
+    public static bool CanSendVoice(ChannelType channelType) =>
+        channelType is ChannelType.WhatsApp or ChannelType.Facebook or ChannelType.Instagram;
 }

@@ -15,6 +15,9 @@ public interface IMediaProcessor
 
     Task GenerateImageThumbnailAsync(string inputPath, string outputPath, int maxDimension, CancellationToken ct);
 
+    /// <summary>An image in a format Meta refuses (WEBP — checked live 2026-09-26: 500, code 1) as a JPEG.</summary>
+    Task ConvertImageToJpegAsync(string inputPath, string outputPath, CancellationToken ct);
+
     Task<IReadOnlyList<short>> GenerateWaveformPeaksAsync(string inputPath, int peakCount, CancellationToken ct);
 }
 

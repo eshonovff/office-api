@@ -35,6 +35,20 @@ public static class FfmpegArgumentBuilder
         outputPath,
     ];
 
+    /// <summary>
+    /// Any image ffmpeg can read (WEBP, HEIC, BMP…) as a JPEG — the first frame, at most 4096 px
+    /// wide (a phone photo stays sharp and well under Instagram's 8 MB).
+    /// </summary>
+    public static IReadOnlyList<string> ConvertImageToJpeg(string inputPath, string outputPath) =>
+    [
+        "-y",
+        "-i", inputPath,
+        "-frames:v", "1",
+        "-vf", "scale='min(iw,4096)':-2",
+        "-q:v", "3",
+        outputPath,
+    ];
+
     public static IReadOnlyList<string> ProbeDurationSeconds(string inputPath) =>
     [
         "-v", "error",

@@ -27,6 +27,24 @@ public static class MediaUploadValidator
 
     public const long MessengerAttachmentMaxBytes = 25 * 1024 * 1024;
 
+    /// <summary>Instagram's own limit for an image in a message (Meta: image — 8 MB; the rest 25 MB).</summary>
+    public const long InstagramImageMaxBytes = 8 * 1024 * 1024;
+
+    // What Meta sends as an image in Instagram and Messenger. Anything else is converted first.
+    private static readonly HashSet<string> MessengerImageTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "image/jpeg", "image/jpg", "image/png", "image/gif",
+    };
+
+    /// <summary>
+    /// An image Instagram/Facebook won't take as it is (WEBP — refused live 2026-09-26 with 500,
+    /// code 1; HEIC, BMP, …): it is converted to a JPEG before upload. WhatsApp is left as it was.
+    /// </summary>
+    public static bool NeedsJpegConversion(ChannelType channelType, string mimeType) =>
+        channelType is ChannelType.Instagram or ChannelType.Facebook
+        && ClassifyType(mimeType) == MessageType.Image
+        && !MessengerImageTypes.Contains(mimeType.Split(';')[0].Trim());
+
     public static (MessageType Type, long MaxSizeBytes) Classify(ChannelType channelType, string mimeType)
     {
         var type = ClassifyType(mimeType);
@@ -63,6 +81,8 @@ public static class MediaUploadValidator
 
     private static long MaxBytesFor(ChannelType channelType, MessageType type)
     {
+        if (channelType == ChannelType.Instagram && type == MessageType.Image)
+            return InstagramImageMaxBytes;
         if (channelType != ChannelType.WhatsApp)
             return MessengerAttachmentMaxBytes;
 

@@ -107,6 +107,16 @@ public class MediaSendJob(
                 await db.SaveChangesAsync(ct);
             }
 
+            // WEBP, HEIC, … — Instagram refuses them as images (WEBP: 500, code 1, checked live
+            // 2026-09-26): a JPEG of the same picture goes instead. Saved at once, like the voice
+            // note above, so a retry never converts twice.
+            if (!isVoiceNote && message.Type == MessageType.Image &&
+                MediaUploadValidator.NeedsJpegConversion(channel.Type, message.MimeType ?? ""))
+            {
+                await ConvertImageToJpegAsync(message, rootPath, ct);
+                await db.SaveChangesAsync(ct);
+            }
+
             var fullPath = Path.Combine(rootPath, message.MediaUrl!);
 
             // Ҳамон вазифае, ки MediaDownloadJob барои Audio-и воридотӣ иҷро мекунад —
@@ -170,6 +180,26 @@ public class MediaSendJob(
 
         await db.SaveChangesAsync(ct);
         await PublishAsync(channel.Id, conversation.AssignedTo, message, ct);
+    }
+
+    private async Task ConvertImageToJpegAsync(Message message, string rootPath, CancellationToken ct)
+    {
+        var sourceFullPath = Path.Combine(rootPath, message.MediaUrl!);
+        var targetRelativePath = Path.ChangeExtension(message.MediaUrl!, ".jpg");
+        if (targetRelativePath == message.MediaUrl) // a WEBP named ".jpg" — never write over what is being read
+            targetRelativePath = Path.ChangeExtension(message.MediaUrl!, null) + "-converted.jpg";
+        var targetFullPath = Path.Combine(rootPath, targetRelativePath);
+
+        await mediaProcessor.ConvertImageToJpegAsync(sourceFullPath, targetFullPath, ct);
+
+        message.MimeType = "image/jpeg";
+        message.MediaUrl = targetRelativePath;
+        message.SizeBytes = new FileInfo(targetFullPath).Length;
+        if (message.OriginalFileName is not null)
+            message.OriginalFileName = Path.ChangeExtension(message.OriginalFileName, ".jpg");
+
+        if (File.Exists(sourceFullPath))
+            File.Delete(sourceFullPath);
     }
 
     private async Task TranscodeVoiceNoteAsync(Message message, ChannelType channelType, string rootPath, CancellationToken ct)
