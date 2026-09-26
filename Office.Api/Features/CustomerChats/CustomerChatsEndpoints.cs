@@ -11,6 +11,7 @@ using Office.Api.Features.Conversations;
 using Office.Api.Features.Subscriptions;
 using Office.Api.Media;
 using Office.Api.Realtime;
+using Office.Api.Channels.ContactProfiles;
 
 namespace Office.Api.Features.CustomerChats;
 
@@ -82,6 +83,11 @@ public static class CustomerChatsEndpoints
         chats.MapGet("/{id:guid}", GetAsync)
             .WithSummary("Як чат")
             .Produces<CustomerConversationDetail>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        chats.MapGet("/{id:guid}/avatar", AvatarAsync)
+            .WithSummary("Сурати контакт (нусхаи худамон, 128 px)")
+            .Produces(StatusCodes.Status200OK, contentType: "image/jpeg")
             .ProducesProblem(StatusCodes.Status404NotFound);
 
         chats.MapGet("/{id:guid}/messages", ListMessagesAsync)
@@ -194,7 +200,7 @@ public static class CustomerChatsEndpoints
 
         var items = rows.Select(r => new CustomerConversationListItem(
             r.Conversation.Id, r.Conversation.ChannelId, r.Type.ToString(), r.ChannelName,
-            r.Conversation.ContactName, r.Conversation.ContactAvatarUrl, r.Conversation.ContactUsername,
+            r.Conversation.ContactName, ContactAvatarFiles.CustomerLink(r.Conversation.Id, r.Conversation.ContactAvatarPath), r.Conversation.ContactUsername,
             r.Conversation.LastMessageAt,
             r.Last is null ? null : new CustomerLastMessage(r.Last.Type.ToString(), r.Last.Direction.ToString(), r.Last.Body),
             r.Conversation.UnreadCount, r.Conversation.WindowExpiresAt, r.Conversation.CreatedAt)).ToList();
@@ -233,6 +239,17 @@ public static class CustomerChatsEndpoints
 
         var items = messages.Select(m => MessageDto.FromEntity(m, MediaBase)).ToList();
         return Results.Ok(new PagedResult<MessageDto>(items, totalCount, resolvedPage, resolvedPageSize));
+    }
+
+    /// <summary>The contact's picture — only of the мизоҷ's own chat (tenant filter); another's is "not found".</summary>
+    public static async Task<IResult> AvatarAsync(
+        Guid id, AppDbContext db, HttpContext http, IConfiguration configuration, IWebHostEnvironment env, CancellationToken ct)
+    {
+        var conversation = await db.Conversations.AsNoTracking()
+            .Where(c => c.Id == id)
+            .Select(c => new { c.ContactAvatarPath })
+            .FirstOrDefaultAsync(ct);
+        return conversation is null ? Results.NotFound() : ContactAvatarFiles.Serve(conversation.ContactAvatarPath, http, configuration, env);
     }
 
     /// <summary>
@@ -574,7 +591,7 @@ public static class CustomerChatsEndpoints
         var canSend = await CustomerEntitlements.LoadLimitsAsync(principal.GetUserId(), db, configuration, ct) is not null;
         return new CustomerConversationDetail(
             c.Id, c.ChannelId, c.Channel.Type.ToString(), c.Channel.Name,
-            c.ContactName, c.ContactAvatarUrl, c.ContactUsername,
+            c.ContactName, ContactAvatarFiles.CustomerLink(c.Id, c.ContactAvatarPath), c.ContactUsername,
             c.LastMessageAt, c.UnreadCount, c.WindowExpiresAt, c.CreatedAt,
             canSend, ChannelNeedsReconnect: !c.Channel.IsActive || c.Channel.RequiresReconnect);
     }

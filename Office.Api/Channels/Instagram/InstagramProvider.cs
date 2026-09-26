@@ -517,22 +517,11 @@ public class InstagramProvider(
         return new InstagramMediaPage(items, nextCursor);
     }
 
-    public async Task<ContactProfile> GetContactProfileAsync(Channel channel, string contactExternalId, CancellationToken ct)
-    {
-        var (profile, _) = await FetchContactProfileAsync(channel, contactExternalId, ct);
-        return profile;
-    }
-
     /// <summary>
-    /// Барои InstagramContactProfileBackfillJob — фоизи истифодаи rate-limit-ро (X-App-Usage)
-    /// низ медиҳад, то job пеш аз расидан ба маҳдудият дар байни дархостҳо суст шавад.
+    /// Name, @username and picture link. Instagram answers only about a person who has written to
+    /// the account — before that it is an error, logged, and Empty (ContactProfilePolicy asks again).
     /// </summary>
-    public Task<(ContactProfile Profile, int? RateLimitCallVolumePercent)> GetContactProfileWithUsageAsync(
-        Channel channel, string contactExternalId, CancellationToken ct) =>
-        FetchContactProfileAsync(channel, contactExternalId, ct);
-
-    private async Task<(ContactProfile Profile, int? RateLimitCallVolumePercent)> FetchContactProfileAsync(
-        Channel channel, string contactExternalId, CancellationToken ct)
+    public async Task<ContactProfile> GetContactProfileAsync(Channel channel, string contactExternalId, CancellationToken ct)
     {
         var credentials = GetCredentials(channel);
         using var request = new HttpRequestMessage(
@@ -541,14 +530,13 @@ public class InstagramProvider(
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credentials.AccessToken);
 
         var response = await httpClient.SendAsync(request, ct);
-        var callVolumePercent = MetaRateLimitHeaders.TryGetCallVolumePercent(response.Headers);
 
         if (!response.IsSuccessStatusCode)
         {
             var body = await response.Content.ReadAsStringAsync(ct);
             logger.LogWarning(
                 "Instagram контакт {ContactExternalId} гирифта нашуд: {StatusCode} {Body}", contactExternalId, (int)response.StatusCode, body);
-            return (ContactProfile.Empty, callVolumePercent);
+            return ContactProfile.Empty;
         }
 
         using var doc = JsonDocument.Parse(await response.Content.ReadAsStreamAsync(ct));
@@ -558,7 +546,7 @@ public class InstagramProvider(
         var name = doc.RootElement.TryGetProperty("name", out var nameEl) ? nameEl.GetString() : null;
         var avatarUrl = doc.RootElement.TryGetProperty("profile_pic", out var picEl) ? picEl.GetString() : null;
 
-        return (new ContactProfile(string.IsNullOrEmpty(name) ? username : name, avatarUrl, username), callVolumePercent);
+        return new ContactProfile(string.IsNullOrEmpty(name) ? username : name, avatarUrl, username);
     }
 
     private static object BuildMessagePayload(string conversationExternalId, object message, string? messageTag) =>

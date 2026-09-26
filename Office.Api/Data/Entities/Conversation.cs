@@ -19,6 +19,12 @@ public class Conversation
     /// </summary>
     public DateTimeOffset? ContactProfileFetchedAt { get; set; }
 
+    /// <summary>
+    /// Our own small copy of the contact's picture (whatsapp-media/{channelId}/avatars/…jpg) —
+    /// Meta's link in ContactAvatarUrl stops working after ~4 days. Null: none yet.
+    /// </summary>
+    public string? ContactAvatarPath { get; set; }
+
     public ConversationStatus Status { get; set; } = ConversationStatus.New;
 
     public Guid? AssignedTo { get; set; }
