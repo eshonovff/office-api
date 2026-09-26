@@ -77,12 +77,13 @@ public class ChannelDataEraserTests
         var broadcastId = Guid.NewGuid();
         db.Broadcasts.Add(new Broadcast { Id = broadcastId, ChannelId = channelId, Name = tag, Text = tag, ScheduledAt = now, CreatedAt = now });
         db.BroadcastRecipients.Add(new BroadcastRecipient { BroadcastId = broadcastId, ContactId = contactId });
+        db.FlowConversions.Add(new FlowConversion { FlowId = flowId, ContactId = contactId, CreatedAt = now });
         _seeded[tag] = new Seeded(contactId, ruleId, flowId, sessionId, broadcastId);
         return channelId;
     }
 
     /// <summary>
-    /// Row counts in all 17 channel-owned tables — read with the tenant filters OFF: a filter that
+    /// Row counts in all 18 channel-owned tables — read with the tenant filters OFF: a filter that
     /// joins to the channel would hide rows left behind by a deleted channel (the in-memory
     /// provider has no foreign keys to cascade), and a leftover is exactly what this must catch.
     /// </summary>
@@ -110,11 +111,12 @@ public class ChannelDataEraserTests
             db.InstagramComments.IgnoreQueryFilters().Count(c => c.ChannelId == channelId),
             db.Broadcasts.IgnoreQueryFilters().Count(b => b.Id == ids.BroadcastId),
             db.BroadcastRecipients.IgnoreQueryFilters().Count(r => r.BroadcastId == ids.BroadcastId),
+            db.FlowConversions.IgnoreQueryFilters().Count(c => c.FlowId == ids.FlowId),
         ];
     }
 
-    private static readonly int[] Full = Enumerable.Repeat(1, 17).ToArray();
-    private static readonly int[] Gone = new int[17];
+    private static readonly int[] Full = Enumerable.Repeat(1, 18).ToArray();
+    private static readonly int[] Gone = new int[18];
 
     [Fact]
     public async Task Erase_RemovesTheWholeTree_AndNothingElse()

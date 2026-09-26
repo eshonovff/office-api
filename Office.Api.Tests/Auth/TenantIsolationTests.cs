@@ -99,11 +99,12 @@ public class TenantIsolationTests
         });
         db.Broadcasts.Add(new Broadcast { Id = broadcastId, ChannelId = channelId, Name = tag, Text = tag, ScheduledAt = now, CreatedAt = now });
         db.BroadcastRecipients.Add(new BroadcastRecipient { BroadcastId = broadcastId, ContactId = conversationId });
+        db.FlowConversions.Add(new FlowConversion { FlowId = flowId, ContactId = conversationId, CreatedAt = now });
         return channelId;
     }
 
     /// <summary>
-    /// What each of the 17 channel-owned tables shows this caller. Only the table's OWN columns
+    /// What each of the 18 channel-owned tables shows this caller. Only the table's OWN columns
     /// are read — never a navigation: a navigation join applies the parent's filter as well and
     /// would hide a missing filter on the table itself (while a plain Where on ConversationId
     /// in real code would leak). Verified: removing any one table's filter fails these tests.
@@ -131,6 +132,7 @@ public class TenantIsolationTests
             ["instagram_comments"] = Owners(db.InstagramComments.Select(c => c.Id)),
             ["broadcasts"] = Owners(db.Broadcasts.Select(b => b.Id)),
             ["broadcast_recipients"] = Owners(db.BroadcastRecipients.Select(r => r.BroadcastId)),
+            ["flow_conversions"] = Owners(db.FlowConversions.Select(c => c.FlowId)),
         };
     }
 

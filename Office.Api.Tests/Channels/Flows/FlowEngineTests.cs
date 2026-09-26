@@ -940,4 +940,107 @@ public class FlowEngineTests
 
         Assert.Empty(await db.FlowSessions.ToListAsync());
     }
+
+    // ── Phase 19: what the analytics count ──────────────────────────────────────────────────
+
+    private static FlowNode GoalNode(Guid flowId) =>
+        MakeNode(flowId, FlowNodeType.Action, new ActionNodeConfig(ActionNodeConfig.KindConversion));
+
+    [Fact]
+    public async Task AConversionStep_CountsThePersonOnce_AndTheFlowGoesOn()
+    {
+        await using var db = CreateDb();
+        var channel = MakeChannel();
+        var contact = MakeContact(channel.Id);
+        var flow = MakeFlow(channel.Id);
+        var goal = GoalNode(flow.Id);
+        var after = MakeNode(flow.Id, FlowNodeType.Message, new MessageNodeConfig([new MessageBlock(MessageBlock.TypeText, "Ташаккур!", null)], []));
+        db.Channels.Add(channel);
+        db.Conversations.Add(contact);
+        db.Flows.Add(flow);
+        db.FlowNodes.AddRange(goal, after);
+        db.FlowEdges.Add(MakeEdge(flow.Id, goal.Id, "default", after.Id));
+        await db.SaveChangesAsync();
+
+        var (_, handler, _, engine) = MakeEngine(db);
+        await engine.StartAsync(flow, contact.Id, CancellationToken.None);
+        await engine.StartAsync(flow, contact.Id, CancellationToken.None); // the same person again
+
+        var conversion = Assert.Single(await db.FlowConversions.ToListAsync());
+        Assert.Equal((flow.Id, contact.Id, goal.Id), (conversion.FlowId, conversion.ContactId, conversion.NodeId));
+        Assert.Equal(2, handler.RequestUrls.Count); // the message after the goal went both times
+        Assert.All(await db.FlowSessions.ToListAsync(), s => Assert.Equal(FlowSessionStatus.Finished, s.Status));
+    }
+
+    [Fact]
+    public async Task AConversion_IsAlwaysTheSessionsOwnFlowAndPerson()
+    {
+        await using var db = CreateDb();
+        var channel = MakeChannel();
+        var person = MakeContact(channel.Id);
+        var other = MakeContact(channel.Id);
+        other.ExternalId = "other-person";
+        var flow = MakeFlow(channel.Id);
+        var otherFlow = MakeFlow(channel.Id);
+        db.Channels.Add(channel);
+        db.Conversations.AddRange(person, other);
+        db.Flows.AddRange(flow, otherFlow);
+        db.FlowNodes.AddRange(GoalNode(flow.Id), GoalNode(otherFlow.Id));
+        // The other person already reached the other flow's goal — that must not stop this one.
+        db.FlowConversions.Add(new FlowConversion { FlowId = otherFlow.Id, ContactId = other.Id, CreatedAt = DateTimeOffset.UtcNow });
+        await db.SaveChangesAsync();
+
+        var (_, _, _, engine) = MakeEngine(db);
+        await engine.StartAsync(flow, person.Id, CancellationToken.None);
+
+        Assert.Equal(
+            [(otherFlow.Id, other.Id), (flow.Id, person.Id)],
+            (await db.FlowConversions.OrderBy(c => c.CreatedAt).ToListAsync()).Select(c => (c.FlowId, c.ContactId)));
+    }
+
+    [Fact]
+    public async Task AButtonClick_IsRecordedAsAStepOfItsMessage()
+    {
+        await using var db = CreateDb();
+        var channel = MakeChannel();
+        var contact = MakeContact(channel.Id);
+        var flow = MakeFlow(channel.Id);
+        var buttonNode = MakeNode(flow.Id, FlowNodeType.Message,
+            new MessageNodeConfig([new MessageBlock(MessageBlock.TypeText, "Интихоб кунед", null)],
+                [new MessageButton("Ҳа", MessageButton.ActionNext, null, false), new MessageButton("Не", MessageButton.ActionNext, null, false)]));
+        db.Channels.Add(channel);
+        db.Conversations.Add(contact);
+        db.Flows.Add(flow);
+        db.FlowNodes.Add(buttonNode);
+        await db.SaveChangesAsync();
+
+        var (_, _, _, engine) = MakeEngine(db);
+        await engine.StartAsync(flow, contact.Id, CancellationToken.None);
+        var session = await db.FlowSessions.SingleAsync();
+        await engine.ResumeFromButtonAsync($"{session.Id}:{buttonNode.Id}:1", CancellationToken.None);
+
+        var steps = await db.FlowSessionSteps.Where(s => s.NodeId == buttonNode.Id).OrderBy(s => s.CreatedAt).ToListAsync();
+        Assert.Equal([null, "button:1"], steps.Select(s => s.FromPort)); // the message, then the click on "Не"
+    }
+
+    [Fact]
+    public async Task AMessageThatWaitedForAClosedWindow_IsMarkedNotSent()
+    {
+        await using var db = CreateDb();
+        var channel = MakeChannel();
+        var contact = MakeContact(channel.Id, windowExpiresAt: DateTimeOffset.UtcNow.AddHours(-1));
+        var flow = MakeFlow(channel.Id);
+        var node = MakeNode(flow.Id, FlowNodeType.Message, new MessageNodeConfig([new MessageBlock(MessageBlock.TypeText, "Салом!", null)], []));
+        db.Channels.Add(channel);
+        db.Conversations.Add(contact);
+        db.Flows.Add(flow);
+        db.FlowNodes.Add(node);
+        await db.SaveChangesAsync();
+
+        var (_, handler, _, engine) = MakeEngine(db);
+        await engine.StartAsync(flow, contact.Id, CancellationToken.None);
+
+        Assert.Empty(handler.RequestUrls);
+        Assert.Equal(FlowEngine.NotSentPort, (await db.FlowSessionSteps.SingleAsync()).FromPort);
+    }
 }

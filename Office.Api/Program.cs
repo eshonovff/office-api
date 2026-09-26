@@ -43,6 +43,7 @@ using Office.Api.Features.Roles;
 using Office.Api.Features.Tasks;
 using Office.Api.Features.Subscriptions;
 using Office.Api.Features.CustomerAccount;
+using Office.Api.Features.CustomerAnalytics;
 using Office.Api.Features.CustomerBroadcasts;
 using Office.Api.Features.CustomerChannels;
 using Office.Api.Features.CustomerChats;
@@ -352,14 +353,16 @@ builder.Services.AddRateLimiter(options =>
     // actions (CustomerCommentsEndpoints), each its own bucket: a burst would get their account
     // rate-limited or flagged by Meta. The contacts export is its own, tighter bucket: it hands
     // out personal data in bulk; so is creating a broadcast — each one messages many people. The
-    // limiter runs before authentication, so the bucket is the bearer token itself (one
-    // session), else the address.
+    // analytics reads are heavy (a year of rows), so they have a bucket too. The limiter runs
+    // before authentication, so the bucket is the bearer token itself (one session), else the
+    // address.
     foreach (var (policy, permitLimit) in new[]
     {
         (CustomerChatsEndpoints.SendRateLimitPolicy, 30),
         (CustomerCommentsEndpoints.ActionRateLimitPolicy, 30),
         (CustomerContactsEndpoints.ExportRateLimitPolicy, 5),
         (CustomerBroadcastsEndpoints.CreateRateLimitPolicy, 5),
+        (CustomerAnalyticsEndpoints.RateLimitPolicy, 60),
     })
     {
         options.AddPolicy(policy, context =>
@@ -534,6 +537,7 @@ app.MapCustomerCommentsEndpoints();
 app.MapCustomerCommentRulesEndpoints();
 app.MapCustomerContactsEndpoints();
 app.MapCustomerBroadcastsEndpoints();
+app.MapCustomerAnalyticsEndpoints();
 app.MapCustomerSubscriptionsEndpoints();
 app.MapCustomerChannelsEndpoints();
 app.MapCustomerFlowsEndpoints();

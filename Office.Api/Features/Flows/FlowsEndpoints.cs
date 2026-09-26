@@ -377,14 +377,17 @@ public static class FlowsEndpoints
         return Results.NoContent();
     }
 
-    internal static async Task<IResult> StatsAsync(Guid id, AppDbContext db, CancellationToken ct)
+    public static async Task<IResult> StatsAsync(Guid id, AppDbContext db, CancellationToken ct)
     {
         if (!await db.Flows.AnyAsync(f => f.Id == id, ct))
             return Results.NotFound();
 
-        var sessions = await db.FlowSessions.Where(s => s.FlowId == id)
-            .Select(s => s.Status)
+        // Counted in the database — not every session of a busy flow pulled into memory.
+        var statusCounts = await db.FlowSessions.Where(s => s.FlowId == id)
+            .GroupBy(s => s.Status)
+            .Select(g => new { Status = g.Key, Count = g.Count() })
             .ToListAsync(ct);
+        int Count(params FlowSessionStatus[] statuses) => statusCounts.Where(x => statuses.Contains(x.Status)).Sum(x => x.Count);
 
         var nodeStats = await db.FlowSessionSteps
             .Where(s => s.Session.FlowId == id)
@@ -401,13 +404,27 @@ public static class FlowsEndpoints
             .Select(s => new FlowFailure(s.Id, s.Error!, s.CreatedAt))
             .ToListAsync(ct);
 
+        // A click is a step on its message node, leaving by "button:N" — each person counted once.
+        var buttonRows = await db.FlowSessionSteps
+            .Where(s => s.Session.FlowId == id && s.FromPort != null && s.FromPort.StartsWith(FlowEngine.ButtonPortPrefix))
+            .GroupBy(s => new { s.NodeId, s.FromPort })
+            .Select(g => new { g.Key.NodeId, g.Key.FromPort, Count = g.Select(x => x.SessionId).Distinct().Count() })
+            .ToListAsync(ct);
+        var buttons = buttonRows
+            .Select(r => (r.NodeId, Parsed: int.TryParse(r.FromPort![FlowEngine.ButtonPortPrefix.Length..], out var index) ? index : -1, r.Count))
+            .Where(r => r.Parsed >= 0)
+            .Select(r => new FlowButtonStat(r.NodeId, r.Parsed, r.Count))
+            .ToList();
+
         return Results.Ok(new FlowStats(
-            TotalSessions: sessions.Count,
-            FinishedSessions: sessions.Count(s => s == FlowSessionStatus.Finished),
-            ActiveOrWaitingSessions: sessions.Count(s => s is FlowSessionStatus.Active or FlowSessionStatus.Waiting),
-            FailedSessions: sessions.Count(s => s == FlowSessionStatus.Failed),
+            TotalSessions: statusCounts.Sum(x => x.Count),
+            FinishedSessions: Count(FlowSessionStatus.Finished),
+            ActiveOrWaitingSessions: Count(FlowSessionStatus.Active, FlowSessionStatus.Waiting),
+            FailedSessions: Count(FlowSessionStatus.Failed),
             Nodes: nodeStats,
-            RecentFailures: recentFailures));
+            RecentFailures: recentFailures,
+            Buttons: buttons,
+            Conversions: await db.FlowConversions.CountAsync(c => c.FlowId == id, ct)));
     }
 
     private static FlowDetail ToDetail(Flow flow, List<FlowNode> nodes, List<FlowEdge> edges) => new(
