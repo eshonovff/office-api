@@ -101,7 +101,12 @@ public class MediaSendJob(
             // occurred" — хатои норавшан, на возеҳ). WhatsApp баръакс: ogg/opus-ро ҳамчун voice
             // note интизор аст (документатсияи расмии Cloud API). Ду формат, ду роҳ.
             var targetMimeType = channel.Type is ChannelType.Facebook or ChannelType.Instagram ? "audio/mp4" : "audio/ogg";
-            if (isVoiceNote && message.MimeType != targetMimeType)
+            var targetExtension = targetMimeType == "audio/mp4" ? ".m4a" : ".ogg";
+            // Only our own transcode leaves the target type AND extension. A recording already in
+            // the target type (Safari records AAC in ".mp4") still goes through it once: ffmpeg
+            // checks it really is audio, makes a clean file, and measures its length.
+            if (isVoiceNote && (message.MimeType != targetMimeType ||
+                                !string.Equals(Path.GetExtension(message.MediaUrl), targetExtension, StringComparison.OrdinalIgnoreCase)))
             {
                 await TranscodeVoiceNoteAsync(message, channel.Type, rootPath, ct);
                 await db.SaveChangesAsync(ct);

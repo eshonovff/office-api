@@ -48,6 +48,19 @@ public static class CustomerChatsEndpoints
         ["application/pdf"] = ".pdf",
     };
 
+    /// <summary>
+    /// What a browser records a voice note in: Chrome and Edge WebM/Opus, Firefox Ogg/Opus, Safari
+    /// AAC in MP4. MediaSendJob always runs it through ffmpeg to AAC for Instagram — a file that is
+    /// not really audio stops there. Stored with its own extension (".mp4", never ".m4a", which
+    /// only the transcode writes).
+    /// </summary>
+    public static readonly IReadOnlyDictionary<string, string> VoiceNoteTypes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["audio/webm"] = ".webm",
+        ["audio/ogg"] = ".ogg",
+        ["audio/mp4"] = ".mp4",
+    };
+
     private const int DefaultPageSize = 30;
     private const int MaxPageSize = 100;
 
@@ -91,6 +104,17 @@ public static class CustomerChatsEndpoints
             .DisableAntiforgery()
             .RequireRateLimiting(SendRateLimitPolicy)
             .WithSummary("Фиристодани сурат, видео, овоз ё PDF — тариф лозим")
+            .Produces<MessageDto>(StatusCodes.Status202Accepted)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status429TooManyRequests);
+
+        chats.MapPost("/{id:guid}/voice-note", SendVoiceNoteAsync)
+            .DisableAntiforgery()
+            .RequireRateLimiting(SendRateLimitPolicy)
+            .WithSummary("Фиристодани паёми овозӣ, ки дар браузер сабт шуд — тариф лозим")
             .Produces<MessageDto>(StatusCodes.Status202Accepted)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status403Forbidden)
@@ -213,9 +237,8 @@ public static class CustomerChatsEndpoints
 
     /// <summary>
     /// Same path as a staff reply: stored Pending at once, sent by WhatsAppSendJob (which also
-    /// sends Instagram and Facebook) after the cancel window. Refused up front when the plan has
-    /// run out, the account must be reconnected, or Meta's 24-hour window has closed — Instagram
-    /// would refuse those anyway, only later and less clearly.
+    /// sends Instagram and Facebook) after the cancel window. Refused up front when it can't be
+    /// sent (CannotSendAsync).
     /// </summary>
     private static async Task<IResult> SendAsync(
         Guid id,
@@ -232,26 +255,8 @@ public static class CustomerChatsEndpoints
             return Results.NotFound();
 
         var customerId = principal.GetUserId();
-        if (await CustomerEntitlements.LoadLimitsAsync(customerId, db, configuration, ct) is null)
-            return CustomerEntitlements.NoAccessProblem();
-
-        if (!conversation.Channel.IsActive || conversation.Channel.RequiresReconnect)
-        {
-            return Results.Problem(
-                title: "Аккаунт пайваст нест",
-                detail: "Instagram-ро дар бахши «Автоматизатсия» аз нав пайваст кунед, баъд ҷавоб диҳед.",
-                statusCode: StatusCodes.Status409Conflict,
-                extensions: new Dictionary<string, object?> { ["code"] = "reconnect" });
-        }
-
-        if (conversation.WindowExpiresAt is { } windowEnd && windowEnd <= DateTimeOffset.UtcNow)
-        {
-            return Results.Problem(
-                title: "Вақти ҷавоб гузашт",
-                detail: "Instagram ҷавобро танҳо то 24 соат баъд аз паёми охирини мухлис иҷозат медиҳад.",
-                statusCode: StatusCodes.Status409Conflict,
-                extensions: new Dictionary<string, object?> { ["code"] = "window_closed" });
-        }
+        if (await CannotSendAsync(conversation, customerId, db, configuration, ct) is { } refused)
+            return refused;
 
         var senderName = await db.Customers.AsNoTracking()
             .Where(c => c.Id == customerId).Select(c => c.FullName).FirstAsync(ct);
@@ -304,6 +309,91 @@ public static class CustomerChatsEndpoints
             return Results.NotFound();
 
         var customerId = principal.GetUserId();
+        if (await CannotSendAsync(conversation, customerId, db, configuration, ct) is { } refused)
+            return refused;
+
+        var mimeType = (file.ContentType ?? "").Split(';')[0].Trim().ToLowerInvariant();
+        if (!SendableMediaTypes.TryGetValue(mimeType, out var extension) || !ChannelCapabilities.CanSendMedia(conversation.Channel.Type))
+        {
+            return Results.Problem(
+                title: "Ин навъи файл фиристода намешавад",
+                detail: "Сурат (JPG, PNG, GIF, WEBP, HEIC), видео (MP4, MOV), овоз (M4A, MP3) ё PDF фиристед.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        var (messageType, maxSizeBytes) = MediaUploadValidator.Classify(conversation.Channel.Type, mimeType);
+        if (!MediaUploadValidator.IsWithinLimit(conversation.Channel.Type, mimeType, file.Length))
+        {
+            return Results.Problem(
+                title: "Файл калон аст",
+                detail: $"Барои ин навъи файл ҳадди аксар {maxSizeBytes / (1024 * 1024)} МБ аст.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        var originalName = Path.GetFileName(file.FileName ?? "");
+        return await StoreAndQueueAsync(
+            conversation, file, messageType, mimeType, extension, isVoiceNote: false,
+            string.IsNullOrWhiteSpace(originalName) ? null : originalName.Length > 200 ? originalName[..200] : originalName,
+            customerId, db, backgroundJobs, configuration, env, events, ct);
+    }
+
+    /// <summary>
+    /// A voice note recorded in the мизоҷ's browser, into their own chat — the same checks as any
+    /// reply (their chat, a plan, a connected account, the 24-hour window), then MediaSendJob
+    /// makes it AAC and sends it exactly as a staff voice note. Only recording types are taken,
+    /// stored under a new name.
+    /// </summary>
+    public static async Task<IResult> SendVoiceNoteAsync(
+        Guid id,
+        IFormFile file,
+        ClaimsPrincipal principal,
+        AppDbContext db,
+        IBackgroundJobClient backgroundJobs,
+        IConfiguration configuration,
+        IWebHostEnvironment env,
+        IInboxEventPublisher events,
+        CancellationToken ct)
+    {
+        var conversation = await db.Conversations.Include(c => c.Channel).FirstOrDefaultAsync(c => c.Id == id, ct);
+        if (conversation is null)
+            return Results.NotFound();
+
+        var customerId = principal.GetUserId();
+        if (await CannotSendAsync(conversation, customerId, db, configuration, ct) is { } refused)
+            return refused;
+
+        var mimeType = (file.ContentType ?? "").Split(';')[0].Trim().ToLowerInvariant();
+        if (file.Length <= 0 || !VoiceNoteTypes.TryGetValue(mimeType, out var extension) ||
+            !ChannelCapabilities.CanSendVoice(conversation.Channel.Type))
+        {
+            return Results.Problem(
+                title: "Паёми овозӣ фиристода нашуд",
+                detail: "Овоз сабт нашуд ё навъаш ношинос аст — аз нав сабт кунед.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        if (!MediaUploadValidator.IsWithinLimit(conversation.Channel.Type, mimeType, file.Length))
+        {
+            var maxSizeBytes = MediaUploadValidator.Classify(conversation.Channel.Type, mimeType).MaxSizeBytes;
+            return Results.Problem(
+                title: "Паёми овозӣ дароз аст",
+                detail: $"Паёми овозӣ то {maxSizeBytes / (1024 * 1024)} МБ бошад — кӯтоҳтар сабт кунед.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        return await StoreAndQueueAsync(
+            conversation, file, MessageType.Audio, mimeType, extension, isVoiceNote: true, originalFileName: null,
+            customerId, db, backgroundJobs, configuration, env, events, ct);
+    }
+
+    /// <summary>
+    /// Why the мизоҷ may not send into this chat now, or null when they may: the plan has run
+    /// out, the account must be reconnected, or Meta's 24-hour window has closed — Instagram
+    /// would refuse those anyway, only later and less clearly.
+    /// </summary>
+    private static async Task<IResult?> CannotSendAsync(
+        Conversation conversation, Guid customerId, AppDbContext db, IConfiguration configuration, CancellationToken ct)
+    {
         if (await CustomerEntitlements.LoadLimitsAsync(customerId, db, configuration, ct) is null)
             return CustomerEntitlements.NoAccessProblem();
 
@@ -325,24 +415,15 @@ public static class CustomerChatsEndpoints
                 extensions: new Dictionary<string, object?> { ["code"] = "window_closed" });
         }
 
-        var mimeType = (file.ContentType ?? "").Split(';')[0].Trim().ToLowerInvariant();
-        if (!SendableMediaTypes.TryGetValue(mimeType, out var extension) || !ChannelCapabilities.CanSendMedia(conversation.Channel.Type))
-        {
-            return Results.Problem(
-                title: "Ин навъи файл фиристода намешавад",
-                detail: "Сурат (JPG, PNG, GIF, WEBP, HEIC), видео (MP4, MOV), овоз (M4A, MP3) ё PDF фиристед.",
-                statusCode: StatusCodes.Status400BadRequest);
-        }
+        return null;
+    }
 
-        var (messageType, maxSizeBytes) = MediaUploadValidator.Classify(conversation.Channel.Type, mimeType);
-        if (!MediaUploadValidator.IsWithinLimit(conversation.Channel.Type, mimeType, file.Length))
-        {
-            return Results.Problem(
-                title: "Файл калон аст",
-                detail: $"Барои ин навъи файл ҳадди аксар {maxSizeBytes / (1024 * 1024)} МБ аст.",
-                statusCode: StatusCodes.Status400BadRequest);
-        }
-
+    /// <summary>The file under a new name in the channel's own folder, a Pending message, then MediaSendJob.</summary>
+    private static async Task<IResult> StoreAndQueueAsync(
+        Conversation conversation, IFormFile file, MessageType messageType, string mimeType, string extension,
+        bool isVoiceNote, string? originalFileName, Guid customerId, AppDbContext db, IBackgroundJobClient backgroundJobs,
+        IConfiguration configuration, IWebHostEnvironment env, IInboxEventPublisher events, CancellationToken ct)
+    {
         var rootPath = UploadsPathResolver.ResolveRootPath(configuration, env);
         var relativePath = Path.Combine("whatsapp-media", conversation.ChannelId.ToString(), $"{Guid.CreateVersion7()}{extension}");
         var fullPath = Path.Combine(rootPath, relativePath);
@@ -352,7 +433,6 @@ public static class CustomerChatsEndpoints
 
         var senderName = await db.Customers.AsNoTracking()
             .Where(c => c.Id == customerId).Select(c => c.FullName).FirstAsync(ct);
-        var originalName = Path.GetFileName(file.FileName ?? "");
         var message = new Message
         {
             Id = Guid.CreateVersion7(),
@@ -362,7 +442,7 @@ public static class CustomerChatsEndpoints
             MediaUrl = relativePath,
             MimeType = mimeType,
             SizeBytes = file.Length,
-            OriginalFileName = string.IsNullOrWhiteSpace(originalName) ? null : originalName.Length > 200 ? originalName[..200] : originalName,
+            OriginalFileName = originalFileName,
             DeliveryStatus = MessageDeliveryStatus.Pending,
             // SentByUserId points at staff users — a мизоҷ is not one; the name snapshot is enough.
             SentByUserId = null,
@@ -372,12 +452,12 @@ public static class CustomerChatsEndpoints
         db.Messages.Add(message);
         await db.SaveChangesAsync(ct);
 
-        backgroundJobs.Enqueue<MediaSendJob>(j => j.SendAsync(message.Id, false, CancellationToken.None));
+        backgroundJobs.Enqueue<MediaSendJob>(j => j.SendAsync(message.Id, isVoiceNote, CancellationToken.None));
 
         var dto = MessageDto.FromEntity(message, MediaBase);
         await events.MessageSentAsync(conversation.ChannelId, assignedTo: null, dto, ct);
 
-        return Results.Accepted($"/api/public/conversations/{id}/messages/{message.Id}", dto);
+        return Results.Accepted($"/api/public/conversations/{conversation.Id}/messages/{message.Id}", dto);
     }
 
     /// <summary>

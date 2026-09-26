@@ -20,10 +20,11 @@ using Office.Api.Realtime;
 namespace Office.Api.Tests.Features.CustomerChats;
 
 /// <summary>
-/// A мизоҷ sending a photo, video or PDF into a chat — called as мизоҷ A through A's real
-/// tenant filter. B's chat and the company's are not found (nothing stored, nothing sent);
-/// the plan, the account and the 24-hour window are checked as for a text reply; only types
-/// Instagram delivers (and a browser would never run) are taken; the stored file gets a new name.
+/// A мизоҷ sending a photo, video, PDF or a recorded voice note into a chat — called as мизоҷ A
+/// through A's real tenant filter. B's chat and the company's are not found (nothing stored,
+/// nothing sent); the plan, the account and the 24-hour window are checked as for a text reply;
+/// only types Instagram delivers (and a browser would never run) are taken; the stored file gets
+/// a new name.
 /// </summary>
 public class CustomerChatMediaTests : IDisposable
 {
@@ -138,6 +139,16 @@ public class CustomerChatMediaTests : IDisposable
         return (result, jobs, events);
     }
 
+    private async Task<(IResult Result, RecordingJobs Jobs, RecordingEvents Events)> SendVoice(Guid chatId, IFormFile file)
+    {
+        var jobs = new RecordingJobs();
+        var events = new RecordingEvents();
+        await using var db = Open(new TenantIdentity(TenantScope.Customer, _customerA));
+        var result = await CustomerChatsEndpoints.SendVoiceNoteAsync(
+            chatId, file, PrincipalA, db, jobs, _configuration, new TestEnvironment(_root), events, CancellationToken.None);
+        return (result, jobs, events);
+    }
+
     private static int? Status(IResult result) => (result as IStatusCodeHttpResult)?.StatusCode;
 
     private int StoredFiles() => Directory.Exists(Path.Combine(_root, "whatsapp-media"))
@@ -247,5 +258,102 @@ public class CustomerChatMediaTests : IDisposable
     {
         Assert.DoesNotContain(CustomerChatsEndpoints.SendableMediaTypes.Keys, k => k.Contains("svg") || k.Contains("html") || k.StartsWith("text/"));
         Assert.All(CustomerChatsEndpoints.SendableMediaTypes.Values, ext => Assert.Matches(@"^\.[a-z0-9]{3,4}$", ext));
+    }
+
+    // ── Voice notes (recorded in the browser) ──
+
+    [Theory]
+    [InlineData("audio/webm;codecs=opus", ".webm", "audio/webm")] // Chrome, Edge
+    [InlineData("audio/ogg;codecs=opus", ".ogg", "audio/ogg")] // Firefox
+    [InlineData("audio/mp4", ".mp4", "audio/mp4")] // Safari (iPhone) — ".mp4", so the job still makes it clean AAC
+    public async Task AVoiceNote_IsStoredUnderANewName_AndQueuedAsAVoiceNote(string contentType, string extension, string storedType)
+    {
+        var (result, jobs, events) = await SendVoice(_a1, File(contentType, "../../x" + extension));
+
+        var dto = Assert.IsType<Accepted<MessageDto>>(result).Value!;
+        await using var db = Open(null);
+        var message = await db.Messages.SingleAsync();
+        Assert.Equal((MessageType.Audio, storedType, "Дӯкони A", MessageDeliveryStatus.Pending, (string?)null),
+            (message.Type, message.MimeType, message.SentByUserName, message.DeliveryStatus, message.OriginalFileName));
+        Assert.StartsWith(Path.Combine("whatsapp-media", _channelA.ToString()), message.MediaUrl);
+        Assert.Matches(@"^[0-9a-f-]{36}\" + extension + "$", Path.GetFileName(message.MediaUrl)!);
+        Assert.True(System.IO.File.Exists(Path.Combine(_root, message.MediaUrl!)));
+        var (method, args) = Assert.Single(jobs.Created);
+        Assert.Equal((nameof(MediaSendJob.SendAsync), message.Id, true), (method, (Guid)args[0]!, (bool)args[1]!));
+        Assert.Equal(1, events.Sent);
+        Assert.Equal(message.Id, dto.Id);
+    }
+
+    [Fact]
+    public async Task AVoiceNote_ToAnotherMizojsChat_OrTheCompanys_IsNotFound_AndNothingIsStoredOrSent()
+    {
+        foreach (var chat in new[] { _b1, _c1 })
+        {
+            var (result, jobs, events) = await SendVoice(chat, File("audio/webm", "v.webm"));
+            Assert.Equal(404, Status(result));
+            Assert.Empty(jobs.Created);
+            Assert.Equal(0, events.Sent);
+        }
+        Assert.Equal(0, Messages());
+        Assert.Equal(0, StoredFiles());
+    }
+
+    [Fact]
+    public async Task AVoiceNote_WithoutAPlan_IsForbidden_AndNothingIsStored()
+    {
+        await using (var db = Open(null))
+        {
+            (await db.Customers.SingleAsync(c => c.Id == _customerA)).TrialEndsAt = DateTimeOffset.UtcNow.AddDays(-1);
+            await db.SaveChangesAsync();
+        }
+
+        Assert.Equal(403, Status((await SendVoice(_a1, File("audio/webm", "v.webm"))).Result));
+        Assert.Equal(0, Messages());
+        Assert.Equal(0, StoredFiles());
+    }
+
+    [Fact]
+    public async Task AVoiceNote_AfterTheWindow_OrToADisconnectedAccount_IsAConflict()
+    {
+        Assert.Equal(409, Status((await SendVoice(_a2, File("audio/webm", "v.webm"))).Result));
+
+        await using (var db = Open(null))
+        {
+            (await db.Channels.SingleAsync(c => c.Id == _channelA)).RequiresReconnect = true;
+            await db.SaveChangesAsync();
+        }
+        Assert.Equal(409, Status((await SendVoice(_a1, File("audio/webm", "v.webm"))).Result));
+        Assert.Equal(0, StoredFiles());
+    }
+
+    [Theory]
+    [InlineData("audio/mpeg", "x.mp3")] // a music file goes by the paperclip, not as a voice note
+    [InlineData("image/jpeg", "x.jpg")]
+    [InlineData("text/html", "x.html")]
+    [InlineData("image/svg+xml", "x.svg")]
+    [InlineData("", "x.webm")]
+    public async Task NotARecording_IsRefused(string contentType, string name)
+    {
+        Assert.Equal(400, Status((await SendVoice(_a1, File(contentType, name))).Result));
+        Assert.Equal(0, Messages());
+        Assert.Equal(0, StoredFiles());
+    }
+
+    [Fact]
+    public async Task AnEmptyRecording_OrOneOverTheLimit_IsRefused()
+    {
+        var empty = Assert.IsType<ProblemHttpResult>((await SendVoice(_a1, File("audio/webm", "v.webm", declaredLength: 0))).Result);
+        Assert.Equal((400, "Паёми овозӣ фиристода нашуд"), (empty.StatusCode, empty.ProblemDetails.Title)); // "not recorded", never "too long"
+        var tooLong = Assert.IsType<ProblemHttpResult>((await SendVoice(_a1, File("audio/webm", "v.webm", declaredLength: 25L * 1024 * 1024 + 1))).Result);
+        Assert.Equal((400, "Паёми овозӣ дароз аст"), (tooLong.StatusCode, tooLong.ProblemDetails.Title));
+        Assert.Equal(0, StoredFiles());
+    }
+
+    [Fact]
+    public void VoiceNoteTypes_AreOnlyRecordings_NeverWhatOnlyTheTranscodeWrites()
+    {
+        Assert.All(CustomerChatsEndpoints.VoiceNoteTypes.Keys, k => Assert.StartsWith("audio/", k));
+        Assert.DoesNotContain(".m4a", CustomerChatsEndpoints.VoiceNoteTypes.Values); // else a Safari file would skip ffmpeg
+        Assert.All(CustomerChatsEndpoints.VoiceNoteTypes.Values, ext => Assert.Matches(@"^\.[a-z0-9]{3,4}$", ext));
     }
 }
