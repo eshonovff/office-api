@@ -18,6 +18,7 @@ using Office.Api.Channels;
 using Office.Api.Channels.Automation;
 using Office.Api.Channels.Broadcasts;
 using Office.Api.Channels.Comments;
+using Office.Api.Channels.ContactProfiles;
 using Office.Api.Channels.Flows;
 using Office.Api.Channels.Facebook;
 using Office.Api.Channels.Instagram;
@@ -437,7 +438,11 @@ builder.Services.AddScoped<ConversationAutoReleaseJob>();
 builder.Services.AddScoped<HtmlMediaCleanupJob>();
 builder.Services.AddScoped<InstagramTokenRefreshJob>();
 builder.Services.AddHttpClient<InstagramTokenRefreshJob>(client => client.DefaultRequestHeaders.UserAgent.ParseAdd(BrowserUserAgent));
-builder.Services.AddScoped<InstagramContactProfileBackfillJob>();
+builder.Services.AddScoped<ContactProfileBackfillJob>();
+builder.Services.AddScoped<ContactAvatarJob>();
+// No automatic redirects: ContactAvatarDownloader follows one only to Meta's own CDN.
+builder.Services.AddHttpClient<ContactAvatarDownloader>(client => client.DefaultRequestHeaders.UserAgent.ParseAdd(BrowserUserAgent))
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
 builder.Services.AddScoped<CommentAutomationProcessor>();
 builder.Services.AddScoped<CommentAutomationJob>();
 builder.Services.AddSingleton<InstagramFollowCheckRateLimiter>();
@@ -600,10 +605,12 @@ RecurringJob.AddOrUpdate<HtmlMediaCleanupJob>(
 RecurringJob.AddOrUpdate<InstagramTokenRefreshJob>(
     "instagram-token-refresh", job => job.RunAsync(CancellationToken.None), Cron.Daily);
 
-// Бозгашти якдафъаина (2026-08-25: чатҳои Instagram-и пеш аз ContactUsername сохта шуда буданд) —
-// recurring, вале пас аз пур шудани ҳама холӣ бармегардонад. Аз "Trigger now" фавран иҷро мешавад.
-RecurringJob.AddOrUpdate<InstagramContactProfileBackfillJob>(
-    "instagram-contact-profile-backfill", job => job.RunAsync(CancellationToken.None), Cron.Daily);
+// Names and pictures of Instagram/Facebook contacts still missing (a chat the account started
+// before the person wrote back; Meta's picture links expire after ~4 days) — see ContactProfileBackfillJob.
+// It replaces the Instagram-only one-off backfill of 2026-08-25.
+RecurringJob.RemoveIfExists("instagram-contact-profile-backfill");
+RecurringJob.AddOrUpdate<ContactProfileBackfillJob>(
+    "contact-profile-backfill", job => job.RunAsync(CancellationToken.None), Cron.Daily);
 
 // Development: ҳамеша иҷро шавад. Production: танҳо агар RUN_MIGRATIONS=true.
 var runMigrations = app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("RUN_MIGRATIONS");

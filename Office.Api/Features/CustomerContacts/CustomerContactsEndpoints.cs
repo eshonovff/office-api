@@ -7,6 +7,7 @@ using Office.Api.Data.Entities;
 using Office.Api.Features.Conversations;
 using Office.Api.Features.DataDeletion;
 using Office.Api.Features.Subscriptions;
+using Office.Api.Channels.ContactProfiles;
 
 namespace Office.Api.Features.CustomerContacts;
 
@@ -137,7 +138,7 @@ public static class CustomerContactsEndpoints
             .Skip((resolvedPage - 1) * resolvedPageSize)
             .Take(resolvedPageSize)
             .Select(c => new ContactRow(c.Id, c.ChannelId, c.Channel.Type, c.Channel.Name, c.ContactName, c.ContactUsername,
-                c.ContactAvatarUrl, c.CreatedAt, c.LastMessageAt, c.WindowExpiresAt))
+                c.ContactAvatarPath, c.CreatedAt, c.LastMessageAt, c.WindowExpiresAt))
             .ToListAsync(ct);
 
         var ids = rows.Select(r => r.Id).ToList();
@@ -146,7 +147,7 @@ public static class CustomerContactsEndpoints
         var now = DateTimeOffset.UtcNow;
 
         var items = rows.Select(r => new CustomerContactListItem(
-            r.Id, r.ChannelId, r.ChannelType.ToString(), r.ChannelName, r.Name, r.Username, r.AvatarUrl,
+            r.Id, r.ChannelId, r.ChannelType.ToString(), r.ChannelName, r.Name, r.Username, ContactAvatarFiles.CustomerLink(r.Id, r.AvatarPath),
             tags.GetValueOrDefault(r.Id, []),
             variables.GetValueOrDefault(r.Id, []).Take(VariablesInList).ToList(),
             r.CreatedAt, r.LastMessageAt, OpenUntil(r.WindowExpiresAt, now))).ToList();
@@ -175,7 +176,7 @@ public static class CustomerContactsEndpoints
         var row = await db.Conversations.AsNoTracking()
             .Where(c => c.Id == id)
             .Select(c => new ContactRow(c.Id, c.ChannelId, c.Channel.Type, c.Channel.Name, c.ContactName, c.ContactUsername,
-                c.ContactAvatarUrl, c.CreatedAt, c.LastMessageAt, c.WindowExpiresAt))
+                c.ContactAvatarPath, c.CreatedAt, c.LastMessageAt, c.WindowExpiresAt))
             .FirstOrDefaultAsync(ct);
         if (row is null)
             return Results.NotFound();
@@ -200,7 +201,7 @@ public static class CustomerContactsEndpoints
             .ToListAsync(ct);
 
         return Results.Ok(new CustomerContactDetail(
-            row.Id, row.ChannelId, row.ChannelType.ToString(), row.ChannelName, row.Name, row.Username, row.AvatarUrl,
+            row.Id, row.ChannelId, row.ChannelType.ToString(), row.ChannelName, row.Name, row.Username, ContactAvatarFiles.CustomerLink(row.Id, row.AvatarPath),
             tags.GetValueOrDefault(id, []), variables.GetValueOrDefault(id, []),
             row.CreatedAt, row.LastMessageAt, OpenUntil(row.WindowExpiresAt, DateTimeOffset.UtcNow),
             messageCount, commentCount,
@@ -381,6 +382,6 @@ public static class CustomerContactsEndpoints
         windowExpiresAt is { } until && until > now ? until : null;
 
     private sealed record ContactRow(
-        Guid Id, Guid ChannelId, ChannelType ChannelType, string ChannelName, string? Name, string? Username, string? AvatarUrl,
+        Guid Id, Guid ChannelId, ChannelType ChannelType, string ChannelName, string? Name, string? Username, string? AvatarPath,
         DateTimeOffset CreatedAt, DateTimeOffset? LastMessageAt, DateTimeOffset? WindowExpiresAt);
 }

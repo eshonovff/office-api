@@ -25,7 +25,7 @@ public static class ContactDataEraser
     {
         var contact = await db.Conversations
             .Where(c => c.Id == contactId)
-            .Select(c => new { c.Id, c.ChannelId, c.ExternalId, ChannelExternalId = c.Channel.ExternalId })
+            .Select(c => new { c.Id, c.ChannelId, c.ExternalId, ChannelExternalId = c.Channel.ExternalId, c.ContactAvatarPath })
             .FirstOrDefaultAsync(ct);
         if (contact is null)
             return null;
@@ -36,6 +36,7 @@ public static class ContactDataEraser
         var channelFolder = $"whatsapp-media/{contact.ChannelId}/";
         var files = messages
             .SelectMany(m => new[] { m.MediaUrl, m.ThumbnailUrl })
+            .Append(contact.ContactAvatarPath) // our copy of their picture
             .Where(p => !string.IsNullOrEmpty(p) && p.Replace('\\', '/').StartsWith(channelFolder, StringComparison.Ordinal))
             .Select(p => p!)
             .Distinct()

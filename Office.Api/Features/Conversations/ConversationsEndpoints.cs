@@ -12,6 +12,7 @@ using Office.Api.Features.Channels;
 using Office.Api.Media;
 using Office.Api.Realtime;
 using Permissions = Office.Api.Auth.Permissions;
+using Office.Api.Channels.ContactProfiles;
 
 namespace Office.Api.Features.Conversations;
 
@@ -35,6 +36,14 @@ public static class ConversationsEndpoints
             .RequirePermission(Permissions.Inbox.View)
             .WithSummary("Маълумоти пурраи чат")
             .Produces<ConversationDetail>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        group.MapGet("/{id:guid}/avatar", AvatarAsync)
+            .RequirePermission(Permissions.Inbox.View)
+            .WithSummary("Сурати контакт (нусхаи худамон, 128 px) — бо доступи ҳамин чат")
+            .Produces(StatusCodes.Status200OK, contentType: "image/jpeg")
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound);
@@ -742,6 +751,21 @@ public static class ConversationsEndpoints
         return Results.Ok(new PagedResult<ConversationListItem>(items, totalCount, resolvedPage, resolvedPageSize));
     }
 
+    /// <summary>The contact's picture — to whoever may open this chat, exactly as GetAsync.</summary>
+    public static async Task<IResult> AvatarAsync(
+        Guid id, ClaimsPrincipal principal, AppDbContext db, IChannelAccessGuard access, HttpContext http,
+        IConfiguration configuration, IWebHostEnvironment env, CancellationToken ct)
+    {
+        var conversation = await db.Conversations.AsNoTracking()
+            .Where(c => c.Id == id)
+            .Select(c => new { c.ChannelId, c.AssignedTo, c.ContactAvatarPath })
+            .FirstOrDefaultAsync(ct);
+        if (conversation is null || !await access.HasAccessAsync(principal, conversation.ChannelId, conversation.AssignedTo, ct))
+            return Results.NotFound();
+
+        return ContactAvatarFiles.Serve(conversation.ContactAvatarPath, http, configuration, env);
+    }
+
     private static async Task<IResult> GetAsync(
         Guid id, ClaimsPrincipal principal, AppDbContext db, IChannelAccessGuard access, CancellationToken ct)
     {
@@ -774,7 +798,7 @@ public static class ConversationsEndpoints
 
     private static ConversationListItem ToListItem(Conversation c) => new(
         c.Id, c.ChannelId, c.Channel.Type.ToString(), c.Channel.Name, c.ExternalId,
-        c.ContactName, c.ContactAvatarUrl, c.ContactUsername, c.Status.ToString(), c.AssignedTo, c.Assignee?.FullName,
+        c.ContactName, ContactAvatarFiles.StaffLink(c.Id, c.ContactAvatarPath), c.ContactUsername, c.Status.ToString(), c.AssignedTo, c.Assignee?.FullName,
         c.LastMessageAt, c.UnreadCount, c.WindowExpiresAt, c.CreatedAt);
 
     /// <summary>
@@ -783,7 +807,7 @@ public static class ConversationsEndpoints
     /// </summary>
     internal static ConversationDetail ToDetail(Conversation c) => new(
         c.Id, c.ChannelId, c.Channel.Type.ToString(), c.Channel.Name, c.ExternalId,
-        c.ContactName, c.ContactAvatarUrl, c.ContactUsername, c.Status.ToString(), c.AssignedTo, c.Assignee?.FullName,
+        c.ContactName, ContactAvatarFiles.StaffLink(c.Id, c.ContactAvatarPath), c.ContactUsername, c.Status.ToString(), c.AssignedTo, c.Assignee?.FullName,
         c.LastMessageAt, c.UnreadCount, c.WindowExpiresAt, c.CreatedAt,
         MediaUploadValidator.LimitsFor(c.Channel.Type),
         ChannelCapabilities.CanSendMedia(c.Channel.Type), ChannelCapabilities.CanSendVoice(c.Channel.Type));

@@ -4,6 +4,7 @@ using Hangfire;
 using Microsoft.EntityFrameworkCore;
 using Office.Api.Channels.Automation;
 using Office.Api.Channels.Comments;
+using Office.Api.Channels.ContactProfiles;
 using Office.Api.Channels.Flows;
 using Office.Api.Channels.Instagram;
 using Office.Api.Data;
@@ -163,10 +164,14 @@ public class WebhookProcessor(
             return;
 
         var savedMessages = new List<(Message Message, Conversation Conversation, string? MediaExternalId)>();
+        var picturesToFetch = new List<Guid>();
         foreach (var group in newMessages.GroupBy(m => m.ConversationExternalId))
-            savedMessages.AddRange(await UpsertConversationWithMessagesAsync(channel, provider, group.Key, group.ToList(), ct));
+            savedMessages.AddRange(await UpsertConversationWithMessagesAsync(channel, provider, group.Key, group.ToList(), picturesToFetch, ct));
 
         await db.SaveChangesAsync(ct);
+
+        foreach (var conversationId in picturesToFetch)
+            backgroundJobs.Enqueue<ContactAvatarJob>(j => j.DownloadAsync(conversationId, CancellationToken.None));
 
         var parsedByExternalId = newMessages.ToDictionary(m => m.MessageExternalId);
         foreach (var (message, conversation, mediaExternalId) in savedMessages)
@@ -221,38 +226,41 @@ public class WebhookProcessor(
     }
 
     private async Task<List<(Message Message, Conversation Conversation, string? MediaExternalId)>> UpsertConversationWithMessagesAsync(
-        Channel channel, IChannelProvider provider, string conversationExternalId, List<ParsedWebhookMessage> messages, CancellationToken ct)
+        Channel channel, IChannelProvider provider, string conversationExternalId, List<ParsedWebhookMessage> messages,
+        List<Guid> picturesToFetch, CancellationToken ct)
     {
         var savedMessages = new List<(Message, Conversation, string?)>();
+        var now = DateTimeOffset.UtcNow;
 
         var conversation = await db.Conversations
             .FirstOrDefaultAsync(c => c.ChannelId == channel.Id && c.ExternalId == conversationExternalId, ct);
 
         if (conversation is null)
         {
-            // WhatsApp номро дар худи webhook медиҳад (ParsedWebhookMessage.ContactName) — ин ҷо
-            // ҳатто дархост намезанад (GetContactProfileAsync-и он ҳамеша Empty). Facebook/Instagram
-            // намедиҳанд — як дархости алоҳида, танҳо як маротиба барои ҳамин мижоз (на барои
-            // ҳар паём), ҳангоми сохтани conversation.
-            var profile = messages[0].ContactName is null
-                ? await provider.GetContactProfileAsync(channel, conversationExternalId, ct)
-                : ContactProfile.Empty;
-
             conversation = new Conversation
             {
                 Id = Guid.CreateVersion7(),
                 ChannelId = channel.Id,
                 ExternalId = conversationExternalId,
-                ContactName = messages[0].ContactName ?? profile.Name,
-                ContactAvatarUrl = messages[0].ContactAvatarUrl ?? profile.AvatarUrl,
-                ContactUsername = profile.Username,
-                // Танҳо вақте ки воқеан кӯшиш кардем (WhatsApp ҳеҷ гоҳ, чунки боло аллакай
-                // ContactName дорад) — ниг. InstagramContactProfileBackfillJob барои сабаб.
-                ContactProfileFetchedAt = messages[0].ContactName is null ? DateTimeOffset.UtcNow : null,
+                ContactName = messages[0].ContactName,
+                ContactAvatarUrl = messages[0].ContactAvatarUrl,
                 Status = ConversationStatus.New,
-                CreatedAt = DateTimeOffset.UtcNow,
+                CreatedAt = now,
             };
             db.Conversations.Add(conversation);
+
+            // WhatsApp names the person in the webhook itself; Facebook and Instagram only through
+            // their profile API — asked here, and again on the person's messages (ContactProfilePolicy):
+            // when the account wrote first, Instagram says nothing until they write back.
+            if (messages[0].ContactName is null &&
+                await ContactProfileUpdater.RefreshAsync(db, provider, channel, conversation, now, ct))
+                picturesToFetch.Add(conversation.Id);
+        }
+        else if (messages.Any(m => m.Direction == MessageDirection.Inbound) &&
+                 ContactProfilePolicy.ShouldAskOnMessage(conversation, channel.Type, now) &&
+                 await ContactProfileUpdater.RefreshAsync(db, provider, channel, conversation, now, ct))
+        {
+            picturesToFetch.Add(conversation.Id);
         }
 
         var latestInboundName = messages.LastOrDefault(m => m.ContactName is not null)?.ContactName;
