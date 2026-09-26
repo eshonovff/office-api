@@ -455,11 +455,22 @@ public class InstagramProvider(
     /// (postScope=selected). VIDEO fields.media_url аксар вақт холист — thumbnail_url ҷои онро
     /// мегирад, то фронтенд лозим набошад ду майдонро худаш фарқ кунад.
     /// </summary>
-    public async Task<InstagramMediaPage> GetRecentMediaAsync(Channel channel, string? after, int limit, CancellationToken ct)
+    public Task<InstagramMediaPage> GetRecentMediaAsync(Channel channel, string? after, int limit, CancellationToken ct) =>
+        GetMediaEdgeAsync(channel, "media", "id,media_type,media_url,thumbnail_url,permalink,caption,timestamp", after, limit, ct);
+
+    /// <summary>
+    /// Фазаи 20: сторисҳои фаъоли аккаунт (Meta танҳо 24 соати охирро медиҳад) — барои
+    /// «сторисҳои интихобшуда» дар триггери «Ҷавоб ба сторис». Сторис caption надорад.
+    /// </summary>
+    public Task<InstagramMediaPage> GetActiveStoriesAsync(Channel channel, CancellationToken ct) =>
+        GetMediaEdgeAsync(channel, "stories", "id,media_type,media_url,thumbnail_url,permalink,timestamp", after: null, limit: 100, ct);
+
+    private async Task<InstagramMediaPage> GetMediaEdgeAsync(
+        Channel channel, string edge, string fields, string? after, int limit, CancellationToken ct)
     {
         var credentials = GetCredentials(channel);
-        var url = $"{GraphApiBaseUrl}/{GraphApiVersion}/{credentials.InstagramAccountId}/media" +
-                  "?fields=id,media_type,media_url,thumbnail_url,permalink,caption,timestamp" +
+        var url = $"{GraphApiBaseUrl}/{GraphApiVersion}/{credentials.InstagramAccountId}/{edge}" +
+                  $"?fields={fields}" +
                   $"&limit={limit}" +
                   (after is null ? "" : $"&after={Uri.EscapeDataString(after)}");
 
@@ -477,7 +488,7 @@ public class InstagramProvider(
                 await db.SaveChangesAsync(ct);
             }
 
-            logger.LogError("Instagram media GET хатогӣ: {StatusCode} {Body}", (int)response.StatusCode, body);
+            logger.LogError("Instagram {Edge} GET хатогӣ: {StatusCode} {Body}", edge, (int)response.StatusCode, body);
             throw new GraphApiException(MetaErrorTranslator.Translate(body), body);
         }
 

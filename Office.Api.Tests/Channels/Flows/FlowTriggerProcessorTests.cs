@@ -298,4 +298,228 @@ public class FlowTriggerProcessorTests
         Assert.Single(await db.FlowSessions.ToListAsync());
         Assert.Equal("42", (await db.ContactVariables.SingleAsync()).Value);
     }
+
+    // ── Phase 20: story triggers ─────────────────────────────────────────────────────────────
+
+    private static Flow MakeStoryFlow(
+        Guid channelId, string triggerType, int minutesAgo, string matchMode = "all", string[]? keywords = null, string[]? storyIds = null)
+    {
+        var flow = MakeFlow(channelId, triggerType, matchMode, keywords);
+        var scope = storyIds is null ? "all" : "selected";
+        var ids = string.Join(",", (storyIds ?? []).Select(id => $"\"{id}\""));
+        flow.TriggerConfigJson = $$"""{"MatchMode":"{{matchMode}}","Keywords":[{{string.Join(",", (keywords ?? []).Select(k => $"\"{k}\""))}}],"PostScope":"{{scope}}","PostIds":[{{ids}}]}""";
+        flow.CreatedAt = DateTimeOffset.UtcNow.AddMinutes(-minutesAgo);
+        return flow;
+    }
+
+    private static ParsedWebhookMessage StoryReply(string mid, string text, string? storyId, MessageDirection direction = MessageDirection.Inbound) => new(
+        "actor-1", null, null, mid, direction, MessageType.StoryReply, text, null, DateTimeOffset.UtcNow,
+        Story: StoryEventKind.Reply, StoryId: storyId);
+
+    private static ParsedWebhookMessage StoryMention(string mid) => new(
+        "actor-1", null, null, mid, MessageDirection.Inbound, MessageType.StoryReply, null, null, DateTimeOffset.UtcNow,
+        Story: StoryEventKind.Mention);
+
+    private static ParsedWebhookMessage PlainText(string mid, string text) => new(
+        "actor-1", null, null, mid, MessageDirection.Inbound, MessageType.Text, text, null, DateTimeOffset.UtcNow);
+
+    /// <summary>The channel, a contact on it and the flows (each with a one-message node that finishes at once).</summary>
+    private static async Task<(Channel Channel, Conversation Contact)> SeedAsync(AppDbContext db, Channel channel, params Flow[] flows)
+    {
+        var contact = new Conversation
+        {
+            Id = Guid.CreateVersion7(), ChannelId = channel.Id, ExternalId = "actor-1",
+            Status = ConversationStatus.New, CreatedAt = DateTimeOffset.UtcNow,
+        };
+        db.Channels.Add(channel);
+        db.Conversations.Add(contact);
+        foreach (var flow in flows)
+        {
+            db.Flows.Add(flow);
+            db.FlowNodes.Add(MakeNode(flow.Id));
+        }
+        await db.SaveChangesAsync();
+        return (channel, contact);
+    }
+
+    private static async Task<Guid?> StartedFlowAsync(AppDbContext db, string mid) =>
+        (await db.FlowSessions.FirstOrDefaultAsync(s => s.TriggerExternalId == mid))?.FlowId;
+
+    [Fact]
+    public async Task StoryReply_StartsTheStoryFlow_BeforeAnOlderDmFlow()
+    {
+        await using var db = CreateDb();
+        var channel = MakeChannel();
+        var dm = MakeStoryFlow(channel.Id, "instagram_dm", minutesAgo: 60);
+        var story = MakeStoryFlow(channel.Id, "instagram_story_reply", minutesAgo: 1);
+        var (_, contact) = await SeedAsync(db, channel, dm, story);
+        var (processor, _) = MakeProcessor(db);
+
+        await processor.ProcessMessageAsync(channel, contact, StoryReply("mid-s1", "чанд пул?", "111"), CancellationToken.None);
+
+        Assert.Equal(story.Id, await StartedFlowAsync(db, "mid-s1"));
+    }
+
+    [Fact]
+    public async Task StoryReply_WhenNoStoryFlowMatches_FallsBackToTheDmFlow()
+    {
+        await using var db = CreateDb();
+        var channel = MakeChannel();
+        var story = MakeStoryFlow(channel.Id, "instagram_story_reply", minutesAgo: 5, matchMode: "keyword", keywords: ["нарх"]);
+        var dm = MakeStoryFlow(channel.Id, "instagram_dm", minutesAgo: 1);
+        var (_, contact) = await SeedAsync(db, channel, story, dm);
+        var (processor, _) = MakeProcessor(db);
+
+        await processor.ProcessMessageAsync(channel, contact, StoryReply("mid-s1", "салом", "111"), CancellationToken.None);
+
+        Assert.Equal(dm.Id, await StartedFlowAsync(db, "mid-s1"));
+    }
+
+    [Fact]
+    public async Task StoryReply_SelectedStories_OnlyThoseStories()
+    {
+        await using var db = CreateDb();
+        var channel = MakeChannel();
+        var story = MakeStoryFlow(channel.Id, "instagram_story_reply", minutesAgo: 1, storyIds: ["111"]);
+        var (_, contact) = await SeedAsync(db, channel, story);
+        var (processor, _) = MakeProcessor(db);
+
+        await processor.ProcessMessageAsync(channel, contact, StoryReply("mid-other", "салом", "222"), CancellationToken.None);
+        await processor.ProcessMessageAsync(channel, contact, StoryReply("mid-none", "салом", null), CancellationToken.None);
+        await processor.ProcessMessageAsync(channel, contact, StoryReply("mid-mine", "салом", "111"), CancellationToken.None);
+
+        Assert.Null(await StartedFlowAsync(db, "mid-other"));
+        Assert.Null(await StartedFlowAsync(db, "mid-none"));
+        Assert.Equal(story.Id, await StartedFlowAsync(db, "mid-mine"));
+    }
+
+    [Fact]
+    public async Task StoryReply_TheMostSpecificFlowWins_NotTheOldest()
+    {
+        await using var db = CreateDb();
+        var channel = MakeChannel();
+        var everything = MakeStoryFlow(channel.Id, "instagram_story_reply", minutesAgo: 30);
+        var keyword = MakeStoryFlow(channel.Id, "instagram_story_reply", minutesAgo: 20, matchMode: "keyword", keywords: ["нарх"]);
+        var oneStory = MakeStoryFlow(channel.Id, "instagram_story_reply", minutesAgo: 10, storyIds: ["111"]);
+        var oneStoryKeyword = MakeStoryFlow(channel.Id, "instagram_story_reply", minutesAgo: 1, matchMode: "keyword", keywords: ["нарх"], storyIds: ["111"]);
+        var (_, contact) = await SeedAsync(db, channel, everything, keyword, oneStory, oneStoryKeyword);
+        var (processor, _) = MakeProcessor(db);
+
+        await processor.ProcessMessageAsync(channel, contact, StoryReply("m1", "Нарх чанд?", "111"), CancellationToken.None);
+        await processor.ProcessMessageAsync(channel, contact, StoryReply("m2", "салом", "111"), CancellationToken.None);
+        await processor.ProcessMessageAsync(channel, contact, StoryReply("m3", "нарх?", "222"), CancellationToken.None);
+        await processor.ProcessMessageAsync(channel, contact, StoryReply("m4", "салом", "222"), CancellationToken.None);
+
+        Assert.Equal(oneStoryKeyword.Id, await StartedFlowAsync(db, "m1"));
+        Assert.Equal(oneStory.Id, await StartedFlowAsync(db, "m2"));
+        Assert.Equal(keyword.Id, await StartedFlowAsync(db, "m3"));
+        Assert.Equal(everything.Id, await StartedFlowAsync(db, "m4"));
+    }
+
+    [Fact]
+    public async Task StoryReply_AChosenStory_BeatsAKeywordForAllStories()
+    {
+        await using var db = CreateDb();
+        var channel = MakeChannel();
+        var keyword = MakeStoryFlow(channel.Id, "instagram_story_reply", minutesAgo: 20, matchMode: "keyword", keywords: ["нарх"]);
+        var oneStory = MakeStoryFlow(channel.Id, "instagram_story_reply", minutesAgo: 10, storyIds: ["111"]);
+        var (_, contact) = await SeedAsync(db, channel, keyword, oneStory);
+        var (processor, _) = MakeProcessor(db);
+
+        await processor.ProcessMessageAsync(channel, contact, StoryReply("m1", "нарх?", "111"), CancellationToken.None);
+
+        Assert.Equal(oneStory.Id, await StartedFlowAsync(db, "m1"));
+    }
+
+    [Fact]
+    public async Task StoryMention_StartsTheMentionFlow_NeverAStoryReplyOne()
+    {
+        await using var db = CreateDb();
+        var channel = MakeChannel();
+        var reply = MakeStoryFlow(channel.Id, "instagram_story_reply", minutesAgo: 30);
+        var mention = MakeStoryFlow(channel.Id, "instagram_story_mention", minutesAgo: 1);
+        var (_, contact) = await SeedAsync(db, channel, reply, mention);
+        var (processor, _) = MakeProcessor(db);
+
+        await processor.ProcessMessageAsync(channel, contact, StoryMention("mid-m1"), CancellationToken.None);
+
+        Assert.Equal(mention.Id, await StartedFlowAsync(db, "mid-m1"));
+    }
+
+    [Fact]
+    public async Task StoryMention_WithoutAMentionFlow_FallsBackToAnAllDmFlow()
+    {
+        await using var db = CreateDb();
+        var channel = MakeChannel();
+        var reply = MakeStoryFlow(channel.Id, "instagram_story_reply", minutesAgo: 30);
+        var dm = MakeStoryFlow(channel.Id, "instagram_dm", minutesAgo: 1);
+        var (_, contact) = await SeedAsync(db, channel, reply, dm);
+        var (processor, _) = MakeProcessor(db);
+
+        await processor.ProcessMessageAsync(channel, contact, StoryMention("mid-m1"), CancellationToken.None);
+
+        Assert.Equal(dm.Id, await StartedFlowAsync(db, "mid-m1"));
+    }
+
+    [Fact]
+    public async Task APlainMessage_NeverStartsAStoryFlow()
+    {
+        await using var db = CreateDb();
+        var channel = MakeChannel();
+        var (_, contact) = await SeedAsync(db, channel,
+            MakeStoryFlow(channel.Id, "instagram_story_reply", minutesAgo: 2),
+            MakeStoryFlow(channel.Id, "instagram_story_mention", minutesAgo: 1));
+        var (processor, _) = MakeProcessor(db);
+
+        await processor.ProcessMessageAsync(channel, contact, PlainText("mid-t1", "салом"), CancellationToken.None);
+
+        Assert.Empty(await db.FlowSessions.ToListAsync());
+    }
+
+    [Fact]
+    public async Task StoryReply_AnotherChannelsFlow_IsNeverStarted()
+    {
+        await using var db = CreateDb();
+        var channel = MakeChannel();
+        var other = MakeChannel("17841499999999999");
+        db.Channels.Add(other);
+        var (_, contact) = await SeedAsync(db, channel,
+            MakeStoryFlow(other.Id, "instagram_story_reply", minutesAgo: 2),
+            MakeStoryFlow(other.Id, "instagram_story_mention", minutesAgo: 1));
+        var (processor, _) = MakeProcessor(db);
+
+        await processor.ProcessMessageAsync(channel, contact, StoryReply("mid-s1", "салом", "111"), CancellationToken.None);
+        await processor.ProcessMessageAsync(channel, contact, StoryMention("mid-m1"), CancellationToken.None);
+
+        Assert.Empty(await db.FlowSessions.ToListAsync());
+    }
+
+    [Fact]
+    public async Task StoryReply_TheAccountsOwnEcho_IsIgnored()
+    {
+        await using var db = CreateDb();
+        var channel = MakeChannel();
+        var (_, contact) = await SeedAsync(db, channel, MakeStoryFlow(channel.Id, "instagram_story_reply", minutesAgo: 1));
+        var (processor, _) = MakeProcessor(db);
+
+        await processor.ProcessMessageAsync(
+            channel, contact, StoryReply("mid-echo", "рахмат", "111", MessageDirection.Outbound), CancellationToken.None);
+
+        Assert.Empty(await db.FlowSessions.ToListAsync());
+    }
+
+    [Fact]
+    public async Task StoryReply_TheSameWebhookTwice_StartsOneSession()
+    {
+        await using var db = CreateDb();
+        var channel = MakeChannel();
+        var (_, contact) = await SeedAsync(db, channel, MakeStoryFlow(channel.Id, "instagram_story_reply", minutesAgo: 1));
+        var (processor, handler) = MakeProcessor(db);
+
+        await processor.ProcessMessageAsync(channel, contact, StoryReply("mid-s1", "салом", "111"), CancellationToken.None);
+        await processor.ProcessMessageAsync(channel, contact, StoryReply("mid-s1", "салом", "111"), CancellationToken.None);
+
+        Assert.Single(await db.FlowSessions.ToListAsync());
+        Assert.Equal(1, handler.CallCount);
+    }
 }
