@@ -29,4 +29,17 @@ public record ParsedWebhookMessage(
     /// бо ҳуҷҷати расмии Meta (2026-09-15): messaging[].postback:{title,payload} — ҳамон шакли
     /// Facebook (Instagram ҳамон Messenger Platform-ро истифода мебарад).
     /// </summary>
-    string? PostbackPayload = null);
+    string? PostbackPayload = null,
+    /// <summary>
+    /// Фазаи 20: Instagram — ҷавоб ба сторис ё қайд дар сторис (ҳарду MessageType.StoryReply
+    /// доранд; триггерҳои флоу онҳоро ҷудо мекунанд). StoryId танҳо дар ҷавоб ҳаст — Meta дар
+    /// story_mention id намефиристад.
+    /// </summary>
+    StoryEventKind? Story = null,
+    string? StoryId = null);
+
+public enum StoryEventKind
+{
+    Reply,
+    Mention,
+}

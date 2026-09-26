@@ -70,6 +70,14 @@ public static class CustomerChannelsEndpoints
             .Produces<InstagramMediaListResult>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
+        // Phase 20: active stories for the "reply to a story" trigger — the same tenant-filtered lookup.
+        group.MapGet("/{channelId:guid}/instagram-stories", CommentAutomationEndpoints.ListInstagramStoriesAsync)
+            .WithSummary("Сторисҳои фаъоли канали худ (барои триггери «Ҷавоб ба сторис»)")
+            .Produces<InstagramMediaListResult>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status502BadGateway);
+
         group.MapDelete("/{id:guid}", DisconnectAsync)
             .WithSummary("Ҷудо кардани канал — токен нест мешавад, автоматизатсияҳо қатъ мешаванд, маълумот мемонад")
             .Produces(StatusCodes.Status204NoContent)
